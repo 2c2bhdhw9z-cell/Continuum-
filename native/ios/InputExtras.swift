@@ -1327,13 +1327,26 @@ struct RemapEditor: View {
 
 // MARK: - Settings card
 
-/// The CONTROLLERS, MAPPING AND MOTION card in Settings.
-struct InputSettingsSection: View {
+/// The CONTROLLERS AND ONLINE PLAY card in Settings: Settings' own controller rows first
+/// (`leading`), then button mapping and motion, then online play (`trailing`). It was three
+/// cards: GAME CONTROLLERS, CONTROLLERS, MAPPING AND MOTION, and ONLINE PLAY.
+struct InputSettingsSection<Leading: View, Trailing: View>: View {
     @ObservedObject var host: EngineHost
     @ObservedObject var extras: InputExtras
+    let leading: Leading
+    let trailing: Trailing
+
+    init(host: EngineHost, extras: InputExtras, @ViewBuilder leading: () -> Leading,
+         @ViewBuilder trailing: () -> Trailing) {
+        self.host = host
+        self.extras = extras
+        self.leading = leading()
+        self.trailing = trailing()
+    }
 
     var body: some View {
-        SettingsSection(title: "CONTROLLERS, MAPPING AND MOTION") {
+        SettingsSection(title: "CONTROLLERS AND ONLINE PLAY") {
+            leading
             SettingsButton(title: "Controllers, button mapping and motion", role: .normal) {
                 host.showControllers()
             }
@@ -1348,6 +1361,7 @@ struct InputSettingsSection: View {
                 + "Controllers, button mapping and motion."
             )
             // The MOTION read-out is in Settings, TECHNICAL DETAILS (`InputExtrasReadouts`).
+            trailing
         }
         // Only with no game on screen; while one is, the player layer presents it. See the
         // sheet in `InputPlayerLayer` for why the two must never both be able to.

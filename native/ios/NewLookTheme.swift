@@ -14,24 +14,23 @@ import UIKit
 
 struct NewLookColorPanels: View {
     @ObservedObject private var colors = NewLookColors.shared
+    /// Each card folds like every other card in Settings, and starts closed.
+    @ObservedObject private var folds = SettingsFolds.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// The selection ring and the chips' pill spring from one choice to the next.
     @Namespace private var picks
 
     var body: some View {
+        // Four cards (there were five, each open all the time, with a line under every title):
+        // the ring next to CONTINUUM is in Light and motion now, and the preview is in Accent.
         VStack(alignment: .leading, spacing: 16) {
-            preview
-            panel("Accent", icon: "paintpalette.fill",
-                  blurb: "Buttons, the selected tab, switches, sliders and glows.",
-                  accentGlow: true) { accent }
-            panel("Covers", icon: "rectangle.portrait.on.rectangle.portrait.fill",
-                  blurb: "How game covers look on Home, in the Library and in Favorites.") { covers }
-            panel("Ring", icon: "circle.dashed",
-                  blurb: "The ring next to CONTINUUM at the top.") { ring }
-            panel("Background", icon: "square.fill.on.square.fill",
-                  blurb: "Behind every page.") { background }
-            panel("Light and motion", icon: "wand.and.rays",
-                  blurb: "What glows and moves.") { motion }
+            panel("Accent", icon: "paintpalette.fill", accentGlow: true) {
+                preview
+                accent
+            }
+            panel("Covers", icon: "rectangle.portrait.on.rectangle.portrait.fill") { covers }
+            panel("Background", icon: "square.fill.on.square.fill") { background }
+            panel("Light and motion", icon: "wand.and.rays") { motion }
             if !colors.isDefault {
                 Button {
                     colors.resetToDefaults()
@@ -107,7 +106,6 @@ struct NewLookColorPanels: View {
             .clipShape(shape)
         )
         .overlay(shape.strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5))
-        .padding(.horizontal, 16)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Preview of the chosen colours")
     }
@@ -365,6 +363,9 @@ struct NewLookColorPanels: View {
 
     private var motion: some View {
         VStack(alignment: .leading, spacing: 14) {
+            subhead("Ring next to CONTINUUM")
+            ring
+            divider
             Toggle(isOn: $colors.buttonLight) {
                 rowLabel("Light round buttons", detail: "A light runs round Play, Resume and what's picked")
             }
@@ -435,35 +436,47 @@ struct NewLookColorPanels: View {
 
     // MARK: Pieces
 
-    /// A glass card in the Home mockup's style: the accent icon tile, a bold title, a line
-    /// saying what it changes, then its controls.
-    private func panel<Content: View>(_ title: String, icon: String, blurb: String,
-                                      accentGlow: Bool = false,
+    /// A glass card in the Home mockup's style: the accent icon tile and a bold title, which
+    /// open and close it like every other card in Settings (`SettingsFolds`), then its controls.
+    private func panel<Content: View>(_ title: String, icon: String, accentGlow: Bool = false,
                                       @ViewBuilder content: () -> Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
-        return VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(ShellPalette.gold)
-                    .frame(width: 34, height: 34)
-                    .background(ShellPalette.gold.opacity(0.16),
-                                in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                VStack(alignment: .leading, spacing: 2) {
+        let key = "NEW LOOK " + title.uppercased()
+        let open = folds.isOpen(key)
+        return VStack(alignment: .leading, spacing: open ? 14 : 0) {
+            Button {
+                withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+                    folds.toggle(key)
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: icon)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(ShellPalette.gold)
+                        .frame(width: 34, height: 34)
+                        .background(ShellPalette.gold.opacity(0.16),
+                                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                     Text(title)
                         .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(.white)
-                    Text(blurb)
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color.white.opacity(0.55))
-                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(ShellPalette.gold)
+                        .rotationEffect(.degrees(open ? 0 : -90))
                 }
+                .contentShape(Rectangle())
             }
-            content()
+            .modifier(NewLookButtons(enabled: true, scale: 0.98))
+            .accessibilityLabel(title)
+            .accessibilityValue(open ? "open" : "closed")
+            if open {
+                content()
+            }
         }
         .tint(colors.accent)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
+        .padding(14)
         .background(shape.fill(Color.white.opacity(0.055)))
         // The Accent card: a large soft glow of the picked colour behind it, crossfading over
         // about a second when another colour is picked.

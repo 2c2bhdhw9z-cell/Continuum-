@@ -444,6 +444,10 @@ struct LibraryShell: View {
 
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                // The New look: a title scrolling up fades out just under the header, so it
+                // never shows through CONTINUUM, and nothing is painted behind the header.
+                .modifier(NewLookHeaderFade.Mask(enabled: isNew,
+                                                 headerBottom: topBarHeight + max(metrics.insets.top, 8)))
 
             VStack(spacing: 0) {
                 topBar
@@ -472,6 +476,17 @@ struct LibraryShell: View {
         .onChange(of: host.libraryNotice) { _ in takeLibraryNotice() }
         // Select mode belongs to All Games: another tab ends it.
         .onChange(of: host.libraryTab) { _ in selection.active = false }
+        // Another console in the tray ends select mode too: games ticked under one console were
+        // still ticked, out of sight, after switching to another, and Delete took them as well.
+        .onChange(of: looks.librarySystem) { _ in selection.active = false }
+        // The picked console's last game deleted: back to All, or the Library showed "No match"
+        // under a tray with nothing lit.
+        .onChange(of: host.library) { library in
+            guard let raw = looks.librarySystem else { return }
+            if !library.contains(where: { CoreCatalog.system(for: $0)?.rawValue == raw }) {
+                looks.librarySystem = nil
+            }
+        }
         .onChange(of: host.status) { line in popUpIfProblem(line) }
         // A sheet rather than a pushed view, so nothing in the view tree under it is replaced.
         .sheet(item: $host.detailEntry) { entry in
@@ -534,8 +549,11 @@ struct LibraryShell: View {
                                    cloudConfigured: host.cloudSync.isConfigured,
                                    showsDiagnostics: host.showDiagnostics) {
                     searchOpen = true
-                    // Search looks through games, so it opens the Library.
+                    // Search looks through games, so it opens the Library: all of it, when it
+                    // comes from another page. A console picked earlier used to stay picked, so a
+                    // game from another console was "not in the library".
                     if host.libraryTab == .home || host.libraryTab == .settings {
+                        looks.librarySystem = nil
                         host.libraryTab = .allGames
                     }
                     // A beat later, so the field is on screen before it takes focus.
@@ -549,9 +567,8 @@ struct LibraryShell: View {
         .padding(.horizontal, 18)
         .frame(height: topBarHeight)
         .padding(.top, max(metrics.insets.top, 8))
-        // Glass, so a title scrolling under the header is blurred away instead of showing
-        // through CONTINUUM (owner's build 205 screenshot), while the swirl still shows.
-        .background(NewLookHeaderGlass().padding(.bottom, -14).ignoresSafeArea(edges: .top))
+        // Nothing behind it: the background runs to the top of the screen, and what scrolls up
+        // fades out before it reaches the header (`NewLookHeaderFade` on `content`).
     }
 
     private var currentTopBar: some View {
@@ -1052,7 +1069,10 @@ struct LibraryShell: View {
                                                     order: prefs.ordered(GameSystem.allCases)),
                     selected: looks.librarySystem,
                     allCount: host.library.count
-                ) { looks.librarySystem = $0 }
+                ) { pick in
+                    // The picked console again goes back to All.
+                    looks.librarySystem = pick == looks.librarySystem ? nil : pick
+                }
             }
 
             if host.library.isEmpty {
@@ -1070,7 +1090,7 @@ struct LibraryShell: View {
                     title: "No match",
                     guidance: host.librarySearch.isEmpty
                         ? "No games for this system yet."
-                        : "Nothing in the library matches \"\(host.librarySearch)\"."
+                        : noMatchLine
                 )
                 Spacer(minLength: 0)
             } else if host.libraryLayout == .consoles {
@@ -1105,6 +1125,16 @@ struct LibraryShell: View {
         } message: {
             Text("Their save states and cheats go too. In-game saves are kept.")
         }
+    }
+
+    /// What the Library says when a search finds nothing: in the picked console only, when one
+    /// is picked, and it says so.
+    private var noMatchLine: String {
+        if isNew, let raw = looks.librarySystem, let system = GameSystem(rawValue: raw) {
+            return "No \(system.displayName) game matches \"\(host.librarySearch)\". "
+                + "Tap All to look through every game."
+        }
+        return "Nothing in the library matches \"\(host.librarySearch)\"."
     }
 
     /// The bar over the tabs in select mode: all or none, favourite, delete.

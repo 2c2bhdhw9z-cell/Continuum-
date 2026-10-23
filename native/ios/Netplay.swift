@@ -852,21 +852,19 @@ struct NetplaySheet: View {
     }
 }
 
-/// Settings entry for online play. The session itself starts from a running game, because the
-/// game is what both phones have to agree on.
-struct OnlinePlaySettingsSection: View {
-    @ObservedObject var netplay: NetplayController
-
+/// Settings' lines on online play, at the end of CONTROLLERS AND ONLINE PLAY (it was its own
+/// ONLINE PLAY card with only these two lines). The session itself starts from a running game,
+/// because the game is what both phones have to agree on.
+struct OnlinePlayNotes: View {
     var body: some View {
-        SettingsSection(title: "ONLINE PLAY") {
-            // The NOW and INPUT DELAY read-outs are in Settings, TECHNICAL DETAILS
-            // (`OnlinePlayReadouts`).
-            SettingsNote("Open the same game on both phones, then tap \u{22EF} and Play online "
-                         + "with a second phone. Over the internet, the host's router needs TCP "
-                         + "port \(netplayDefaultPort()) open.")
-            SettingsNote("Game Boy and Color games on cBoy get Link cable to a second phone "
-                         + "there instead, so you can trade Pokémon or battle.")
-        }
+        // The NOW and INPUT DELAY read-outs are in Settings, TECHNICAL DETAILS
+        // (`OnlinePlayReadouts`).
+        SettingsLabel("Online play")
+        SettingsNote("Open the same game on both phones, then tap \u{22EF} and Play online "
+                     + "with a second phone. Over the internet, the host's router needs TCP "
+                     + "port \(netplayDefaultPort()) open. Game Boy and Color games on cBoy get "
+                     + "Link cable to a second phone there instead, so you can trade Pokémon or "
+                     + "battle.")
     }
 }
 

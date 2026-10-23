@@ -149,7 +149,7 @@ private struct PreviewHome: View {
                                                 onTrailing: {})
                             NewLookTray {
                                 tile("gb", "GAME BOY", selected: false)
-                                tile("gbc", "GAME BOY COLOR", selected: true)
+                                tile("gbc", "GAME BOY COLOR", selected: false)
                                 tile("gba", "GAME BOY ADVANCE", selected: false)
                                 tile("snes", "SUPER NINTENDO", selected: false)
                                 tile("n64", "NINTENDO 64", selected: false)
@@ -182,6 +182,8 @@ private struct PreviewHome: View {
                 }
             }
             }
+            // LibraryShell: the page fades out under the header; nothing is painted behind it.
+            .mask { NewLookHeaderFade(headerBottom: 52 + max(insets.top, 8)) }
 
             header
             VStack(spacing: 0) {
@@ -219,7 +221,6 @@ private struct PreviewHome: View {
         .padding(.horizontal, 18)
         .frame(height: 52)
         .padding(.top, max(insets.top, 8))
-        .background(NewLookHeaderGlass().padding(.bottom, -14).ignoresSafeArea(edges: .top))
         .ignoresSafeArea(edges: .top)
     }
 

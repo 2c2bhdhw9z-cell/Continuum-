@@ -53,23 +53,40 @@ struct NewLookPage: View {
     }
 }
 
-/// The glass behind the header: what scrolls under CONTINUUM and its buttons is blurred and
-/// dimmed, fading out below the header, so a title never shows through the wordmark.
-struct NewLookHeaderGlass: View {
-    @ObservedObject private var colors = NewLookColors.shared
+/// What the pages are seen through: nothing at the top, under CONTINUUM and its buttons, then
+/// fully visible from just below the header. A title scrolling up fades into the background as it
+/// reaches the header instead of showing through the wordmark, and nothing is painted behind the
+/// header: the background runs right to the top of the screen.
+///
+/// Build 205 to 209 had a frosted glass band behind the header for this; the owner circled it on
+/// build 209 ("Get rid of that weird crap at the top").
+struct NewLookHeaderFade: View {
+    /// From the top of the screen to the bottom of the header row.
+    let headerBottom: CGFloat
 
     var body: some View {
-        ZStack {
-            Rectangle().fill(.ultraThinMaterial)
-            colors.background.opacity(0.35)
+        VStack(spacing: 0) {
+            Color.clear.frame(height: max(headerBottom - 10, 0))
+            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                .frame(height: 14)
+            Color.black
         }
-        .mask(
-            LinearGradient(stops: [.init(color: .black, location: 0),
-                                   .init(color: .black, location: 0.72),
-                                   .init(color: .clear, location: 1)],
-                           startPoint: .top, endPoint: .bottom)
-        )
-        .allowsHitTesting(false)
+        .ignoresSafeArea()
+    }
+
+    /// The fade as a mask, only in the New look (the Current look is drawn as it always was).
+    struct Mask: ViewModifier {
+        let enabled: Bool
+        let headerBottom: CGFloat
+
+        @ViewBuilder
+        func body(content: Content) -> some View {
+            if enabled {
+                content.mask { NewLookHeaderFade(headerBottom: headerBottom) }
+            } else {
+                content
+            }
+        }
     }
 }
 

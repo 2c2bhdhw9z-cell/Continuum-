@@ -736,34 +736,60 @@ struct CoreActionsMenuSection: View {
     }
 }
 
-/// Settings: every core, each opening its settings screen, and the TV's own choices.
-struct CoreSettingsSettingsSection: View {
+/// Settings, CORES: which core each system uses (Settings' own rows, `leading`), then every
+/// core's own settings screen, picked from one menu, and the TV's own choices. It was two cards,
+/// CORES and CORE SETTINGS, the second with a button for each of the thirty-odd cores.
+struct CoreSettingsSettingsSection<Leading: View>: View {
     @ObservedObject var host: EngineHost
+    let leading: Leading
     @State private var openCore: String?
     @State private var tvScale = CoreActionPrefs.tvScale
     @State private var tvLayout = CoreActionPrefs.tvLayout
 
+    init(host: EngineHost, @ViewBuilder leading: () -> Leading) {
+        self.host = host
+        self.leading = leading()
+    }
+
     var body: some View {
-        SettingsSection(title: "CORE SETTINGS") {
-            SettingsNote(
-                "Each emulator has its own settings, and they show up once you've played a game "
-                + "on it. A game's ⋯ menu can change them for that game only."
-            )
-            ForEach(CoreCatalog.all, id: \.coreId) { spec in
-                SettingsButton(title: spec.displayName + (host.engine.coreOptionsKnown(coreId: spec.coreId)
-                                                          ? "" : " (start a game first)"),
-                               role: .normal) {
-                    openCore = spec.coreId
+        SettingsSection(title: "CORES") {
+            leading
+            SettingsLabel("Each emulator's own settings")
+            Menu {
+                ForEach(CoreCatalog.all, id: \.coreId) { spec in
+                    Button(spec.displayName + (host.engine.coreOptionsKnown(coreId: spec.coreId)
+                                               ? "" : " (start a game first)")) {
+                        openCore = spec.coreId
+                    }
                 }
+            } label: {
+                HStack {
+                    Text("Pick an emulator")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(ShellPalette.text)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(ShellPalette.secondaryText)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .background(RoundedRectangle(cornerRadius: 10).fill(ShellPalette.surfaceStrong))
+                .contentShape(Rectangle())
             }
-            // Plain lines: these are the TV's current choices, not technical read-outs.
-            SettingsNote("TV scaling: \(CoreActionPrefs.scaleLabel(tvScale))")
-            SettingsButton(title: "Change TV scaling", role: .normal) {
+            SettingsNote(
+                "They show up once you've played a game on it. A game's ⋯ menu can change them "
+                + "for that game only."
+            )
+            // The TV's current choices, on the buttons that change them.
+            SettingsLabel("TV")
+            SettingsButton(title: "TV scaling: \(CoreActionPrefs.scaleLabel(tvScale))", role: .normal) {
                 host.cycleAirPlayScaling()
                 tvScale = CoreActionPrefs.tvScale
             }
-            SettingsNote("TV layout (DS, 3DS): \(tvLayout?.label ?? "same as the phone")")
-            SettingsButton(title: "Change TV layout", role: .normal) {
+            SettingsButton(title: "TV layout (DS, 3DS): \(tvLayout?.label ?? "same as the phone")",
+                           role: .normal) {
                 host.cycleAirPlayLayout()
                 tvLayout = CoreActionPrefs.tvLayout
             }

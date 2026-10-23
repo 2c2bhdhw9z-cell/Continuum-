@@ -276,6 +276,13 @@ final class PlayHistory: ObservableObject {
 /// it would swap the screen out from under that finger, possibly twice.
 struct LookPickerCard: View {
     @ObservedObject private var looks = LookStore.shared
+    /// Dark, Light or System, for the Current look (the New look is always dark). It had its own
+    /// APPEARANCE card with just this in it, which in the New look did nothing.
+    @Binding var appearance: AppAppearance
+
+    init(appearance: Binding<AppAppearance>) {
+        _appearance = appearance
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -312,6 +319,12 @@ struct LookPickerCard: View {
                 ForEach(ContinuumLook.allCases) { option in
                     optionCard(option)
                 }
+            }
+            if looks.look == .current {
+                SettingsLabel("Appearance")
+                SegmentedChoice(options: AppAppearance.allCases,
+                                title: { $0.title },
+                                selection: $appearance)
             }
             SettingsNote("Your games and saves stay the same. New is always dark.")
 

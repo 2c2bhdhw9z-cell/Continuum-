@@ -209,8 +209,11 @@ struct NewLookHome: View {
                             looks.librarySystem = nil
                             host.libraryTab = .allGames
                         }
+                        // Lit only when a console really is picked (the Library shows the
+                        // same one). It used to light the last played game's console too, so
+                        // Home showed a console picked while the Library showed All.
                         NewLookSystemTray(systems: model.systems,
-                                          selected: highlightedSystem) { raw in
+                                          selected: looks.librarySystem) { raw in
                             looks.librarySystem = raw
                             host.libraryTab = .allGames
                         }
@@ -257,10 +260,6 @@ struct NewLookHome: View {
                                 systemShelves: host.showsSystemShelves)
     }
 
-    /// The gold tile: the console picked in the Library, or else the last played game's console.
-    private var highlightedSystem: String? {
-        looks.librarySystem ?? model.hero.flatMap { CoreCatalog.system(for: $0)?.rawValue }
-    }
 }
 
 /// A titled row of cover cards on the New look's Home. The card width follows Settings,
@@ -427,8 +426,16 @@ struct NewLookSystemTray: View {
                     .id(item.system.rawValue)
                 }
             }
+            // The picked console in view: when the page opens (a beat later, once the tray has
+            // its size, or the scroll does nothing) and whenever another is picked.
             .onAppear {
-                if let selected { proxy.scrollTo(selected, anchor: .center) }
+                guard let selected else { return }
+                DispatchQueue.main.async { proxy.scrollTo(selected, anchor: .center) }
+            }
+            .onChange(of: selected) { picked in
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                    proxy.scrollTo(picked ?? "all", anchor: .center)
+                }
             }
         }
     }

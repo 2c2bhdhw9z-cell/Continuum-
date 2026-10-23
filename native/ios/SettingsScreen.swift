@@ -89,7 +89,7 @@ struct SettingsScreen: View {
 
                 // Settings, LOOK: Current or New (LookTheme.swift). Right under the title and never
                 // folded away, so whichever look is on, the way back is the first thing here.
-                LookPickerCard()
+                LookPickerCard(appearance: $host.appearance)
 
                 // First, so a tester finds it without scrolling. The second way in is a game's
                 // ⋯ menu. See Feedback.swift.
@@ -99,12 +99,12 @@ struct SettingsScreen: View {
                 // always open and second from the top: on build 170 the core pickers sat in two
                 // folding sections far down the screen (one for the PlayStation, and one for the
                 // other systems with a choice, after Online Play), and once folded, or after
-                // "Close all", Brett could not find any core switch at all.
-                coreSwitchSection
+                // "Close all", Brett could not find any core switch at all. Every core's own
+                // settings and the TV's are in it too (they were CORE SETTINGS, further down).
+                CoreSettingsSettingsSection(host: host) { coreSwitchRows }
 
-                // Dark, Light or System, in its own short section near the top (owner, 13
-                // October 2026). Third, so CORES keeps the place the note above gives it.
-                appearanceSection
+                // Dark, Light or System is in the LOOK card now, for the Current look (the New
+                // look is always dark, so its own card did nothing there).
 
                 // Grouped, and NOT for tidiness: a SwiftUI view builder accepts at most ten
                 // children, and this screen has more sections than that. Exceeding it fails with
@@ -118,12 +118,15 @@ struct SettingsScreen: View {
                     pictureSection
                     soundSection
                     speedSection
-                    controllerSection
+                    // Controllers, button mapping, motion and online play in one card (they were
+                    // three). See InputExtras.swift.
+                    InputSettingsSection(host: host, extras: host.inputExtras) {
+                        controllerRows
+                    } trailing: {
+                        OnlinePlayNotes()
+                    }
+                    // The on-screen controls, haptics and turbo in one card (they were two).
                     controlsSection
-                    feelSection
-                    // In this group rather than the second one, along the seam the note above
-                    // describes: a cheat changes how the game itself behaves.
-                    cheatsSection
                     AchievementsSettingsSection(store: host.achievements)
                     // How the game is shown and touched: the DS / 3DS screens, the TV, the mouse.
                     ScreenModesSettingsSection(modes: screenModes)
@@ -136,11 +139,8 @@ struct SettingsScreen: View {
                     artworkSection
                     layoutSection
                     biosSection
-                    // Every core's own settings, and the TV's fit and layout. See CoreSettingsScreen.swift.
-                    CoreSettingsSettingsSection(host: host)
-                    // Beside STORAGE on purpose: both are about what is kept on the phone.
+                    // Save states, cheats and the games on the phone in one card (they were three).
                     saveStatesSection
-                    storageSection
                     notYetWiredSection
                 }
                 // A third group for the same ten-children reason as the two above.
@@ -148,9 +148,6 @@ struct SettingsScreen: View {
                     AppIconSettingsSection()
                     SkinLibrarySettingsSection(host: host)
                     CloudSyncSection(sync: host.cloudSync)
-                    OnlinePlaySettingsSection(netplay: host.netplay)
-                    // Controller types, button mapping profiles, motion. See InputExtras.swift.
-                    InputSettingsSection(host: host, extras: host.inputExtras)
                     // Last: technical details are for reporting a problem, not for setting up.
                     diagnosticsSection
                     aboutSection
@@ -289,8 +286,9 @@ struct SettingsScreen: View {
         }
     }
 
-    private var controllerSection: some View {
-        SettingsSection(title: "GAME CONTROLLERS") {
+    /// The first rows of CONTROLLERS AND ONLINE PLAY (InputSettingsSection, InputExtras.swift).
+    @ViewBuilder
+    private var controllerRows: some View {
             SettingsNote(controllerCountLine)
 
             Toggle(isOn: $controllers.autoHidesOnScreenPad) {
@@ -313,7 +311,6 @@ struct SettingsScreen: View {
                 "Your controller and the on-screen pad both work, and up to four controllers can "
                 + "play at once. Pair one in your iPhone's Bluetooth settings."
             )
-        }
     }
 
     // MARK: The on-screen controls
@@ -324,7 +321,7 @@ struct SettingsScreen: View {
     /// where your thumbs go during a game, and that one is how the library arranges its cards. They
     /// were confusing enough while only one of them existed.
     private var controlsSection: some View {
-        SettingsSection(title: "ON-SCREEN CONTROLS") {
+        SettingsSection(title: "ON-SCREEN CONTROLS AND HAPTICS") {
             SettingsButton(title: "Move the on-screen controls", role: .normal) {
                 showControlEditor = true
             }
@@ -353,14 +350,17 @@ struct SettingsScreen: View {
             }
             .disabled(!host.hasCustomControlsOrSkins)
             .opacity(host.hasCustomControlsOrSkins ? 1 : 0.45)
+
+            feelRows
         }
     }
 
     // MARK: Feel
 
     /// How the controls answer a thumb: a tap per press, a game's rumble, and the turbo rate.
-    private var feelSection: some View {
-        SettingsSection(title: "HAPTICS AND TURBO") {
+    /// In ON-SCREEN CONTROLS AND HAPTICS (it was its own HAPTICS AND TURBO card).
+    @ViewBuilder
+    private var feelRows: some View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Tap on a button press")
                     .font(.system(size: 15, weight: .semibold))
@@ -396,7 +396,6 @@ struct SettingsScreen: View {
             SettingsNote(
                 "Turbo speed is for the turbo buttons you add in Move the on-screen controls."
             )
-        }
     }
 
     // MARK: Layout
@@ -595,26 +594,12 @@ struct SettingsScreen: View {
         }
     }
 
-    // MARK: Appearance
-
-    /// How the whole app looks: Dark (the default, and how it always looked), Light, or System,
-    /// which follows the iPhone's own light or dark setting. The three words are the owner's.
-    /// `RootView` applies the choice the moment it changes, so this screen turns with it. No
-    /// sentence under it: the three choices say it all.
-    private var appearanceSection: some View {
-        SettingsSection(title: "APPEARANCE") {
-            SegmentedChoice(options: AppAppearance.allCases,
-                            title: { $0.title },
-                            selection: $host.appearance)
-        }
-    }
-
     // MARK: Cores
 
     /// Every system with more than one core, PlayStation included, in one folding section
     /// near the top. A game's own card can override this per game (GameDetailSheet, CORE).
-    private var coreSwitchSection: some View {
-        SettingsSection(title: "CORES") {
+    @ViewBuilder
+    private var coreSwitchRows: some View {
             let _ = host.coreChoiceVersion
             SettingsLabel("Core for PlayStation games")
             SegmentedChoice(
@@ -634,14 +619,10 @@ struct SettingsScreen: View {
                 )
             }
             SettingsNote(
-                "Kicks in from the next game you open. For just one game, press and hold it and "
-                + "pick a core on its card."
+                "Kicks in from the next game you open; for one game only, press and hold it and "
+                + "pick a core on its card. Not sure? Keep the first one: save states only load "
+                + "on the core that made them."
             )
-            SettingsNote(
-                "If you're not sure, keep the first one. Save states only load on the core that "
-                + "made them."
-            )
-        }
     }
 
     // MARK: BIOS
@@ -677,7 +658,9 @@ struct SettingsScreen: View {
     /// by. What is here is what is only answerable at this level, which is the total and the
     /// setting.
     private var saveStatesSection: some View {
-        SettingsSection(title: "SAVE STATES") {
+        SettingsSection(title: "SAVES, CHEATS AND STORAGE") {
+            Group {
+            SettingsLabel("Save states")
             Toggle(isOn: $saveStates.autoSavesEnabled) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Auto-save")
@@ -722,7 +705,29 @@ struct SettingsScreen: View {
             )
 
             // The STORED and LAST read-outs are in TECHNICAL DETAILS (`moreTechnicalReadouts`).
-            SettingsNote(saveStateCountLine)
+            SettingsNote(saveStateCountLine + ". Each game's own are on its card (press and "
+                         + "hold the game).")
+
+            SettingsButton(title: "Delete every save state", role: .destructive) {
+                confirmDeleteStates = true
+            }
+            .alert("Delete every save state?", isPresented: $confirmDeleteStates) {
+                Button("Delete", role: .destructive) { saveStates.deleteEverything() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This includes the auto-saves, so every game starts from the beginning. "
+                     + "This cannot be undone.")
+            }
+            }
+
+            Group {
+            SettingsLabel("Cheats")
+            cheatRows
+            }
+
+            Group {
+            SettingsLabel("Games on this phone")
+            storageRows
 
             // Always shown, even with an empty library. There was never a delete-all before:
             // games went one at a time, from a card or a swipe in the list.
@@ -737,19 +742,7 @@ struct SettingsScreen: View {
             } message: {
                 Text(deleteGamesMessage)
             }
-
-            SettingsButton(title: "Delete every save state", role: .destructive) {
-                confirmDeleteStates = true
             }
-            .alert("Delete every save state?", isPresented: $confirmDeleteStates) {
-                Button("Delete", role: .destructive) { saveStates.deleteEverything() }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This includes the auto-saves, so every game starts from the beginning. "
-                     + "This cannot be undone.")
-            }
-
-            SettingsNote("Each game's own states are on its card (press and hold the game).")
         }
     }
 
@@ -785,8 +778,9 @@ struct SettingsScreen: View {
     /// cheats has this app got and is the core actually using them" cannot be answered from any one
     /// game's card, and because the core's own count is the only honest confirmation that a code
     /// was accepted.
-    private var cheatsSection: some View {
-        SettingsSection(title: "CHEATS") {
+    /// In SAVES, CHEATS AND STORAGE (it was its own CHEATS card).
+    @ViewBuilder
+    private var cheatRows: some View {
             // The STORED and LAST read-outs are in TECHNICAL DETAILS (`technicalReadouts`).
             SettingsNote(cheatCountLine)
 
@@ -804,7 +798,6 @@ struct SettingsScreen: View {
                 "Add cheats on a game's card (press and hold the game), or from the ⋯ menu while "
                 + "you play. Some emulators ignore them."
             )
-        }
     }
 
     /// The one plain line CHEATS keeps, with real plurals.
@@ -818,8 +811,9 @@ struct SettingsScreen: View {
 
     // MARK: Storage
 
-    private var storageSection: some View {
-        SettingsSection(title: "STORAGE") {
+    /// In SAVES, CHEATS AND STORAGE (it was its own STORAGE card).
+    @ViewBuilder
+    private var storageRows: some View {
             // The game count the Library's "● 80 games" strip used to show, before the owner had
             // the strip taken out (13 October 2026).
             SettingsNote(gameCountLine)
@@ -829,7 +823,6 @@ struct SettingsScreen: View {
                 "Your games are in the Continuum folder in the Files app. Don't rename a disc "
                 + "game's files there, or it won't load."
             )
-        }
     }
 
     /// The one plain line STORAGE keeps, with real plurals, like CHEATS and SAVE STATES.
@@ -1000,15 +993,20 @@ struct SettingsScreen: View {
 
 // MARK: - The pieces a settings screen is made of
 
-/// Which settings cards are folded. Every `SettingsSection` reads this, so Open all / Close all
-/// and a tap on one heading stay in agreement. Missing means open: the page starts as it always
-/// did, and a heading the user shuts stays shut.
+/// Which settings cards are folded. Every `SettingsSection` reads this, and so do the New look's
+/// own cards under LOOK (NewLookTheme.swift), so Open all / Close all and a tap on one heading
+/// stay in agreement. Everything starts closed: a fresh install, and every install once after the
+/// owner asked for it (build 210: "all the tabs in settings need to be closed"; the New look's
+/// cards never folded before). After Close all a card nobody opened stays closed, new ones too;
+/// after Open all a card nobody shut stays open.
 final class SettingsFolds: ObservableObject {
     static let shared = SettingsFolds()
 
     private let closedKey = "continuum.settings.closedSections"
     private let forceKey = "continuum.settings.forceClosed"
     private let exceptKey = "continuum.settings.forceClosedExceptions"
+    /// Set once every card has been closed for build 210.
+    private let allClosedKey = "continuum.settings.allClosedOnce210"
 
     @Published private var closed: Set<String>
     @Published private var forceClosed: Bool
@@ -1022,6 +1020,15 @@ final class SettingsFolds: ObservableObject {
         let fresh = defaults.object(forKey: forceKey) == nil && defaults.object(forKey: closedKey) == nil
         forceClosed = fresh ? true : defaults.bool(forKey: forceKey)
         openedDespiteForce = Set(defaults.stringArray(forKey: exceptKey) ?? [])
+        // Once, on every install: everything closed, the New look's cards and the merged ones
+        // (new names) included.
+        if !defaults.bool(forKey: allClosedKey) {
+            defaults.set(true, forKey: allClosedKey)
+            closed = []
+            forceClosed = true
+            openedDespiteForce = []
+            save()
+        }
     }
 
     func isOpen(_ title: String) -> Bool {
@@ -1175,7 +1182,7 @@ enum SettingsSectionStyle {
         case "LOOK": return "paintpalette.fill"
         case "COVER ART": return "photo.on.rectangle"
         case "GAME CONTROLLERS": return "gamecontroller.fill"
-        case "ON-SCREEN CONTROLS": return "hand.tap.fill"
+        case "ON-SCREEN CONTROLS", "ON-SCREEN CONTROLS AND HAPTICS": return "hand.tap.fill"
         case "HAPTICS AND TURBO": return "waveform"
         case "LAYOUT": return "square.grid.2x2.fill"
         case "ABOUT": return "info.circle.fill"
@@ -1183,7 +1190,7 @@ enum SettingsSectionStyle {
         case "APPEARANCE": return "circle.lefthalf.filled"
         case "CORES": return "cpu"
         case "BIOS": return "memorychip"
-        case "SAVE STATES": return "square.and.arrow.down.fill"
+        case "SAVE STATES", "SAVES, CHEATS AND STORAGE": return "square.and.arrow.down.fill"
         case "CHEATS": return "wand.and.stars"
         case "STORAGE": return "internaldrive.fill"
         case "PICTURE": return "tv.fill"
@@ -1197,6 +1204,7 @@ enum SettingsSectionStyle {
         case "CORE SETTINGS": return "slider.horizontal.3"
         case "FEEDBACK": return "envelope.fill"
         case "CONTROLLERS, MAPPING AND MOTION": return "gamecontroller"
+        case "CONTROLLERS AND ONLINE PLAY": return "gamecontroller.fill"
         case "ONLINE PLAY": return "person.2.fill"
         case "MICROPHONE, CAMERA AND AMIIBO": return "mic.fill"
         case "TWO SCREENS, TV AND MOUSE": return "rectangle.on.rectangle"
