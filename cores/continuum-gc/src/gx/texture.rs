@@ -260,6 +260,149 @@ impl Gx {
         }
     }
 
+    /// The bytes of one block (as `tex_byte` reads them one at a time, in one go).
+    #[inline]
+    fn tex_block(&self, ram: &Ram, t: &TexMap, addr: u32, out: &mut [u8]) {
+        if t.preloaded {
+            let a = (addr as usize) & 0xFFFFF;
+            if a + out.len() <= 0x10_0000 {
+                out.copy_from_slice(&self.tmem[a..a + out.len()]);
+            } else {
+                for (k, b) in out.iter_mut().enumerate() {
+                    *b = self.tmem[(addr.wrapping_add(k as u32) as usize) & 0xFFFFF];
+                }
+            }
+        } else {
+            ram.read_into(addr, out);
+        }
+    }
+
+    /// A whole level, block by block: the same texels as `texel` gives one at a time, several
+    /// times quicker (one read per block, no divisions per texel).
+    pub(super) fn decode_level(&self, ram: &Ram, t: &TexMap, base: u32, w: u32, h: u32) -> Vec<[u8; 4]> {
+        if t.preloaded && t.fmt == 6 || !matches!(t.fmt, 0..=6 | 8..=10 | 14) {
+            let mut px = Vec::with_capacity((w * h) as usize);
+            for y in 0..h {
+                for x in 0..w {
+                    px.push(self.texel(ram, t, base, w, x, y));
+                }
+            }
+            return px;
+        }
+        let (bw, bh, bb) = block_shape(t.fmt);
+        let (blocks_x, blocks_y) = (w.div_ceil(bw), h.div_ceil(bh));
+        let mut px = vec![[0u8; 4]; (w * h) as usize];
+        let mut blk = [0u8; 64];
+        let mut out = [[0u8; 4]; 64];
+        for by in 0..blocks_y {
+            for bx in 0..blocks_x {
+                let block = by * blocks_x + bx;
+                let b = base.wrapping_add(block.wrapping_mul(bb));
+                self.tex_block(ram, t, b, &mut blk[..bb as usize]);
+                self.decode_block(t, &blk, &mut out);
+                for iy in 0..bh.min(h - by * bh) {
+                    let y = by * bh + iy;
+                    let n = bw.min(w - bx * bw) as usize;
+                    let row = (y * w + bx * bw) as usize;
+                    px[row..row + n].copy_from_slice(&out[(iy * bw) as usize..(iy * bw) as usize + n]);
+                }
+            }
+        }
+        px
+    }
+
+    /// Every texel of one block, row by row (`out[iy * block width + ix]`), as `texel` decodes
+    /// them.
+    fn decode_block(&self, t: &TexMap, blk: &[u8; 64], out: &mut [[u8; 4]; 64]) {
+        let u16_at = |o: usize| u16::from_be_bytes([blk[o], blk[o + 1]]);
+        match t.fmt {
+            0 => {
+                for k in 0..64 {
+                    let byte = blk[k / 2];
+                    let i = if k & 1 == 0 { byte >> 4 } else { byte & 15 } as u32;
+                    let v = x4(i);
+                    out[k] = [v, v, v, v];
+                }
+            }
+            1 => {
+                for k in 0..32 {
+                    let v = blk[k];
+                    out[k] = [v, v, v, v];
+                }
+            }
+            2 => {
+                for k in 0..32 {
+                    let byte = blk[k] as u32;
+                    let i = x4(byte & 15);
+                    out[k] = [i, i, i, x4(byte >> 4)];
+                }
+            }
+            3 => {
+                for k in 0..16 {
+                    let (a, i) = (blk[2 * k], blk[2 * k + 1]);
+                    out[k] = [i, i, i, a];
+                }
+            }
+            4 => {
+                for k in 0..16 {
+                    out[k] = rgb565(u16_at(2 * k));
+                }
+            }
+            5 => {
+                for k in 0..16 {
+                    out[k] = rgb5a3(u16_at(2 * k));
+                }
+            }
+            6 => {
+                for k in 0..16 {
+                    let o = 2 * k;
+                    out[k] = [blk[o + 1], blk[32 + o], blk[32 + o + 1], blk[o]];
+                }
+            }
+            8 => {
+                for k in 0..64 {
+                    let byte = blk[k / 2];
+                    let i = if k & 1 == 0 { byte >> 4 } else { byte & 15 };
+                    out[k] = self.palette(t, i as u32);
+                }
+            }
+            9 => {
+                for k in 0..32 {
+                    out[k] = self.palette(t, blk[k] as u32);
+                }
+            }
+            10 => {
+                for k in 0..16 {
+                    out[k] = self.palette(t, (u16_at(2 * k) & 0x3FFF) as u32);
+                }
+            }
+            _ => {
+                // CMPR: four 4x4 sub-blocks (top-left, top-right, bottom-left, bottom-right),
+                // each two RGB565 colours and 2-bit selectors; the four colours worked out once.
+                let mix = |p: u8, q: u8| ((p as u32 * 5 + q as u32 * 3) >> 3) as u8;
+                let half = |p: u8, q: u8| ((p as u32 + q as u32) >> 1) as u8;
+                for sub in 0..4usize {
+                    let s = sub * 8;
+                    let (c0, c1) = (u16_at(s), u16_at(s + 2));
+                    let (a, b) = (rgb565(c0), rgb565(c1));
+                    let colours = if c0 > c1 {
+                        [a, b, [mix(a[0], b[0]), mix(a[1], b[1]), mix(a[2], b[2]), 255], [mix(b[0], a[0]), mix(b[1], a[1]), mix(b[2], a[2]), 255]]
+                    } else {
+                        [a, b, [half(a[0], b[0]), half(a[1], b[1]), half(a[2], b[2]), 255], [half(a[0], b[0]), half(a[1], b[1]), half(a[2], b[2]), 0]]
+                    };
+                    let (ox, oy) = ((sub & 1) * 4, (sub >> 1) * 4);
+                    for sy in 0..4 {
+                        let row = blk[s + 4 + sy];
+                        for sx in 0..4 {
+                            let sel = (row >> (6 - 2 * sx)) & 3;
+                            out[(oy + sy) * 8 + ox + sx] = colours[sel as usize];
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// The decoded texture for map `t`, from the cache or decoded now.
     pub(super) fn decoded(&mut self, ram: &Ram, t: &TexMap) -> Arc<Decoded> {
         let nlev = if t.mip != 0 { levels(t).min(((t.max_lod.ceil() as u32) + 1).max(1)) } else { 1 };
@@ -274,12 +417,7 @@ impl Gx {
         let mut levels = Vec::with_capacity(nlev as usize);
         let (mut base, mut w, mut h) = (key.addr, t.width, t.height);
         for _ in 0..nlev {
-            let mut px = Vec::with_capacity((w * h) as usize);
-            for y in 0..h {
-                for x in 0..w {
-                    px.push(self.texel(ram, t, base, w, x, y));
-                }
-            }
+            let px = self.decode_level(ram, t, base, w, h);
             levels.push((w, h, px));
             base += level_bytes(t.fmt, w, h);
             w = (w / 2).max(1);
@@ -372,4 +510,84 @@ fn level_sample(d: &Decoded, level: u32, t: &TexMap, u: f32, v: f32, linear: boo
         o[c] = ((top * (128 - ay) + bot * ay + 8192) >> 14) as u8;
     }
     o
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u32 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            (self.0 >> 16) as u32
+        }
+    }
+
+    /// Block decoding gives exactly the texels `texel` gives, for every format the block path
+    /// handles, from main memory and from TMEM, for sizes that are not whole blocks, at
+    /// addresses near the end of memory, with palettes.
+    #[test]
+    fn block_decoding_matches_texel_by_texel() {
+        let mut rng = Rng(0x7E57_7E57_0001);
+        let mut mem1 = vec![0u8; 0x40_0000];
+        for b in mem1.iter_mut() {
+            *b = rng.next() as u8;
+        }
+        // A region of CMPR blocks whose sub-blocks have the first colour greater than, less
+        // than and equal to the second, in turn (random words are almost never equal).
+        for (j, sb) in mem1[0x20_0000..0x21_0000].chunks_exact_mut(8).enumerate() {
+            let c0 = u16::from_be_bytes([sb[0], sb[1]]);
+            let c1 = match j % 3 {
+                0 => c0.saturating_sub(1 + (j as u16 & 7)),
+                1 => c0.saturating_add(1 + (j as u16 & 7)),
+                _ => c0,
+            };
+            sb[2..4].copy_from_slice(&c1.to_be_bytes());
+        }
+        let mut mem2: Vec<u8> = Vec::new();
+        let mut gx = Gx::default();
+        for b in gx.tmem.iter_mut() {
+            *b = rng.next() as u8;
+        }
+        let ram = Ram { mem1: &mut mem1, mem2: &mut mem2 };
+        let mut cases = 0;
+        for fmt in [0u32, 1, 2, 3, 4, 5, 6, 8, 9, 10, 14] {
+            for _ in 0..60 {
+                let w = 1 + rng.next() % 70;
+                let h = 1 + rng.next() % 70;
+                let preloaded = fmt != 6 && rng.next() % 3 == 0;
+                let base = match rng.next() % 4 {
+                    // Running off the end of main memory (those bytes read as 0).
+                    0 => 0x40_0000 - (rng.next() % 0x2000),
+                    _ if fmt == 14 => 0x20_0000 + ((rng.next() % 0x8000) & !31),
+                    _ => (rng.next() % 0x3F_0000) & !31,
+                };
+                let preloaded = preloaded && !(fmt == 14 && base >= 0x20_0000 && base < 0x21_0000);
+                let t = TexMap {
+                    width: w,
+                    height: h,
+                    fmt,
+                    addr: base,
+                    preloaded,
+                    tmem_even: base & 0xF_FFE0,
+                    tlut_base: 0x80000 + ((rng.next() & 0x3FF) << 9),
+                    tlut_fmt: rng.next() % 3,
+                    ..TexMap::default()
+                };
+                let b = if preloaded { t.tmem_even } else { base };
+                let fast = gx.decode_level(&ram, &t, b, w, h);
+                for y in 0..h {
+                    for x in 0..w {
+                        let slow = gx.texel(&ram, &t, b, w, x, y);
+                        assert_eq!(fast[(y * w + x) as usize], slow, "format {fmt} {w}x{h} preloaded {preloaded} at ({x}, {y}) base {b:X}");
+                    }
+                }
+                cases += 1;
+            }
+        }
+        assert_eq!(cases, 11 * 60);
+    }
 }
