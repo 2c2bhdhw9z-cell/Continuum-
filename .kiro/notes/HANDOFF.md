@@ -35,10 +35,11 @@ Done this session (cores/continuum-gc, commits 2712fbd and the one after it):
   for "Neos": its thread loads /audiorom.img from the disc into ARAM through DVD reads and ARAM DMA), then
   /COPYDATE, /static.str and /foresta.rel.szs from the disc. So the next things the game leans on are disc reads
   through the FST, ARAM DMA with its interrupt, and the DSP interrupt cycle above.
-- NEXT: build 220 by hand (the engine is unchanged: `gh api -X POST
-  repos/2c2bhdhw9z-cell/Continuum-/actions/workflows/ios.yml/dispatches -f ref=master`), check the .ipa (0.8.0
-  (220), Frameworks/continuum_gc_libretro_ios.dylib), give the owner the link and the test steps, then wait for
-  his report. Then the GPU drawer (G6), a replacement IPL font, PAL (0xCC).
+- BUILD 220 DONE 5:15 PM Eastern (started by hand, af28c89, green). Checked: 0.8.0 (220), 38 emulator files,
+  continuum_gc dylib 1,462,880 bytes (differs from 219's). Link given to the owner with the steps (TESTING.md
+  "Build 220"): https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-220-af28c89/Continuum-220.ipa
+- NEXT: wait for his report (fix nothing while he tests). Then the GPU drawer (G6), a replacement IPL font,
+  PAL (0xCC).
 
 ## Earlier (24 October 2026, about 4:30 PM Eastern): Animal Crossing boots on build 219, stuck in a sound timing loop
 
