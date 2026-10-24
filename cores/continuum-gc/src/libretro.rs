@@ -311,10 +311,16 @@ pub extern "C" fn retro_run() {
 
 /// Room for the largest state: Wii memory plus ARAM plus registers.
 const STATE_ROOM: usize = crate::hw::MEM1_SIZE + crate::hw::MEM2_SIZE + crate::hw::ARAM_SIZE + (8 << 20);
+/// A GameCube has no MEM2: its states need less than half the room (and the app's save files and
+/// rewind snapshots are this size).
+const STATE_ROOM_GAMECUBE: usize = crate::hw::MEM1_SIZE + crate::hw::ARAM_SIZE + (8 << 20);
 
 #[no_mangle]
 pub extern "C" fn retro_serialize_size() -> usize {
-    STATE_ROOM
+    match core().as_ref() {
+        Some(c) if !c.machine.hw.wii => STATE_ROOM_GAMECUBE,
+        _ => STATE_ROOM,
+    }
 }
 
 /// # Safety

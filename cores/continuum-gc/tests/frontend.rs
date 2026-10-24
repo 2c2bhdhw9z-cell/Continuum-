@@ -72,6 +72,8 @@ fn loads_runs_and_saves_through_the_libretro_calls() {
     assert_eq!(FRAMES.load(Ordering::SeqCst), 3);
     assert_eq!(LAST_W.load(Ordering::SeqCst), 640);
     let size = retro_serialize_size();
+    // A GameCube's states leave out the Wii's 64 MB of MEM2.
+    assert!(size < 64 << 20, "GameCube state room {size}");
     let mut buf = vec![0u8; size];
     assert!(unsafe { retro_serialize(buf.as_mut_ptr() as *mut c_void, size) });
     retro_run();
