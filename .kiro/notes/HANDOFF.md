@@ -5,7 +5,36 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (24 October 2026, evening Eastern): the sound timing fix is done; build 220 for the owner
+## START HERE (24 October 2026, about 6:45 PM Eastern): Animal Crossing plays but is slow; build 221 measures why
+
+OWNER REPORT on build 220 (6 PM): "Loads." Animal Crossing reaches its title screen ("Press START", the town
+demo). He feels it runs 60 fps with no sound playing and 12-20 fps when sound plays (not sure). Three
+screenshots with iOS's Metal performance HUD (contents written here; pictures are not on disk): title screen
+with trees, flowers and the player walking: 13.7 fps, frame interval ~73 ms; plaza with trees: 19.1 fps;
+grass and a house: ~60 fps, 16.6 ms. He was done testing (owner: a report IS "done testing"; never ask).
+
+What was measured here (no Animal Crossing on this machine):
+- Our Zelda-family sound stand-in with Animal Crossing's load (64 voice blocks, 24 playing AFC): 0.7% of real
+  time (dsp_zelda bench_zelda_one_second). Not the cause.
+- Animal Crossing's own audio is heavy CPU work: its JAudio "Neos" thread runs the N64 sound driver and an
+  RSP simulator in C on the PowerPC (ac-decomp rspsim.c: ADPCM, resampling, envelope mixing), which would
+  explain "slow when sound plays" if the CPU is the bottleneck. Our fast interpreter runs an audio-style
+  program of our own (.scratch/abench/bench.c, ADPCM + 4-tap resampling + mixing) at 276 M instructions/s
+  here (examples/mips.rs), ~57% of a fully busy Gekko; half of that time is the dispatch loop (run_block).
+- Drawing is also heavy: Swiss's menu reaches only 55-70% speed here, nearly all drawing. Scenes differ in
+  how much they draw, which could also be what he saw.
+So build 221 carries a SPEED READ-OUT (core option cgc_speed_readout, Performance) to see which it is on his
+phone, plus drawing shared out dynamically (gx/draw.rs: 16 band groups taken by whoever is free, the CPU
+thread draws too while it waits; same pictures; ~10% faster here, more on a phone's mixed fast/slow cores).
+Read-out lines: SPEED %; CPU <M instructions per real second> LOAD <% of emulated cycles not idle-skipped>;
+JIT % (only with JIT); CPU/DRAW (% of wall time); WAIT (waiting for helper pixels)/SND (sound stand-in)/APP
+(time outside run_field); then the 5 hottest 256-byte code blocks (PC sampled at each video line) with %.
+Map hot addresses with ac-decomp config/GAFE01_00/symbols.txt (read only).
+NEXT after his screenshot: if CPU dominates, make the interpreter faster (dispatch: cur_pc store and exit
+flag per op, superinstructions, stmw/lmw and cr ops are on the slow generic path); if DRAW/WAIT dominate,
+the GPU drawer (G6 part 2, planned next anyway).
+
+## Earlier (24 October 2026, evening Eastern): the sound timing fix is done; build 220 for the owner
 
 Done this session (cores/continuum-gc, commits 2712fbd and the one after it):
 - The AI sample counter counts from the CPU's clock sample by sample (Hw::ai_sync, `Ai.at`; 54 MHz / 1124 at

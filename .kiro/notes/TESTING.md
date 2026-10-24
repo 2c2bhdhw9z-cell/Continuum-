@@ -7,7 +7,16 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
-## Build 220 (24 October): GameCube, Animal Crossing past the sound check
+## Build 221 (24 October): GameCube speed read-out
+
+Owner on 220: Animal Crossing loads to its title screen; 12-20 fps with sound, ~60 without.
+
+1. GameCube switch on (Settings, ABOUT, tap Version 7 times, switch on). Open Animal Crossing.
+2. In the game: the ... button, Core settings..., Speed read-out: On. A dark box with numbers
+   shows in the top-left corner of the picture.
+3. Screenshot it when the game is slow (music playing), and once when it is fast.
+
+## Build 220 (24 October): GameCube, Animal Crossing past the sound check (done: it loads)
 
 Owner on 219: Animal Crossing started its own code and sat in the sound chip's timing check
 (status screen, two screenshots, written down in HANDOFF.md). Fixed in 220.
