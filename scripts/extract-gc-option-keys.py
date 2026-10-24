@@ -37,14 +37,34 @@ SOURCES = [
     ("mmjr2", "Medard22/Dolphin-MMJR2-VBI", "master", "Dolphin MMJR2 (Android)"),
     ("slippi", "project-slippi/dolphin", "slippi", "Slippi Dolphin"),
     ("primehack", "shiiion/dolphin", "primehack-master", "PrimeHack"),
+    ("mpn", "MarioPartyNetplay/Dolphin-MPN", "master", "Dolphin MPN (Mario Party Netplay)"),
+    ("ishiiruka", "project-slippi/Ishiiruka", "slippi", "Ishiiruka (Slippi's older Dolphin)"),
+    ("dolphinps4", "iHaiDeeZ/DolphinPS4", "main", "DolphinPS4 (Dolphin for PS4)"),
+    ("porpoise", "elripalda/Porpoise-Dolphin-Emulator-for-PS5", "Main", "Porpoise (Dolphin for PS5)"),
+    # Not Dolphin: written from scratch.
+    ("lazuli", "vxpm/lazuli", "main", "Lazuli (Rust, from scratch)"),
+    ("gecko", "ioncodes/gecko", "master", "gecko (Rust, from scratch)"),
+    ("rustcube", "msierks/rustcube", "master", "rustcube (Rust, from scratch)"),
+    ("pureikyubu", "emu-russia/pureikyubu", "master", "pureikyubu (C++, from scratch)"),
 ]
+
+# Emulators that are not Dolphin: how their settings are read (see their extractors below).
+INDEPENDENT = ("lazuli", "gecko", "rustcube", "pureikyubu")
 
 WANTED = (
     "/Source/Core/Core/Config/",
     "/Source/Core/DolphinLibretro/",
     "/Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/features/settings/model/",
     "/Cores/Dolphin/PVDolphinCore/Core/PVDolphinCore",
+    "/Source/Core/Core/ConfigManager.cpp",
+    "/Source/Core/VideoCommon/VideoConfig.cpp",
+    # DolphinPS4 and Porpoise keep their own changes as patches and launcher code.
+    "/patches/", "/src/", "/config/",
+    # Lazuli, gecko, rustcube, pureikyubu.
+    "/crates/app/src/cli.rs", "/crates/app/src/config.rs", "/crates/hostinput/src/config.rs",
+    "/build/Data/DefaultSettings.json",
 )
+SMALL = ("lazuli", "gecko", "rustcube", "pureikyubu", "dolphinps4", "porpoise")
 
 
 def gh(path):
@@ -62,7 +82,13 @@ def fetch(name, repo, branch):
     with urllib.request.urlopen(url) as resp, tarfile.open(fileobj=resp, mode="r|gz") as tar:
         for member in tar:
             path = "/" + member.name.split("/", 1)[-1]
-            if member.isfile() and any(w in path for w in WANTED):
+            if not member.isfile():
+                continue
+            if name in SMALL and not (path.endswith((".rs", ".json", ".ini", ".patch", ".diff", ".cpp", ".h"))):
+                continue
+            if name not in SMALL and path.startswith(("/patches/", "/src/", "/config/")):
+                continue
+            if any(w in path for w in WANTED) or (name == "rustcube" and path == "/src/main.rs"):
                 member.name = path.lstrip("/")
                 tar.extract(member, dest)
     open(stamp, "w").write(sha)
@@ -122,7 +148,7 @@ def android_settings(dest, infos):
         by_key.setdefault(where.split("/")[-1], name)
     rows = []
     folder = os.path.join(dest, "Source/Android/app/src/main/java/org/dolphinemu/dolphinemu/features/settings/model")
-    for path in sorted(glob.glob(os.path.join(folder, "*Setting.kt"))):
+    for path in sorted(glob.glob(os.path.join(folder, "*Setting.kt")) + glob.glob(os.path.join(folder, "*Setting.java"))):
         for enum, file_, section, key in ANDROID.findall(open(path, errors="ignore").read()):
             if enum in infos:
                 rows.append((enum, f"{os.path.basename(path)}:{key}"))
@@ -146,6 +172,69 @@ def provenance_settings(dest, infos):
     return sorted(rows)
 
 
+def ishiiruka_settings(dest):
+    """Older Dolphin (before Config::Info): `section->Get("Key", ...)` in ConfigManager and VideoConfig."""
+    rows = []
+    for rel in ("Source/Core/Core/ConfigManager.cpp", "Source/Core/VideoCommon/VideoConfig.cpp"):
+        path = os.path.join(dest, rel)
+        if os.path.exists(path):
+            for section, key in re.findall(r'(\w+)->Get\(\s*"(\w+)"', open(path, errors="ignore").read()):
+                rows.append((f"ISHIIRUKA_{key}", f"{os.path.basename(rel)}:{section}/{key}"))
+    return rows
+
+
+def port_settings(dest, base_infos):
+    """Console ports of Dolphin: their own added Infos and RetroArch-style keys, beyond the base."""
+    rows = []
+    for path in glob.glob(os.path.join(dest, "**/*"), recursive=True):
+        if not os.path.isfile(path):
+            continue
+        text = open(path, errors="ignore").read()
+        rel = os.path.relpath(path, dest)
+        for m in INFO.finditer(text):
+            if m.group(2) not in base_infos:
+                rows.append((m.group(2), rel))
+        for key in set(re.findall(r'"(dolphin_[a-z0-9_]+)"', text)):
+            rows.append((key, rel))
+    return rows
+
+
+def independent_settings(name, dest):
+    """Emulators written from scratch: each setting under its own name (mapped by hand)."""
+    rows = []
+    def struct_fields(rel, struct=None):
+        path = os.path.join(dest, rel)
+        if not os.path.exists(path):
+            return
+        text = open(path, errors="ignore").read()
+        blocks = re.findall(r'pub struct (\w+)\s*\{(.*?)\n\}', text, re.S)
+        for sname, body in blocks:
+            if struct and sname not in struct:
+                continue
+            for field in re.findall(r'^\s*pub (\w+):', body, re.M):
+                rows.append((f"{name.upper()}_{sname}.{field}", rel))
+    if name == "lazuli":
+        struct_fields("crates/app/src/cli.rs")
+    elif name == "gecko":
+        struct_fields("crates/app/src/config.rs", ("Config", "WiiPreset", "WiiPresets"))
+        struct_fields("crates/hostinput/src/config.rs")
+    elif name == "rustcube":
+        path = os.path.join(dest, "src/main.rs")
+        for long in re.findall(r'opts\.opt\w+\(\s*"[^"]*"\s*,\s*"([^"]+)"', open(path, errors="ignore").read()):
+            rows.append((f"RUSTCUBE_{long}", "src/main.rs"))
+    elif name == "pureikyubu":
+        data = json.load(open(os.path.join(dest, "build/Data/DefaultSettings.json")))
+        for section, values in data.items():
+            if section in ("info",) or not isinstance(values, dict):
+                if section == "io":
+                    for dev in values.get("Devices", []):
+                        rows.append((f"PUREIKYUBU_io.{dev['Name'].replace(' ', '_')}", "DefaultSettings.json"))
+                continue
+            for key in values:
+                rows.append((f"PUREIKYUBU_{section}.{key}", "build/Data/DefaultSettings.json"))
+    return rows
+
+
 def write(name, repo, branch, sha, label, rows):
     os.makedirs(OUT, exist_ok=True)
     with open(os.path.join(OUT, f"{name}.commit"), "w") as f:
@@ -166,6 +255,16 @@ def main():
         infos_all.update(infos)
         rows = [(i, w) for i, w in infos.items()]
         if name == "provenance":
+            continue
+        if name in INDEPENDENT:
+            write(name, repo, branch, sha, label, independent_settings(name, dest))
+            continue
+        if name == "ishiiruka":
+            write(name, repo, branch, sha, label, ishiiruka_settings(dest))
+            continue
+        if name in ("dolphinps4", "porpoise"):
+            write(name, repo, branch, sha, label + ": only what it adds to Dolphin",
+                  port_settings(dest, infos_all))
             continue
         if name in ("libretro", "manic"):
             # Inside RetroArch only the options are settable, not Dolphin's own settings file.

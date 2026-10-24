@@ -101,9 +101,11 @@ GFX_HACK_VI_SKIP_MODE	GFX/Hacks/VISkipMode
 GFX_HIRES_TEXTURES	GFX/Settings/HiresTextures
 GFX_INTERNAL_RESOLUTION_FRAME_DUMPS	GFX/Settings/InternalResolutionFrameDumps
 GFX_LOG_RENDER_TIME_TO_FILE	GFX/Settings/LogRenderTimeToFile
+GFX_LOG_TURN_COUNT_TO_FILE	GFX/Settings/LogTurnCountToFile
 GFX_MAX_EFB_SCALE	GFX/Settings/MaxInternalResolution
 GFX_MODS_ENABLE	GFX/Settings/EnableMods
 GFX_MOVABLE_PERFORMANCE_METRICS	GFX/Settings/MovablePerformanceMetrics
+GFX_MPN_HUD_SCALE	GFX/GameSpecific/MPNHUDScale
 GFX_MSAA	GFX/Settings/MSAA
 GFX_MTL_MANUALLY_UPLOAD_BUFFERS	GFX/Settings/ManuallyUploadBuffers
 GFX_MTL_METALFX_SPATIAL_UPSCALE	GFX/Settings/MetalFXSpatialUpscale
@@ -126,6 +128,7 @@ GFX_SHOW_FPS	GFX/Settings/ShowFPS
 GFX_SHOW_FTIMES	GFX/Settings/ShowFTimes
 GFX_SHOW_GRAPHS	GFX/Settings/ShowGraphs
 GFX_SHOW_INTERNAL_RESOLUTION	GFX/Settings/ShowInternalResolution
+GFX_SHOW_MP_TURN	GFX/Settings/ShowMPTurn
 GFX_SHOW_NETPLAY_MESSAGES	GFX/Settings/ShowNetPlayMessages
 GFX_SHOW_NETPLAY_PING	GFX/Settings/ShowNetPlayPing
 GFX_SHOW_SPEED	GFX/Settings/ShowSpeed
@@ -514,6 +517,7 @@ NETPLAY_TRAVERSAL_PORT_ALT	Main/NetPlay/TraversalPortAlt
 NETPLAY_TRAVERSAL_SERVER	Main/NetPlay/TraversalServer
 NETPLAY_USE_INDEX	Main/NetPlay/UseIndex
 NETPLAY_USE_UPNP	Main/NetPlay/UseUPNP
+PER_CTRL_BUTTONS	GFX/Settings/HiresTextures1
 PRIMEHACK_ANYBEAM_DOOR	Main/Core/PrimeAnybeamDoor
 PRIMEHACK_DISABLE_HUDMEMO	Main/Core/PrimeDisableHudMemo
 PRIMEHACK_ENABLE	Main/Core/EnablePrimeHack

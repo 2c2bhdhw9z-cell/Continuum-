@@ -1,0 +1,16 @@
+LAZULI_Config.debug	crates/app/src/cli.rs
+LAZULI_Config.efb_ram_copies	crates/app/src/cli.rs
+LAZULI_Config.exec	crates/app/src/cli.rs
+LAZULI_Config.ipl	crates/app/src/cli.rs
+LAZULI_Config.ipl_lle	crates/app/src/cli.rs
+LAZULI_Config.mappable_vram	crates/app/src/cli.rs
+LAZULI_Config.ppcjit	crates/app/src/cli.rs
+LAZULI_Config.rom	crates/app/src/cli.rs
+LAZULI_Config.run	crates/app/src/cli.rs
+LAZULI_Config.uart_escape	crates/app/src/cli.rs
+LAZULI_PpcjitConfig.clear_cache	crates/app/src/cli.rs
+LAZULI_PpcjitConfig.force_fpu	crates/app/src/cli.rs
+LAZULI_PpcjitConfig.ignore_unimplemented_inst	crates/app/src/cli.rs
+LAZULI_PpcjitConfig.instr_per_block	crates/app/src/cli.rs
+LAZULI_PpcjitConfig.nop_syscalls	crates/app/src/cli.rs
+LAZULI_PpcjitConfig.round_to_single	crates/app/src/cli.rs
