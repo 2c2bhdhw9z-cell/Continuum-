@@ -100,6 +100,13 @@ pub struct FastStats {
     pub blocks_run: u64,
     pub invalidations: u64,
     pub idle_skips: u64,
+    /// With the JIT on: instructions run in compiled code, and why the other blocks ran in
+    /// the interpreter (not the standard mapping, idle loop, reads the time, outside the
+    /// compiled window, not run enough yet, budget shorter than the block).
+    pub jit_instructions: u64,
+    pub not_compiled: [u64; 6],
+    /// Instructions the interpreter really ran (idle-loop rounds skipped at once not counted).
+    pub interp_instructions: u64,
 }
 
 impl FastCpu {
@@ -307,6 +314,7 @@ impl FastCpu {
             cpu.pc = ea;
         }
         let mut cycles = n as u64;
+        self.stats.interp_instructions += cycles;
         // An idle loop that went round once and will go round the same way until the next
         // event (it only reads memory nothing else can change before then): go round all the
         // times it would have, at once. The state after k rounds is the state after one.
@@ -335,22 +343,27 @@ impl FastCpu {
     /// the same: nothing in a chain reads the time (those instructions run in the interpreter).
     fn run_native(&mut self, cpu: &mut Cpu, hw: &mut Hw, idx: u32, budget: u64) -> Option<u64> {
         let pc = cpu.pc;
-        let mapping = Mapping::of(cpu)?;
+        let Some(mapping) = Mapping::of(cpu) else {
+            self.stats.not_compiled[0] += 1;
+            return None;
+        };
         if self.jit.as_ref()?.mapping() != mapping {
             // Code compiled for another mapping (its links and memory window) is no good.
             self.reset_jit();
             self.jit.as_mut()?.set_mapping(mapping);
         }
-        let FastCpu { blocks, jit, .. } = self;
+        let FastCpu { blocks, jit, stats, .. } = self;
         let jit = jit.as_deref_mut()?;
         let block = blocks[idx as usize].as_mut().expect("live block");
         if block.idle || block.timed || !mapping.compilable(pc) {
+            stats.not_compiled[if block.idle { 1 } else if block.timed { 2 } else { 3 }] += 1;
             return None;
         }
         let len = block.ops.len() as u64;
         if block.native.is_none() {
             block.runs += 1;
             if block.runs < COMPILE_AFTER {
+                stats.not_compiled[4] += 1;
                 return None;
             }
             match jit.compile(pc, &block.ops) {
@@ -363,12 +376,14 @@ impl FastCpu {
         }
         let n = block.native?;
         if n.ea != pc || budget < len {
+            stats.not_compiled[5] += 1;
             return None;
         }
         cpu.exit = false;
         cpu.faulted = false;
         let stop_after_one = hw.irq_dirty || !hw.invalidated.is_empty() || cpu.dec_pending || cpu.msr & super::MSR_POW != 0;
         let cycles = jit.run(n, cpu, hw, if stop_after_one { len } else { budget });
+        stats.jit_instructions += cycles;
         self.last = None;
         cpu.advance_time(cycles);
         Some(cycles)

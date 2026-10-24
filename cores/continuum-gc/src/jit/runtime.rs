@@ -12,7 +12,7 @@
 //! them when their code changes, and decides when a compiled block may run (`FastCpu`). This
 //! file only holds the generated code and the links between blocks.
 
-use super::compile::{compile, Inst, JitCtx, UNLINKED};
+use super::compile::{compile, Inst, JitCtx, TABLE_EMPTY, TABLE_SIZE, UNLINKED};
 use crate::cpu::fast_ops::Op;
 use crate::cpu::{Cpu, MSR_DR, MSR_IR};
 use crate::hw::{Hw, MEM1_SIZE};
@@ -25,6 +25,8 @@ pub trait Backend: Send {
     fn capacity(&self) -> usize;
     /// Writes instructions at instruction `at` and makes them ready to run.
     fn write(&mut self, at: usize, words: &[u32]);
+    /// The address instruction `at` runs from (what generated code jumps to).
+    fn address(&self, at: usize) -> u64;
     /// The address generated code calls to run one instruction's handler.
     fn fallback(&self) -> u64;
     /// Runs the code at instruction `at` as `fn(cpu, hw, ctx, budget) -> budget left`.
@@ -73,6 +75,8 @@ pub struct Jit {
     entries: HashMap<u32, usize>,
     /// The mapping all current code was compiled for.
     mapping: Mapping,
+    /// The indirect-branch table generated code reads (`JitCtx::table`).
+    table: Vec<[u64; 2]>,
     /// Exits waiting for a block at an effective address to be compiled.
     pending: HashMap<u32, Vec<usize>>,
     /// Exits jumping straight into the block at an effective address.
@@ -129,6 +133,11 @@ fn bat_window(b: [u32; 2], write: bool) -> Option<u32> {
     Some(((bl + 1) << 17).min(MEM1_SIZE as u32))
 }
 
+/// Where an effective address sits in the indirect-branch table.
+fn table_index(ea: u32) -> usize {
+    (ea >> 2) as usize & (TABLE_SIZE - 1)
+}
+
 /// `b` from instruction `from` to instruction `to`.
 fn branch(from: usize, to: usize) -> u32 {
     0x1400_0000 | ((to as i64 - from as i64) as u32 & 0x03FF_FFFF)
@@ -139,9 +148,10 @@ impl Jit {
         Jit {
             backend,
             used: 0,
-            ctx: Box::new(JitCtx { mem1: 0, code_pages: 0, fallback: 0, mem_limit: 0 }),
+            ctx: Box::new(JitCtx { mem1: 0, code_pages: 0, fallback: 0, mem_limit: 0, table: 0 }),
             entries: HashMap::new(),
             mapping: Mapping::default(),
+            table: vec![[TABLE_EMPTY, 0]; TABLE_SIZE],
             pending: HashMap::new(),
             incoming: HashMap::new(),
             stats: JitStats::default(),
@@ -162,6 +172,7 @@ impl Jit {
     /// Forgets all generated code (the caller forgets every `Native` it holds).
     pub fn reset(&mut self) {
         self.used = 0;
+        self.table.iter_mut().for_each(|e| *e = [TABLE_EMPTY, 0]);
         self.entries.clear();
         self.pending.clear();
         self.incoming.clear();
@@ -199,6 +210,7 @@ impl Jit {
         }
         let inner = at + c.inner;
         self.entries.insert(ea, inner);
+        self.table[table_index(ea)] = [ea as u64, self.backend.address(inner)];
         // Exits that were waiting for this block (its own loop back included).
         if let Some(sites) = self.pending.remove(&ea) {
             for &s in &sites {
@@ -219,6 +231,10 @@ impl Jit {
         if self.entries.remove(&ea).is_none() {
             return;
         }
+        let t = &mut self.table[table_index(ea)];
+        if t[0] == ea as u64 {
+            *t = [TABLE_EMPTY, 0];
+        }
         if let Some(sites) = self.incoming.remove(&ea) {
             for &s in &sites {
                 self.backend.write(s, &[UNLINKED]);
@@ -235,6 +251,7 @@ impl Jit {
         self.ctx.fallback = self.backend.fallback();
         // Accesses up to 8 bytes long starting below this are inside the data window.
         self.ctx.mem_limit = (self.mapping.data - 7) as u64;
+        self.ctx.table = self.table.as_ptr() as u64;
         self.stats.calls += 1;
         // SAFETY: `n` came from `compile` since the last reset, so its code is whole; the
         // pointers are live for the call and nothing else uses them meanwhile.

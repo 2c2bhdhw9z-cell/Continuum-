@@ -22,6 +22,7 @@ const CPU: u64 = 0x3_0000_0000;
 const CTX: u64 = 0x4_0000_0000;
 const PAGES: u64 = 0x5_0000_0000;
 const MEM1: u64 = 0x6_0000_0000;
+const TABLE: u64 = 0x6_8000_0000;
 const FALLBACK: u64 = 0x7_0000_0000;
 const RETURN: u64 = 0x7_0000_1000;
 
@@ -34,8 +35,8 @@ pub struct UnicornBackend {
     code: Vec<u32>,
     _stack: Vec<u8>,
     ctx: Box<[u64; 512]>,
-    /// (host address, size) mapped at CPU, MEM1 and PAGES.
-    mapped: [(usize, usize); 3],
+    /// (host address, size) mapped at CPU, MEM1, PAGES and TABLE.
+    mapped: [(usize, usize); 4],
 }
 
 // SAFETY: the emulator and its buffers belong to this value alone and are used from one thread
@@ -71,7 +72,7 @@ impl UnicornBackend {
             unsafe { fallback(cpu, hw, op) };
         })
         .unwrap();
-        UnicornBackend { uc, code, _stack: stack, ctx, mapped: [(0, 0); 3] }
+        UnicornBackend { uc, code, _stack: stack, ctx, mapped: [(0, 0); 4] }
     }
 
     /// Maps host memory at a fixed guest address, again if it moved.
@@ -102,6 +103,10 @@ impl Backend for UnicornBackend {
         self.uc.ctl_remove_cache(a & !0xFFF, (b + 0xFFF) & !0xFFF).unwrap();
     }
 
+    fn address(&self, at: usize) -> u64 {
+        CODE + 4 * at as u64
+    }
+
     fn fallback(&self) -> u64 {
         FALLBACK
     }
@@ -109,7 +114,9 @@ impl Backend for UnicornBackend {
     unsafe fn call(&mut self, at: usize, cpu: *mut Cpu, hw: *mut Hw, ctx: *const JitCtx, budget: u64) -> u64 {
         // SAFETY: the caller guarantees live pointers.
         let (mem1, pages, pages_len) = unsafe { ((*hw).mem1.as_mut_ptr() as usize, (*hw).code_pages.as_ptr() as usize, (*hw).code_pages.len() * 8) };
-        let _ = ctx;
+        // SAFETY: the caller guarantees a live context.
+        let table = unsafe { (*ctx).table } as usize;
+        self.map(3, TABLE, table, super::compile::TABLE_SIZE * 16);
         self.map(0, CPU, cpu as usize, std::mem::size_of::<Cpu>());
         self.map(1, MEM1, mem1, crate::hw::MEM1_SIZE);
         self.map(2, PAGES, pages, pages_len);
@@ -117,6 +124,9 @@ impl Backend for UnicornBackend {
         self.ctx[0] = MEM1;
         self.ctx[1] = PAGES;
         self.ctx[2] = FALLBACK;
+        // SAFETY: as above.
+        self.ctx[3] = unsafe { (*ctx).mem_limit };
+        self.ctx[4] = TABLE;
         self.uc.get_data_mut().cpu = cpu;
         let regs = [(RegisterARM64::X0, CPU), (RegisterARM64::X1, hw as u64), (RegisterARM64::X2, CTX), (RegisterARM64::X3, budget), (RegisterARM64::SP, STACK + STACK_SIZE as u64), (RegisterARM64::X30, RETURN)];
         for (r, v) in regs {

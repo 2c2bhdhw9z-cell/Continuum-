@@ -185,6 +185,11 @@ impl Asm {
         let imm7 = ((off / 8) as u32) & 0x7F;
         self.emit((0b10 << 30) | (0b101 << 27) | (0b011 << 23) | (imm7 << 15) | (rt2 << 10) | (rn << 5) | rt);
     }
+    /// LDP x registers with a signed offset (no write-back).
+    pub fn ldp_off(&mut self, rt: R, rt2: R, rn: R, off: i32) {
+        let imm7 = ((off / 8) as u32) & 0x7F;
+        self.emit((0b10 << 30) | (0b101 << 27) | (0b010 << 23) | (1 << 22) | (imm7 << 15) | (rt2 << 10) | (rn << 5) | rt);
+    }
     pub fn ldp_post(&mut self, rt: R, rt2: R, rn: R, off: i32) {
         let imm7 = ((off / 8) as u32) & 0x7F;
         self.emit((0b10 << 30) | (0b101 << 27) | (0b001 << 23) | (1 << 22) | (imm7 << 15) | (rt2 << 10) | (rn << 5) | rt);
@@ -476,6 +481,10 @@ mod tests {
         put(&mut a, &|a| a.ldr_x_reg_lsl3(5, 23, 4), "ldr x5, [x23, x4, lsl #3]");
         put(&mut a, &|a| a.stp_pre(29, 30, SP, -16), "stp x29, x30, [sp, #-16]!");
         put(&mut a, &|a| a.ldp_post(29, 30, SP, 16), "ldp x29, x30, [sp], #16");
+        put(&mut a, &|a| a.ldp_off(9, 10, 7, 0), "ldp x9, x10, [x7]");
+        put(&mut a, &|a| a.ldp_off(9, 10, 7, 16), "ldp x9, x10, [x7, #16]");
+        put(&mut a, &|a| a.addsub_reg(true, false, false, 7, 7, 8, Shift::Lsl, 4), "add x7, x7, x8, lsl #4");
+        put(&mut a, &|a| a.ubfx(true, 8, 6, 2, 16), "ubfx x8, x6, #2, #16");
         put(&mut a, &|a| a.add_imm(false, 1, 2, 4095), "add w1, w2, #4095");
         put(&mut a, &|a| a.sub_imm(true, 1, 2, 0x5000), "sub x1, x2, #5, lsl #12");
         put(&mut a, &|a| a.add(false, 1, 2, 3), "add w1, w2, w3");

@@ -6,7 +6,7 @@
 
 #![cfg(any(target_arch = "aarch64", feature = "unicorn"))]
 
-use super::compile::{compile, Inst, JitCtx};
+use super::compile::{compile, Inst, JitCtx, TABLE_EMPTY, TABLE_SIZE};
 use super::runtime::Backend;
 use crate::cpu::fast_ops::{decode, Op};
 use crate::cpu::{Cpu, HID2_LSQE, HID2_PSE, MSR_DR, MSR_FP, MSR_IR};
@@ -87,19 +87,33 @@ fn jit_blocks_match_the_interpreter() {
     // One page of "cached code" in the window: stores there must take the slow path.
     hw_jit.code_pages[(WINDOW + 0x8000) >> 18] |= 1 << (((WINDOW + 0x8000) >> 12) & 63);
     hw_ref.code_pages.copy_from_slice(&hw_jit.code_pages.clone());
-    let ctx = JitCtx { mem1: hw_jit.mem1.as_mut_ptr() as u64, code_pages: hw_jit.code_pages.as_ptr() as u64, fallback: backend.fallback(), mem_limit: (crate::hw::MEM1_SIZE - 7) as u64 };
+    let mut table = vec![[TABLE_EMPTY, 0u64]; TABLE_SIZE];
+    let ctx = JitCtx {
+        mem1: hw_jit.mem1.as_mut_ptr() as u64,
+        code_pages: hw_jit.code_pages.as_ptr() as u64,
+        fallback: backend.fallback(),
+        mem_limit: (crate::hw::MEM1_SIZE - 7) as u64,
+        table: table.as_mut_ptr() as u64,
+    };
 
     let blocks = 20_000;
     let mut native_hits = 0usize;
     let mut chained = 0usize;
+    let mut via_table = 0usize;
     for case in 0..blocks {
         // Block A, and sometimes a block B straight after it that A's fall-through exit is
-        // linked to, as the runtime links blocks.
+        // linked to, as the runtime links blocks, or that A reaches through blr or bctr and
+        // the indirect-branch table.
         let with_b = rng.next() % 3 == 0;
+        let indirect = with_b && rng.next() % 2 == 0;
         let len = 1 + (rng.next() % 10) as usize;
         let mut words: Vec<u32> = (0..len).map(|_| instruction(&mut rng)).collect();
         if !with_b && rng.next() % 2 == 0 {
             words.push(branch(&mut rng));
+        }
+        let via_ctr = rng.next() % 2 == 0;
+        if indirect {
+            words.push(if via_ctr { 0x4E80_0420 } else { 0x4E80_0020 });
         }
         let base = 0x8000_3100u32;
         let b_base = base + 4 * words.len() as u32;
@@ -125,6 +139,14 @@ fn jit_blocks_match_the_interpreter() {
         let mut cpu_ref = Cpu::default();
         setup(&mut cpu_ref, &mut rng);
         cpu_ref.pc = base;
+        if indirect {
+            // B's address in the register the branch uses (block A may still change it).
+            if via_ctr {
+                cpu_ref.ctr = b_base;
+            } else {
+                cpu_ref.lr = b_base;
+            }
+        }
         let mut cpu_jit = cpu_ref.clone();
         let start = cpu_ref.clone();
 
@@ -137,8 +159,19 @@ fn jit_blocks_match_the_interpreter() {
         // only when the budget left covers all of it (the runtime finishes the rest).
         let mut left = budget;
         let mut n_ref = 0u64;
-        for (blk, blk_base) in [(&ops, base), (&b_ops, b_base)] {
-            if blk.is_empty() || cpu_ref.pc != blk_base || (left as usize) < blk.len() {
+        let mut first = true;
+        loop {
+            // A is entered by the caller; after that only B, which every exit can reach
+            // (its links are patched and it is in the table).
+            let (blk, blk_base) = if first {
+                first = false;
+                (&ops, base)
+            } else if !b_ops.is_empty() && cpu_ref.pc == b_base {
+                (&b_ops, b_base)
+            } else {
+                break;
+            };
+            if (left as usize) < blk.len() {
                 break;
             }
             cpu_ref.exit = false;
@@ -159,7 +192,9 @@ fn jit_blocks_match_the_interpreter() {
             }
             n_ref += n;
             left -= n;
-            if cpu_ref.exit {
+            // The fast interpreter goes on to the next block (a taken branch also ends a
+            // block) unless something the machine must see happened.
+            if hw_ref.irq_dirty || !hw_ref.invalidated.is_empty() {
                 break;
             }
         }
@@ -174,13 +209,24 @@ fn jit_blocks_match_the_interpreter() {
                     chained += 1;
                 }
             }
-            backend.write(B_AT, &bc.code);
+            let mut code_b = bc.code.clone();
+            for &(site, target) in &bc.links {
+                if target == b_base {
+                    code_b[site] = 0x1400_0000 | ((bc.inner as u32).wrapping_sub(site as u32) & 0x03FF_FFFF);
+                }
+            }
+            backend.write(B_AT, &code_b);
+            table[(b_base >> 2) as usize & (TABLE_SIZE - 1)] = [b_base as u64, backend.address(b_inner)];
         }
         backend.write(0, &code_a);
         cpu_jit.exit = false;
         cpu_jit.faulted = false;
         // SAFETY: freshly compiled code; the CPU, hardware and context are live locals.
         let n_jit = budget - unsafe { backend.call(0, &mut cpu_jit, &mut hw_jit, &ctx, budget) };
+        table[(b_base >> 2) as usize & (TABLE_SIZE - 1)] = [TABLE_EMPTY, 0];
+        if indirect && cpu_ref.pc != base && n_ref > ops.len() as u64 {
+            via_table += 1;
+        }
         if with_b {
             words.extend_from_slice(&b_words);
         }
@@ -215,5 +261,5 @@ fn jit_blocks_match_the_interpreter() {
             );
         }
     }
-    assert!(native_hits > 0 && chained > 0);
+    assert!(native_hits > 0 && chained > 0 && via_table > 0, "native {native_hits} chained {chained} via the table {via_table}");
 }

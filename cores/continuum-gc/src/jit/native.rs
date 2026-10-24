@@ -141,6 +141,10 @@ impl Backend for NativeBackend {
         }
     }
 
+    fn address(&self, at: usize) -> u64 {
+        self.rx as u64 + 4 * at as u64
+    }
+
     fn fallback(&self) -> u64 {
         fallback as usize as u64
     }

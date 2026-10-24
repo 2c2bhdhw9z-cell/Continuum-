@@ -59,5 +59,7 @@ fn main() {
     eprintln!("msr {:08X} ibat0 {:08X?} dbat0 {:08X?} pc {:08X}", fast.cpu.msr, fast.cpu.ibat[0], fast.cpu.dbat[0], fast.cpu.pc);
     if let Some(j) = fast.fast.as_ref().unwrap().jit.as_ref() {
         eprintln!("JIT: {:?}, code {} KB", j.stats, j.used_bytes() / 1024);
+        let ran = st.jit_instructions + st.interp_instructions;
+        eprintln!("compiled code ran {:.1}% of the instructions really run ({} of {}); interpreter blocks by reason [mapping, idle, time, window, new, budget] {:?}", 100.0 * st.jit_instructions as f64 / ran.max(1) as f64, st.jit_instructions, ran, st.not_compiled);
     }
 }

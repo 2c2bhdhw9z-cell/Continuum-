@@ -31,7 +31,17 @@ pub struct JitCtx {
     /// Main-memory offsets (effective address - 0x80000000) below this take the inline path
     /// for any access of up to 8 bytes: the data BAT's window less 7.
     pub mem_limit: u64,
+    /// Compiled blocks by effective address, for exits whose target is in a register (blr,
+    /// bctr): `TABLE_SIZE` entries of (address, code address to jump to), indexed by
+    /// address bits 2 up; an address that is not there returns to the runtime.
+    pub table: u64,
 }
+
+/// Entries in the indirect-branch table.
+pub const TABLE_BITS: u32 = 16;
+pub const TABLE_SIZE: usize = 1 << TABLE_BITS;
+/// An empty table entry's address (never a block's: blocks start on 4-byte boundaries).
+pub const TABLE_EMPTY: u64 = 1;
 
 /// The word a link site holds while it is not linked: a branch to the next instruction, which
 /// is the stub that stores the target PC and returns.
@@ -91,8 +101,8 @@ struct Ctx {
     a: Asm,
     /// Branches to patch to the shared exit stub for a given count: (at, count, kind).
     exits: Vec<(usize, u32, ExitKind)>,
-    /// Branches to the epilogue itself: (at).
-    to_epilogue: Vec<usize>,
+    /// Branches to the epilogue itself: (at, condition; Al for an unconditional `b`).
+    to_epilogue: Vec<(usize, Cond)>,
     links: Vec<(usize, u32)>,
     fast_mem: bool,
 }
@@ -156,8 +166,21 @@ impl Ctx {
         self.b_epilogue();
     }
     fn b_epilogue(&mut self) {
-        self.to_epilogue.push(self.a.here());
+        self.to_epilogue.push((self.a.here(), Cond::Al));
         self.a.emit(0);
+    }
+    /// Leaves the block after `count` instructions for the address in w6 (PC already
+    /// stored): straight into its compiled block when the table has it, else returning.
+    fn exit_indirect(&mut self, count: u32) {
+        self.a.sub_imm(true, BUDGET, BUDGET, count);
+        self.a.ldr_x(7, CTX, offset_of!(JitCtx, table) as u32);
+        self.a.ubfx(true, 8, 6, 2, TABLE_BITS);
+        self.a.addsub_reg(true, false, false, 7, 7, 8, Shift::Lsl, 4);
+        self.a.ldp_off(9, 10, 7, 0);
+        self.a.cmp(true, 9, 6);
+        self.to_epilogue.push((self.a.here(), Cond::Ne));
+        self.a.emit(0);
+        self.a.br(10);
     }
     /// The CR field nibble from the flags of a compare (signed or not) plus XER[SO], into w1.
     fn cr_nibble(&mut self, signed: bool) {
@@ -278,8 +301,8 @@ pub fn compile(insts: &[Inst], fast_mem: bool) -> Compiled {
     c.a.ldp_post(19, 20, 31, 16);
     c.a.ldp_post(29, 30, 31, 16);
     c.a.ret();
-    for at in std::mem::take(&mut c.to_epilogue) {
-        let w = c.a.b_to(at, epilogue, false);
+    for (at, cond) in std::mem::take(&mut c.to_epilogue) {
+        let w = if cond == Cond::Al { c.a.b_to(at, epilogue, false) } else { Asm::b_cond_to(at, epilogue, cond) };
         c.a.patch(at, w);
     }
     for (at, n, kind) in exits {
@@ -473,7 +496,7 @@ fn branch_cond(c: &mut Ctx, ins: &Inst, count: u32, bo: u32, bi: u32, use_ctr: b
         Some(t) => c.exit_to(count, t),
         None => {
             c.str(6, off_pc());
-            c.exit(count);
+            c.exit_indirect(count);
         }
     }
     // Not taken.
