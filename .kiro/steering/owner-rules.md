@@ -54,6 +54,11 @@ These come straight from the owner. They are not suggestions.
   were furious ("Fuck about a fucking build right now"); it was cancelled during its first checks.
   Offer a build at most once. Start it only when they say so, or when the whole batch is done.
 
+- **Never stop early (owner, 24 October 2026, furious).** When he says he is going to bed, or
+  "stop stopping", keep working through the plan in the same turn: finish a piece, push it, start
+  the next. Never end a turn with a progress summary after a short stretch. Never stop to ask a
+  small question (names, order): decide, note it, carry on.
+
 ## Git
 - NO branches. NO pull requests. Ever. Everything is committed and pushed straight to `master`.
 - Save constantly. The owner has limited credits and a session can stop at any time. Push each
