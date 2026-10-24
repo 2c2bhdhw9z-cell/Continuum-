@@ -1,6 +1,6 @@
-//! Game discs. A `Disc` is anything that reads bytes at an offset of the plain disc image; plain
-//! ISO/GCM files are the first kind, and the compressed formats (RVZ, WIA, GCZ, CISO, WBFS) will
-//! each be another, so the rest of the emulator never knows which it has.
+//! Game discs. A `Disc` is anything that reads bytes at an offset of the plain disc image: plain
+//! ISO/GCM files directly, and the compressed formats (RVZ, WIA, GCZ, CISO, TGC) through the nod
+//! library, so the rest of the emulator never knows which it has.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -40,6 +40,64 @@ impl Disc for PlainImage {
     }
     fn size(&self) -> u64 {
         self.size
+    }
+}
+
+/// A compressed disc image (RVZ, WIA, GCZ, CISO, TGC), read through nod as the plain image.
+#[cfg(feature = "discs")]
+pub struct NodImage {
+    reader: nod::read::DiscReader,
+    size: u64,
+}
+
+#[cfg(feature = "discs")]
+impl NodImage {
+    pub fn open(path: &str) -> Result<Self, String> {
+        let reader = nod::read::DiscReader::new(path, &nod::read::DiscOptions::default()).map_err(|e| e.to_string())?;
+        let size = reader.disc_size();
+        Ok(NodImage { reader, size })
+    }
+}
+
+#[cfg(feature = "discs")]
+impl Disc for NodImage {
+    fn read(&mut self, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+        buf.fill(0);
+        if offset >= self.size {
+            return Ok(());
+        }
+        self.reader.seek(SeekFrom::Start(offset))?;
+        let n = ((self.size - offset) as usize).min(buf.len());
+        self.reader.read_exact(&mut buf[..n])
+    }
+    fn size(&self) -> u64 {
+        self.size
+    }
+}
+
+/// Opens any disc image the core reads: plain ISO/GCM files directly (the quickest), every other
+/// format through nod.
+pub fn open_image(path: &str) -> Result<Box<dyn Disc>, String> {
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".iso") || lower.ends_with(".gcm") {
+        // An ISO that is really another format inside (some tools name CISO files .iso) is
+        // left to nod; a plain one starts with the game's ID and has the magic word at 0x1C.
+        let mut magic = [0u8; 4];
+        let plain = std::fs::File::open(path).and_then(|mut f| {
+            f.seek(SeekFrom::Start(0x1C))?;
+            f.read_exact(&mut magic)
+        });
+        if plain.is_ok() && (u32::from_be_bytes(magic) == GC_MAGIC || cfg!(not(feature = "discs"))) {
+            return PlainImage::open(path).map(|d| Box::new(d) as Box<dyn Disc>).map_err(|e| e.to_string());
+        }
+    }
+    #[cfg(feature = "discs")]
+    {
+        NodImage::open(path).map(|d| Box::new(d) as Box<dyn Disc>)
+    }
+    #[cfg(not(feature = "discs"))]
+    {
+        PlainImage::open(path).map(|d| Box::new(d) as Box<dyn Disc>).map_err(|e| e.to_string())
     }
 }
 

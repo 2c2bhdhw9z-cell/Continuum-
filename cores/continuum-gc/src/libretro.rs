@@ -7,7 +7,7 @@
 //! needs); when the app gives none, or the answer is no, the fast interpreter runs. The core id
 //! the engine's `core_may_use_jit` list must name for iOS 26 phones is `continuum_gc`.
 
-use crate::disc::{Console, Disc, PlainImage};
+use crate::disc::{Console, Disc};
 use crate::dol::Executable;
 use crate::hw::pad;
 use crate::machine::Machine;
@@ -113,7 +113,7 @@ pub unsafe extern "C" fn retro_get_system_info(info: *mut RetroSystemInfo) {
     *info = RetroSystemInfo {
         library_name: c"Continuum GC".as_ptr(),
         library_version: c"0.1".as_ptr(),
-        valid_extensions: c"dol|elf|iso|gcm".as_ptr(),
+        valid_extensions: c"dol|elf|iso|gcm|rvz|wia|gcz|ciso|tgc".as_ptr(),
         need_fullpath: true,
         block_extract: false,
     };
@@ -189,7 +189,7 @@ pub fn open(path: &str) -> Result<Machine, String> {
         m.boot_executable(&exe);
         return Ok(m);
     }
-    let disc: Box<dyn Disc> = Box::new(PlainImage::open(path).map_err(|e| e.to_string())?);
+    let disc: Box<dyn Disc> = crate::disc::open_image(path)?;
     let mut m = Machine::new(Console::GameCube);
     m.boot_disc(disc)?;
     Ok(m)

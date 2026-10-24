@@ -18,12 +18,20 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 bincode = "1.3"
+# Compressed disc images (RVZ, WIA, GCZ, CISO, TGC): encounter's nod, a disc-image library (not
+# an emulator), MIT OR Apache-2.0. Its compressors are built from their C sources and linked in,
+# so the core needs nothing from the phone. Pinned: it is an alpha.
+nod = { version = "=2.0.0-alpha.9", default-features = false, features = ["compress-zstd-static", "compress-lzma-static", "compress-bzip2-static", "compress-zlib-static"], optional = true }
 
 # Runs the JIT's ARM64 code on the x86 test machine (the `unicorn` feature: tests and the
 # comparison tools only, never in the core).
 unicorn-engine = { version = "2.1", default-features = false, features = ["arch_aarch64"], optional = true }
 
 [features]
+default = ["discs"]
+# Compressed disc images through nod (off for the ARM64 Linux test builds, which have no C
+# cross-compiler for nod's compressors; the phone build has one).
+discs = ["dep:nod"]
 unicorn = ["dep:unicorn-engine"]
 
 [dev-dependencies]
