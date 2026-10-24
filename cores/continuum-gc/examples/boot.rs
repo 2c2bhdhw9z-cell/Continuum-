@@ -23,8 +23,11 @@ fn main() {
     let t = std::time::Instant::now();
     let mut pcs = std::collections::HashMap::<u32, u32>::new();
     let mut causes = [0u64; 32];
+    let mut wav: Vec<i16> = Vec::new();
     for f in 0..fields {
         m.run_field(m.cpu_hz / 60);
+        wav.extend_from_slice(&m.hw.audio_out);
+        m.hw.audio_out.clear();
         let c = m.hw.cause() & m.hw.pi.mask;
         for (b, n) in causes.iter_mut().enumerate() { if c & (1 << b) != 0 { *n += 1; } }
         *pcs.entry(m.cpu.pc & !0xFF).or_default() += 1;
@@ -35,11 +38,28 @@ fn main() {
     eprintln!("pending causes at field ends (bit: fields): {:?} mask {:08X}", causes.iter().enumerate().filter(|(_, n)| **n > 0).collect::<Vec<_>>(), m.hw.pi.mask);
     eprintln!("dsp csr {:04X} ai cr {:08X} di sr {:08X} si comcsr {:08X} exi {:08X?}", m.hw.dsp.csr, m.hw.ai.cr, m.hw.di.sr, m.hw.si.comcsr, m.hw.exi.ch.iter().map(|c| c.csr).collect::<Vec<_>>());
     eprintln!("{fields} fields in {:.1}s", t.elapsed().as_secs_f64());
+    let loud = wav.iter().filter(|s| s.unsigned_abs() > 64).count();
+    eprintln!("sound: {} frames, {} loud samples, peak {}", wav.len() / 2, loud, wav.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0));
+    if let Ok(path) = std::env::var("CGC_WAV") {
+        let mut b = Vec::new();
+        let data = (wav.len() * 2) as u32;
+        b.extend_from_slice(b"RIFF"); b.extend_from_slice(&(36 + data).to_le_bytes()); b.extend_from_slice(b"WAVEfmt ");
+        b.extend_from_slice(&16u32.to_le_bytes()); b.extend_from_slice(&1u16.to_le_bytes()); b.extend_from_slice(&2u16.to_le_bytes());
+        b.extend_from_slice(&48000u32.to_le_bytes()); b.extend_from_slice(&(48000u32 * 4).to_le_bytes()); b.extend_from_slice(&4u16.to_le_bytes()); b.extend_from_slice(&16u16.to_le_bytes());
+        b.extend_from_slice(b"data"); b.extend_from_slice(&data.to_le_bytes());
+        for s in &wav { b.extend_from_slice(&s.to_le_bytes()); }
+        std::fs::write(path, b).unwrap();
+    }
     eprintln!("exceptions taken: {:?}", m.cpu.exceptions.iter().enumerate().filter(|(_, n)| **n > 0).map(|(v, n)| (format!("{:X}00", v), *n)).collect::<Vec<_>>());
     eprintln!("faults (vector, at, address): {:08X?}", m.cpu.fault_log);
     eprintln!("unknown registers: {:X?}", m.hw.unknown.iter().take(40).collect::<Vec<_>>());
     eprintln!("graphics: {:?}", m.hw.gx.stats);
     eprintln!("disc commands: {:X?}", m.hw.di_commands);
+    eprintln!("sound program: {:?} crc {:08X}", m.hw.dsp.hle.kind, m.hw.dsp.hle.crc);
+    if let Some((a, l)) = m.hw.dsp.ucode {
+        let code = m.hw.dma_read(a & 0x03FF_FFFF, 64);
+        eprintln!("  at {a:08X}, {l} bytes: {:04X?}", code.chunks(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect::<Vec<_>>());
+    }
     if std::env::var("CGC_DI_TRACE").is_ok() {
         eprintln!("disc register writes: {:X?}", m.hw.di_trace);
     }

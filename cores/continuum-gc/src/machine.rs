@@ -129,7 +129,7 @@ impl Machine {
         if self.hw.read32(pa(entry + 4)) != ARGV_MAGIC {
             return false;
         }
-        let mut put = |m: &mut Machine, block: u32, magic: u32, strings: &[&str], at: u32| {
+        let put = |m: &mut Machine, block: u32, magic: u32, strings: &[&str], at: u32| {
             let mut z = Vec::new();
             for s in strings {
                 z.extend_from_slice(s.as_bytes());
@@ -241,6 +241,7 @@ impl Machine {
                 self.hw.vi_line();
                 // 48 kHz streaming audio: about 3 samples a line.
                 self.hw.ai_samples(3);
+                self.hw.audio_line();
             }
         }
     }

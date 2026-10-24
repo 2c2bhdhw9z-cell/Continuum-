@@ -278,13 +278,21 @@ pub extern "C" fn retro_run() {
         unsafe { video(core.frame.as_ptr() as *const c_void, w, h, w as usize * 4) };
     }
     if let Some(audio) = audio {
-        // SAFETY: a static buffer of FRAME_SAMPLES stereo frames.
-        unsafe { audio(SILENCE.as_ptr(), FRAME_SAMPLES) };
+        let out = std::mem::take(&mut core.machine.hw.audio_out);
+        if out.is_empty() {
+            // SAFETY: a static buffer of FRAME_SAMPLES stereo frames.
+            unsafe { audio(SILENCE.as_ptr(), FRAME_SAMPLES) };
+        } else {
+            // SAFETY: `out` holds out.len() / 2 interleaved stereo frames for the call.
+            unsafe { audio(out.as_ptr(), out.len() / 2) };
+        }
+        core.machine.hw.audio_out = out;
+        core.machine.hw.audio_out.clear();
     }
 }
 
 /// Room for the largest state: Wii memory plus ARAM plus registers.
-const STATE_ROOM: usize = crate::hw::MEM1_SIZE + crate::hw::MEM2_SIZE + crate::hw::ARAM_SIZE + (1 << 20);
+const STATE_ROOM: usize = crate::hw::MEM1_SIZE + crate::hw::MEM2_SIZE + crate::hw::ARAM_SIZE + (8 << 20);
 
 #[no_mangle]
 pub extern "C" fn retro_serialize_size() -> usize {

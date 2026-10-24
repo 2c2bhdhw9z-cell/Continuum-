@@ -10,6 +10,7 @@ pub mod bus;
 pub mod cpu;
 pub mod disc;
 pub mod dol;
+pub mod dsp_hle;
 pub mod gx;
 pub mod hw;
 pub mod libretro;

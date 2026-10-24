@@ -183,12 +183,17 @@ pub struct Dsp {
     pub dma_addr: u32,
     pub dma_ctl: u16,
     pub dma_left: u16,
+    /// The audio DMA's progress through the buffer it is playing.
+    pub dma_cur: u32,
+    pub dma_sub: u8,
     /// Mails the CPU sent to the boot ROM's upload protocol so far (pairs of command, value).
     pub rom_mails: Vec<u32>,
     /// A sound program the CPU uploaded: (main-memory address, length), once started.
     pub ucode: Option<(u32, u32)>,
     /// Mails our DSP stand-in has queued for the CPU, oldest first.
     pub outbox: std::collections::VecDeque<u32>,
+    /// Our stand-in for the sound program that is running (dsp_hle.rs).
+    pub hle: crate::dsp_hle::HleState,
 }
 
 #[derive(Default, Clone, Serialize, Deserialize)]
@@ -226,6 +231,13 @@ pub struct Hw {
     pub di_commands: std::collections::BTreeMap<u8, u32>,
     /// The first disc drive register writes (offset, value), for development.
     pub di_trace: Vec<(u32, u32)>,
+    /// Sound for the frontend: interleaved left/right 16-bit samples at 48 kHz.
+    pub audio_out: Vec<i16>,
+    /// Audio clock: DMA samples owed, in hundredths of a video line.
+    audio_phase: u64,
+    /// Resampling 32 kHz to 48 kHz: the previous input frame and the position between frames.
+    audio_prev: (i16, i16),
+    audio_t: f32,
     /// An SD card adapter and the EXI channel it sits on (2: serial port 2, like SD2SP2).
     pub sd: Option<crate::sd::SdCard>,
     pub sd_channel: usize,
@@ -255,6 +267,10 @@ impl Hw {
             di_trace: Vec::new(),
             sd: None,
             sd_channel: 2,
+            audio_out: Vec::with_capacity(4096),
+            audio_phase: 0,
+            audio_prev: (0, 0),
+            audio_t: 0.0,
         }
     }
 
@@ -1013,7 +1029,7 @@ impl Hw {
             0x02 => {
                 self.dsp.cpu_mbox = (self.dsp.cpu_mbox & 0xFFFF_0000) | v32;
                 self.dsp.cpu_mbox_full = true;
-                self.dsp_hle_mail();
+                self.dsp_cpu_mail();
             }
             0x0A => {
                 // Interrupt bits (3, 5, 7) clear on 1; RES (0) resets; HALT (2) and masks are stored.
@@ -1051,15 +1067,19 @@ impl Hw {
             0x30 => self.dsp.dma_addr = (self.dsp.dma_addr & 0xFFFF) | (v32 << 16),
             0x32 => self.dsp.dma_addr = (self.dsp.dma_addr & 0xFFFF_0000) | (v32 & !0x1F),
             0x36 => {
+                let was_on = self.dsp.dma_ctl & 0x8000 != 0;
                 self.dsp.dma_ctl = v;
-                self.dsp.dma_left = v & 0x7FFF;
+                if v & 0x8000 != 0 && !was_on {
+                    // Starting: the first buffer is loaded at once (and says so).
+                    self.audio_dma_load();
+                }
             }
             _ => {}
         }
     }
 
     /// Queues a mail from the DSP to the CPU (delivered when the mailbox is free).
-    fn dsp_post(&mut self, mail: u32) {
+    pub(crate) fn dsp_post(&mut self, mail: u32) {
         self.dsp.outbox.push_back(mail);
         self.dsp_deliver();
     }
@@ -1079,18 +1099,21 @@ impl Hw {
     /// uploaded sound program runs. A started program says it is ready (0xDCD10000, the mail
     /// Nintendo's sound programs send first). Until our own stand-ins for the common sound
     /// programs exist (step G5, sound), every other mail is just taken.
-    fn dsp_hle_mail(&mut self) {
+    fn dsp_cpu_mail(&mut self) {
         let mail = self.dsp.cpu_mbox | 0x8000_0000;
         self.dsp.cpu_mbox_full = false;
         if self.dsp.ucode.is_none() {
             self.dsp.rom_mails.push(mail);
             let m = &self.dsp.rom_mails;
             if m.len().is_multiple_of(2) && m[m.len() - 2] == 0x80F3_D001 {
-                let find = |cmd: u32| m.chunks(2).find(|p| p[0] == cmd).map(|p| p[1]).unwrap_or(0);
-                self.dsp.ucode = Some((find(0x80F3_A001), find(0x80F3_A002)));
+                let find = |cmd: u32| m.chunks(2).find(|p| p[0] == cmd).map(|p| p[1] & 0x7FFF_FFFF).unwrap_or(0);
+                let (maddr, len) = (find(0x80F3_A001), find(0x80F3_A002));
+                self.dsp.ucode = Some((maddr, len));
                 self.dsp.rom_mails.clear();
-                self.dsp_post(0xDCD1_0000);
+                self.dsp_hle_start(maddr, len);
             }
+        } else {
+            self.dsp_hle_mail(mail);
         }
     }
 
@@ -1155,10 +1178,68 @@ impl Hw {
         }
     }
 
-    /// Audio DMA finished a block: the DSP raises AIDINT.
-    pub fn audio_dma_block(&mut self) {
-        if self.dsp.dma_ctl & 0x8000 != 0 {
-            self.dsp.csr |= 0x08;
+    /// The audio DMA takes the buffer the registers describe and raises AIDINT, so the program
+    /// can queue the next one while this one plays.
+    fn audio_dma_load(&mut self) {
+        self.dsp.dma_cur = ((self.dsp.dma_addr >> 16) << 16 | (self.dsp.dma_addr & 0xFFE0)) & 0x03FF_FFE0;
+        self.dsp.dma_left = self.dsp.dma_ctl & 0x7FFF;
+        self.dsp.dma_sub = 0;
+        self.dsp.csr |= 0x08;
+    }
+
+    /// One frame from the audio DMA (right then left, as the hardware stores them), or silence.
+    fn audio_dma_frame(&mut self) -> (i16, i16) {
+        if self.dsp.dma_ctl & 0x8000 == 0 {
+            return (0, 0);
+        }
+        if self.dsp.dma_left == 0 {
+            self.audio_dma_load();
+            if self.dsp.dma_left == 0 {
+                return (0, 0);
+            }
+        }
+        let a = self.dsp.dma_cur + self.dsp.dma_sub as u32 * 4;
+        let w = self.read_ram32(a);
+        let (r, l) = ((w >> 16) as i16, w as i16);
+        self.dsp.dma_sub += 1;
+        if self.dsp.dma_sub == 8 {
+            self.dsp.dma_sub = 0;
+            self.dsp.dma_cur += 32;
+            self.dsp.dma_left -= 1;
+        }
+        (l, r)
+    }
+
+    fn read_ram32(&mut self, pa: u32) -> u32 {
+        self.ram(pa, 4).map(|r| u32::from_be_bytes([r[0], r[1], r[2], r[3]])).unwrap_or(0)
+    }
+
+    /// One video line of sound: the DMA plays at 32 or 48 kHz; the output is always 48 kHz.
+    pub fn audio_line(&mut self) {
+        let lines_x100: u64 = if self.vi_lines_per_frame() == 625 { 1_562_500 } else { 1_573_426 };
+        let rate: u64 = if self.ai.cr & 0x40 != 0 { 32_000 } else { 48_000 };
+        self.audio_phase += rate * 100;
+        while self.audio_phase >= lines_x100 {
+            self.audio_phase -= lines_x100;
+            let f = self.audio_dma_frame();
+            if rate == 48_000 {
+                self.audio_out.extend_from_slice(&[f.0, f.1]);
+            } else {
+                let step = 32_000.0 / 48_000.0;
+                let p = self.audio_prev;
+                while self.audio_t <= 1.0 {
+                    let t = self.audio_t;
+                    let mix = |a: i16, b: i16| (a as f32 + (b as f32 - a as f32) * t) as i16;
+                    self.audio_out.extend_from_slice(&[mix(p.0, f.0), mix(p.1, f.1)]);
+                    self.audio_t += step;
+                }
+                self.audio_t -= 1.0;
+                self.audio_prev = f;
+            }
+            if self.audio_out.len() > 48_000 * 2 {
+                // Nobody is taking the sound: keep only the newest second.
+                self.audio_out.drain(..48_000);
+            }
         }
     }
 }
