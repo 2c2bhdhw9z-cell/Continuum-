@@ -1,6 +1,7 @@
 //! Proves the fast interpreter identical to the plain one: runs the same program on both,
 //! field by field, and compares the CPU registers, cycle counts, main memory and the picture.
 //! cargo run --release --example compare -- path fields   (CGC_SD / CGC_ARGV / CGC_ENV as boot)
+//! CGC_JIT=1 turns our JIT on in the fast one (on ARM64; on x86 build with --features unicorn).
 use continuum_gc::libretro::open;
 use continuum_gc::machine::Machine;
 fn setup(path: &str) -> Machine {
@@ -30,6 +31,9 @@ fn main() {
     let mut plain = setup(&a[1]);
     plain.fast = None;
     let mut fast = setup(&a[1]);
+    if std::env::var("CGC_JIT").is_ok() {
+        assert!(fast.enable_jit(), "no JIT code memory here (on x86, build with --features unicorn)");
+    }
     let (mut tp, mut tf) = (0.0, 0.0);
     for f in 0..fields {
         let t = std::time::Instant::now();
@@ -52,4 +56,8 @@ fn main() {
     }
     let st = &fast.fast.as_ref().unwrap().stats;
     eprintln!("IDENTICAL for {fields} fields ({} cycles). plain {tp:.1}s, fast {tf:.1}s ({:.2}x). blocks built {}, run {}, invalidations {}", fast.cpu.cycles, tp / tf, st.blocks_built, st.blocks_run, st.invalidations);
+    eprintln!("msr {:08X} ibat0 {:08X?} dbat0 {:08X?} pc {:08X}", fast.cpu.msr, fast.cpu.ibat[0], fast.cpu.dbat[0], fast.cpu.pc);
+    if let Some(j) = fast.fast.as_ref().unwrap().jit.as_ref() {
+        eprintln!("JIT: {:?}, code {} KB", j.stats, j.used_bytes() / 1024);
+    }
 }

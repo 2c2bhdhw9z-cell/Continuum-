@@ -21,11 +21,15 @@
 use super::fast_ops::{decode, ends_block, is_timed, Op};
 use super::{Access, Cpu, MSR_IR};
 use crate::hw::Hw;
+use crate::jit::runtime::{Jit, Mapping, Native};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 
 /// The most instructions one block holds.
 const MAX_BLOCK: usize = 128;
+/// Runs of a block in the interpreter before it is compiled (code that runs once, such as
+/// start-up code, is not worth compiling).
+const COMPILE_AFTER: u32 = 2;
 /// Direct-mapped lookup in front of the block map.
 const LOOKUP: usize = 1 << 16;
 
@@ -61,6 +65,10 @@ struct Block {
     /// Ends with an instruction that touches the time base or the decrementer: the machine
     /// must work out the next deadline again before anything else runs.
     timed: bool,
+    /// Its compiled code, when the JIT is on and has compiled it.
+    native: Option<Native>,
+    /// Runs before it was compiled.
+    runs: u32,
 }
 
 pub struct FastCpu {
@@ -76,6 +84,8 @@ pub struct FastCpu {
     /// The block that ran last, to follow its links.
     last: Option<u32>,
     pub stats: FastStats,
+    /// The JIT (gamecube.json G8), when this phone allows one: blocks compiled to ARM64.
+    pub jit: Option<Box<Jit>>,
 }
 
 impl Default for FastCpu {
@@ -94,12 +104,34 @@ pub struct FastStats {
 
 impl FastCpu {
     pub fn new() -> Self {
-        FastCpu { blocks: Vec::new(), free: Vec::new(), index: Map::default(), lookup: vec![(0, 0); LOOKUP], pages: Map::default(), last: None, stats: FastStats::default() }
+        FastCpu { blocks: Vec::new(), free: Vec::new(), index: Map::default(), lookup: vec![(0, 0); LOOKUP], pages: Map::default(), last: None, stats: FastStats::default(), jit: None }
+    }
+
+    /// Turns the JIT on with this code memory.
+    pub fn enable_jit(&mut self, backend: Box<dyn crate::jit::runtime::Backend>) {
+        self.jit = Some(Box::new(Jit::new(backend)));
+        for b in self.blocks.iter_mut().flatten() {
+            b.native = None;
+        }
+    }
+
+    /// The code memory is full: all compiled code goes, and is compiled again as it runs.
+    fn reset_jit(&mut self) {
+        if let Some(j) = self.jit.as_mut() {
+            j.reset();
+        }
+        for b in self.blocks.iter_mut().flatten() {
+            b.native = None;
+            b.runs = 0;
+        }
     }
 
     /// Drops every cached block.
     pub fn clear(&mut self) {
         self.last = None;
+        if let Some(j) = self.jit.as_mut() {
+            j.reset();
+        }
         self.blocks.clear();
         self.free.clear();
         self.index.clear();
@@ -121,6 +153,9 @@ impl FastCpu {
                 self.last = None;
                 for s in starts {
                     if let Some(i) = self.index.remove(&s) {
+                        if let (Some(j), Some(n)) = (self.jit.as_mut(), self.blocks[i as usize].as_ref().and_then(|b| b.native)) {
+                            j.forget(n.ea);
+                        }
                         self.blocks[i as usize] = None;
                         self.free.push(i);
                         let slot = &mut self.lookup[((s >> 2) as usize) & (LOOKUP - 1)];
@@ -151,7 +186,7 @@ impl FastCpu {
         let idle = is_idle_loop(&ops);
         let timed = ops.last().is_some_and(|o| is_timed(o.inst));
         let version = self.stats.blocks_built as u32 + 1;
-        let block = Block { ops, version, links: [(0, 0, 0, 0); 2], idle, timed };
+        let block = Block { ops, version, links: [(0, 0, 0, 0); 2], idle, timed, native: None, runs: 0 };
         let idx = match self.free.pop() {
             Some(i) => {
                 self.blocks[i as usize] = Some(block);
@@ -247,6 +282,11 @@ impl FastCpu {
             }
         };
         self.stats.blocks_run += 1;
+        if self.jit.is_some() {
+            if let Some(cycles) = self.run_native(cpu, hw, idx, budget) {
+                return (cycles, false);
+            }
+        }
         let block = self.blocks[idx as usize].as_ref().expect("live block");
         let ops = &block.ops;
         let limit = (ops.len() as u64).min(budget.max(1)) as usize;
@@ -279,6 +319,59 @@ impl FastCpu {
         let stop = block.timed;
         cpu.advance_time(cycles);
         (cycles, stop)
+    }
+}
+
+impl FastCpu {
+    /// Runs compiled code from block `idx` when the JIT can (compiling it once it has run
+    /// enough), chaining on into further compiled blocks within the budget. Returns the cycles
+    /// used, or None to run the block in the interpreter.
+    ///
+    /// Same rules as the interpreter's own chaining: the chain only goes on while nothing the
+    /// machine must see first has happened (generated code returns after any instruction that
+    /// touched hardware, faulted or changed cached code, and after anything that can change
+    /// the MSR or the BATs), and when the interpreter would have stopped after this one block
+    /// it is given only this block's budget. Time is added once for the whole chain, which is
+    /// the same: nothing in a chain reads the time (those instructions run in the interpreter).
+    fn run_native(&mut self, cpu: &mut Cpu, hw: &mut Hw, idx: u32, budget: u64) -> Option<u64> {
+        let pc = cpu.pc;
+        let mapping = Mapping::of(cpu)?;
+        if self.jit.as_ref()?.mapping() != mapping {
+            // Code compiled for another mapping (its links and memory window) is no good.
+            self.reset_jit();
+            self.jit.as_mut()?.set_mapping(mapping);
+        }
+        let FastCpu { blocks, jit, .. } = self;
+        let jit = jit.as_deref_mut()?;
+        let block = blocks[idx as usize].as_mut().expect("live block");
+        if block.idle || block.timed || !mapping.compilable(pc) {
+            return None;
+        }
+        let len = block.ops.len() as u64;
+        if block.native.is_none() {
+            block.runs += 1;
+            if block.runs < COMPILE_AFTER {
+                return None;
+            }
+            match jit.compile(pc, &block.ops) {
+                Some(n) => block.native = Some(n),
+                None => {
+                    self.reset_jit();
+                    return None;
+                }
+            }
+        }
+        let n = block.native?;
+        if n.ea != pc || budget < len {
+            return None;
+        }
+        cpu.exit = false;
+        cpu.faulted = false;
+        let stop_after_one = hw.irq_dirty || !hw.invalidated.is_empty() || cpu.dec_pending || cpu.msr & super::MSR_POW != 0;
+        let cycles = jit.run(n, cpu, hw, if stop_after_one { len } else { budget });
+        self.last = None;
+        cpu.advance_time(cycles);
+        Some(cycles)
     }
 }
 

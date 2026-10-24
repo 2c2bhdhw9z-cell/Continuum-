@@ -19,7 +19,6 @@
 use super::a64::{Asm, Cond, Shift, R};
 use crate::cpu::fast_ops::{ends_block, Op};
 use crate::cpu::Cpu;
-use crate::hw::MEM1_SIZE;
 use std::mem::offset_of;
 
 /// What generated code needs that is not in the CPU or the hardware.
@@ -29,6 +28,9 @@ pub struct JitCtx {
     pub code_pages: u64,
     /// `fallback(cpu, hw, op)`: runs one instruction's fast-interpreter handler.
     pub fallback: u64,
+    /// Main-memory offsets (effective address - 0x80000000) below this take the inline path
+    /// for any access of up to 8 bytes: the data BAT's window less 7.
+    pub mem_limit: u64,
 }
 
 /// The word a link site holds while it is not linked: a branch to the next instruction, which
@@ -40,6 +42,7 @@ const HW: R = 20;
 const CTX: R = 21;
 const MEM: R = 22;
 const PAGES: R = 23;
+const LIMIT: R = 24;
 const BUDGET: R = 25;
 
 fn gpr(r: u8) -> u32 {
@@ -216,6 +219,7 @@ pub fn compile(insts: &[Inst], fast_mem: bool) -> Compiled {
     c.a.mov(true, BUDGET, 3);
     c.a.ldr_x(MEM, CTX, offset_of!(JitCtx, mem1) as u32);
     c.a.ldr_x(PAGES, CTX, offset_of!(JitCtx, code_pages) as u32);
+    c.a.ldr_x(LIMIT, CTX, offset_of!(JitCtx, mem_limit) as u32);
     // The entry chained blocks use: is there budget for the whole block?
     let inner = c.a.here();
     let start = insts.first().map_or(0, |i| i.ea);
@@ -492,13 +496,13 @@ fn branch_cond(c: &mut Ctx, ins: &Inst, count: u32, bo: u32, bi: u32, use_ctr: b
 }
 
 /// Inline load of `n` bytes at the address in w0 (the standard block mapping: 0x80000000 is
-/// physical 0, translation on), or the handler when that does not apply.
+/// physical 0, translation on, for `mem_limit` + 7 bytes), or the handler when that does not
+/// apply.
 #[allow(clippy::too_many_arguments)]
 fn mem_load(c: &mut Ctx, ins: &Inst, count: u32, n: u32, algebraic: bool, d: u8, update: Option<u8>) {
     let page_at = page_check(c, n);
     c.a.emit(eor_top_bit(1, 0));
-    c.a.mov_imm(false, 2, (MEM1_SIZE as u32 - n + 1) as u64);
-    c.a.cmp(false, 1, 2);
+    c.a.cmp(false, 1, LIMIT);
     let slow_at = c.a.here();
     c.a.emit(0);
     match n {
@@ -544,8 +548,7 @@ fn page_check(c: &mut Ctx, n: u32) -> usize {
 fn mem_store(c: &mut Ctx, ins: &Inst, count: u32, n: u32, s: u8, update: Option<u8>) {
     let page_at = page_check(c, n);
     c.a.emit(eor_top_bit(1, 0));
-    c.a.mov_imm(false, 2, (MEM1_SIZE as u32 - n + 1) as u64);
-    c.a.cmp(false, 1, 2);
+    c.a.cmp(false, 1, LIMIT);
     let slow_at = c.a.here();
     c.a.emit(0);
     // The code-page bit for physical page w1 >> 12.

@@ -1,25 +1,21 @@
 //! The JIT against the interpreter: random blocks of PowerPC instructions, compiled to ARM64
-//! and run inside Unicorn (an ARM64 emulator, test machine only), must leave the CPU and
-//! memory exactly as the fast interpreter's handlers do (which are proved equal to the plain
-//! interpreter by their own tests).
+//! and run through the same backend the runtime uses (the real processor on ARM64; on the x86
+//! test machine Unicorn, an ARM64 emulator), must leave the CPU and memory exactly as the
+//! fast interpreter's handlers do (which are proved equal to the plain interpreter by their
+//! own tests).
+
+#![cfg(any(target_arch = "aarch64", feature = "unicorn"))]
 
 use super::compile::{compile, Inst, JitCtx};
+use super::runtime::Backend;
 use crate::cpu::fast_ops::{decode, Op};
 use crate::cpu::{Cpu, HID2_LSQE, HID2_PSE, MSR_DR, MSR_FP, MSR_IR};
 use crate::hw::Hw;
-use std::mem::offset_of;
-use unicorn_engine::unicorn_const::{Arch, Mode, Prot};
-use unicorn_engine::{RegisterARM64, Unicorn};
 
-const CODE: u64 = 0x1000_0000;
-const STACK: u64 = 0x2000_0000;
-const CPUMEM: u64 = 0x3000_0000;
-const CTXMEM: u64 = 0x3100_0000;
-const PAGES: u64 = 0x3200_0000;
-const MEM1: u64 = 0x4000_0000;
-const FALLBACK: u64 = 0x5000_0000;
 const WINDOW: usize = 0x10_0000;
 const WINDOW_LEN: usize = 0x1_0000;
+/// Where block B goes in the code area (instructions).
+const B_AT: usize = 0x2000;
 
 struct Rng(u64);
 impl Rng {
@@ -29,43 +25,6 @@ impl Rng {
         self.0 ^= self.0 << 17;
         (self.0 >> 16) as u32
     }
-}
-
-fn cpu_bytes(cpu: &Cpu) -> &[u8] {
-    // SAFETY: plain bytes of a live value, for copying into the emulator and back.
-    unsafe { std::slice::from_raw_parts(cpu as *const Cpu as *const u8, std::mem::size_of::<Cpu>()) }
-}
-
-/// Copies the emulator's view of the CPU back, field by field (only the fields generated code
-/// and handlers touch; heap pointers inside `Cpu` are never taken from the emulator).
-fn read_cpu(uc: &Unicorn<()>, cpu: &mut Cpu) {
-    let mut b = vec![0u8; std::mem::size_of::<Cpu>()];
-    uc.mem_read(CPUMEM, &mut b).unwrap();
-    let w = |o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
-    let q = |o: usize| u64::from_le_bytes(b[o..o + 8].try_into().unwrap());
-    for r in 0..32 {
-        cpu.gpr[r] = w(offset_of!(Cpu, gpr) + 4 * r);
-        cpu.ps0[r] = q(offset_of!(Cpu, ps0) + 8 * r);
-        cpu.ps1[r] = q(offset_of!(Cpu, ps1) + 8 * r);
-    }
-    cpu.cr = w(offset_of!(Cpu, cr));
-    cpu.xer = w(offset_of!(Cpu, xer));
-    cpu.lr = w(offset_of!(Cpu, lr));
-    cpu.ctr = w(offset_of!(Cpu, ctr));
-    cpu.pc = w(offset_of!(Cpu, pc));
-    cpu.msr = w(offset_of!(Cpu, msr));
-    cpu.fpscr = w(offset_of!(Cpu, fpscr));
-    cpu.srr0 = w(offset_of!(Cpu, srr0));
-    cpu.srr1 = w(offset_of!(Cpu, srr1));
-    cpu.dar = w(offset_of!(Cpu, dar));
-    cpu.dsisr = w(offset_of!(Cpu, dsisr));
-    cpu.cur_pc = w(offset_of!(Cpu, cur_pc));
-    cpu.exit = b[offset_of!(Cpu, exit)] != 0;
-    cpu.faulted = b[offset_of!(Cpu, faulted)] != 0;
-}
-
-fn write_cpu(uc: &mut Unicorn<()>, cpu: &Cpu) {
-    uc.mem_write(CPUMEM, cpu_bytes(cpu)).unwrap();
 }
 
 fn instruction(rng: &mut Rng) -> u32 {
@@ -116,21 +75,7 @@ fn setup(cpu: &mut Cpu, rng: &mut Rng) {
 
 #[test]
 fn jit_blocks_match_the_interpreter() {
-    let mut uc = Unicorn::new(Arch::ARM64, Mode::LITTLE_ENDIAN).unwrap();
-    uc.mem_map(CODE, 1 << 20, Prot::ALL).unwrap();
-    uc.mem_map(STACK, 1 << 16, Prot::ALL).unwrap();
-    let cpu_size = (std::mem::size_of::<Cpu>() as u64 + 0xFFF) & !0xFFF;
-    uc.mem_map(CPUMEM, cpu_size, Prot::ALL).unwrap();
-    uc.mem_map(CTXMEM, 0x1000, Prot::ALL).unwrap();
-    uc.mem_map(PAGES, 0x1000, Prot::ALL).unwrap();
-    uc.mem_map(FALLBACK, 0x1000, Prot::ALL).unwrap();
-    // `ret` at the fallback address; the hook below does the work first.
-    uc.mem_write(FALLBACK, &0xD65F_03C0u32.to_le_bytes()).unwrap();
-    let ctx = JitCtx { mem1: MEM1, code_pages: PAGES, fallback: FALLBACK };
-    // SAFETY: plain bytes of a repr(C) struct of u64s.
-    let ctx_bytes = unsafe { std::slice::from_raw_parts(&ctx as *const JitCtx as *const u8, std::mem::size_of::<JitCtx>()) };
-    uc.mem_write(CTXMEM, ctx_bytes).unwrap();
-
+    let mut backend: Box<dyn Backend> = super::backend(1 << 20).expect("code memory");
     let mut rng = Rng(0x0BAD_C0DE_1234_5678);
     let mut hw_ref = Hw::new(false);
     let mut hw_jit = Hw::new(false);
@@ -139,14 +84,10 @@ fn jit_blocks_match_the_interpreter() {
         hw_ref.mem1[WINDOW + k..WINDOW + k + 4].copy_from_slice(&w.to_be_bytes());
     }
     hw_jit.mem1.copy_from_slice(&hw_ref.mem1);
-    // The emulator sees the JIT side's main memory itself, so generated code and handlers
-    // always agree on every byte of it.
-    // SAFETY: `hw_jit.mem1` is never resized and outlives `uc`'s use of it in this test.
-    unsafe { uc.mem_map_ptr(MEM1, crate::hw::MEM1_SIZE as u64, Prot::ALL, hw_jit.mem1.as_mut_ptr().cast()).unwrap() };
     // One page of "cached code" in the window: stores there must take the slow path.
     hw_jit.code_pages[(WINDOW + 0x8000) >> 18] |= 1 << (((WINDOW + 0x8000) >> 12) & 63);
     hw_ref.code_pages.copy_from_slice(&hw_jit.code_pages.clone());
-    uc.mem_write(PAGES, &hw_jit.code_pages.iter().take(512).flat_map(|w| w.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+    let ctx = JitCtx { mem1: hw_jit.mem1.as_mut_ptr() as u64, code_pages: hw_jit.code_pages.as_ptr() as u64, fallback: backend.fallback(), mem_limit: (crate::hw::MEM1_SIZE - 7) as u64 };
 
     let blocks = 20_000;
     let mut native_hits = 0usize;
@@ -223,57 +164,23 @@ fn jit_blocks_match_the_interpreter() {
             }
         }
 
-        // The JIT, in the emulator: A at CODE, B at CODE + 0x8000, A's link to B patched in.
+        // The JIT: A at the start of the code area, B further on, A's link to B patched in.
         let mut code_a = compiled.code.clone();
         if let Some(bc) = &b_compiled {
-            let b_at = 0x8000 / 4 + bc.inner;
+            let b_inner = B_AT + bc.inner;
             for &(site, target) in &compiled.links {
                 if target == b_base {
-                    code_a[site] = 0x1400_0000 | ((b_at as u32).wrapping_sub(site as u32) & 0x03FF_FFFF);
+                    code_a[site] = 0x1400_0000 | ((b_inner as u32).wrapping_sub(site as u32) & 0x03FF_FFFF);
                     chained += 1;
                 }
             }
-            let code_b: Vec<u8> = bc.code.iter().flat_map(|w| w.to_le_bytes()).collect();
-            uc.mem_write(CODE + 0x8000, &code_b).unwrap();
+            backend.write(B_AT, &bc.code);
         }
-        let code: Vec<u8> = code_a.iter().flat_map(|w| w.to_le_bytes()).collect();
-        uc.mem_write(CODE, &code).unwrap();
-        // Unicorn keeps translated code; drop it so the new block is what runs.
-        uc.ctl_remove_cache(CODE, CODE + (1 << 20)).unwrap();
+        backend.write(0, &code_a);
         cpu_jit.exit = false;
         cpu_jit.faulted = false;
-        write_cpu(&mut uc, &cpu_jit);
-        uc.reg_write(RegisterARM64::X0, CPUMEM).unwrap();
-        uc.reg_write(RegisterARM64::X1, 0).unwrap();
-        uc.reg_write(RegisterARM64::X2, CTXMEM).unwrap();
-        uc.reg_write(RegisterARM64::X3, budget).unwrap();
-        uc.reg_write(RegisterARM64::SP, STACK + 0x8000).unwrap();
-        // Returning from the block lands on an address we stop at.
-        let end = CODE + 0xF_FF00;
-        uc.reg_write(RegisterARM64::X30, end).unwrap();
-        // The fallback: run the handler on the host with the emulator's state.
-        let hw_ptr = &mut hw_jit as *mut Hw;
-        let cpu_ptr = &mut cpu_jit as *mut Cpu;
-        let hook = uc
-            .add_code_hook(FALLBACK, FALLBACK + 4, move |uc, _addr, _size| {
-                // SAFETY: the pointers outlive the emulation call below; nothing else uses them
-                // while it runs.
-                let (hw, cpu) = unsafe { (&mut *hw_ptr, &mut *cpu_ptr) };
-                read_cpu(uc, cpu);
-                let op_ptr = uc.reg_read(RegisterARM64::X2).unwrap() as *const Op;
-                // SAFETY: the address the compiler embedded, of an Op that is still alive.
-                let op = unsafe { &*op_ptr };
-                (op.f)(cpu, hw, op);
-                if std::env::var("JIT_TRACE").is_ok() {
-                    eprintln!("  fallback {:08X} at {:08X}: exit {} faulted {} pc {:08X}", op.inst, cpu.cur_pc, cpu.exit, cpu.faulted, cpu.pc);
-                }
-                write_cpu(uc, cpu);
-            })
-            .unwrap();
-        uc.emu_start(CODE, end, 0, 1_000_000).unwrap();
-        uc.remove_hook(hook).unwrap();
-        read_cpu(&uc, &mut cpu_jit);
-        let n_jit = budget - uc.reg_read(RegisterARM64::X0).unwrap();
+        // SAFETY: freshly compiled code; the CPU, hardware and context are live locals.
+        let n_jit = budget - unsafe { backend.call(0, &mut cpu_jit, &mut hw_jit, &ctx, budget) };
         if with_b {
             words.extend_from_slice(&b_words);
         }

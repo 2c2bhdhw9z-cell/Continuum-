@@ -19,6 +19,10 @@ const STUB_REPORT: u32 = STUB + 0x10;
 const APPLOADER_BASE: u32 = 0x8120_0000;
 const BOOT_STACK: u32 = 0x816F_FFF0;
 
+/// Code memory asked for the JIT: room for the compiled code of a whole game (it is address
+/// space until written; when full, everything is compiled again as it runs).
+pub const JIT_CODE_BYTES: usize = 64 * 1024 * 1024;
+
 pub struct Machine {
     pub cpu: Cpu,
     pub hw: Hw,
@@ -225,6 +229,21 @@ impl Machine {
             self.cpu.step(&mut self.hw);
         }
         Err(format!("the disc's loader never finished (stuck at {:08X})", self.cpu.pc))
+    }
+
+    /// Turns our JIT on (gamecube.json G8) when this process can run generated code: on the
+    /// phone when the app gives the core code memory. Returns whether it is on.
+    pub fn enable_jit(&mut self) -> bool {
+        let Some(fast) = self.fast.as_mut() else {
+            return false;
+        };
+        match crate::jit::backend(JIT_CODE_BYTES) {
+            Some(b) => {
+                fast.enable_jit(b);
+                true
+            }
+            None => false,
+        }
     }
 
     // ------------------------------------------------------------------ running

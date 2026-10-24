@@ -2,9 +2,10 @@
 //!
 //! JIT (owner rule: used automatically wherever the phone allows it): at load the core asks
 //! `RETRO_ENVIRONMENT_GET_JIT_CAPABLE`, which the engine answers from `crates/emulator-bridge/
-//! src/jit.rs`. The answer is kept in `JIT_ALLOWED` for the CPU engine to pick from once the JIT
-//! exists (step G8); until then every phone runs the interpreter. The core id the engine's
-//! `core_may_use_jit` list must name for iOS 26 phones is `continuum_gc`.
+//! src/jit.rs`. When the answer is yes, the machine turns our JIT on (step G8), taking its code
+//! memory from the app (`continuum_jit_region`, two addresses for the same memory as iOS 26
+//! needs); when the app gives none, or the answer is no, the fast interpreter runs. The core id
+//! the engine's `core_may_use_jit` list must name for iOS 26 phones is `continuum_gc`.
 
 use crate::disc::{Console, Disc, PlainImage};
 use crate::dol::Executable;
@@ -197,7 +198,10 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     let asked = env(ENV_GET_JIT_CAPABLE, &mut jit as *mut bool as *mut c_void);
     JIT_ALLOWED.store(asked && jit, Ordering::SeqCst);
     match open(&path) {
-        Ok(machine) => {
+        Ok(mut machine) => {
+            if JIT_ALLOWED.load(Ordering::SeqCst) {
+                machine.enable_jit();
+            }
             *core() = Some(Core { machine, frame: vec![0; 640 * 480], size: (640, 480) });
             true
         }

@@ -1,8 +1,15 @@
 //! Development profiler: boots a program, runs N fields under a sampling profiler and prints
 //! the functions where the time goes (self time and inclusive time).
 //! cargo run --profile profiling --example profile -- path fields  (CGC_SD / CGC_ARGV / CGC_ENV as boot)
+#[cfg(not(target_arch = "x86_64"))]
+fn main() {
+    eprintln!("the profiler runs on the x86 test machine only");
+}
+#[cfg(target_arch = "x86_64")]
 use continuum_gc::libretro::open;
+#[cfg(target_arch = "x86_64")]
 use std::collections::HashMap;
+#[cfg(target_arch = "x86_64")]
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let mut m = open(&a[1]).expect("boots");
