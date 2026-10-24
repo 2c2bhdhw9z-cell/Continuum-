@@ -14,3 +14,4 @@ pub mod gx;
 pub mod hw;
 pub mod libretro;
 pub mod machine;
+pub mod sd;

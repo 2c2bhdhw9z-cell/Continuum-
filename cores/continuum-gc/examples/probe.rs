@@ -19,6 +19,21 @@ fn hex(s: &str) -> u32 {
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     let mut m = open(&a[1]).expect("boots");
+    // CGC_DISC=image: put a raw image in the drive (for programs that read data from a disc).
+    if let Ok(d) = std::env::var("CGC_DISC") {
+        m.hw.disc = Some(Box::new(continuum_gc::disc::PlainImage::open(&d).expect("disc image")));
+    }
+    // CGC_SD=image: an SD card (FAT image) in serial port 2.
+    if let Ok(d) = std::env::var("CGC_SD") {
+        m.hw.sd = Some(continuum_gc::sd::SdCard::open(&d).expect("sd image"));
+    }
+    // CGC_ARGV="a b" and CGC_ENV="K=V K2=V2": the command line and environment a loader passes.
+    if let Ok(args) = std::env::var("CGC_ARGV") {
+        let env = std::env::var("CGC_ENV").unwrap_or_default();
+        let entry = m.cpu.pc;
+        let ok = m.set_args(entry, &args.split(' ').collect::<Vec<_>>(), &env.split(' ').filter(|s| !s.is_empty()).collect::<Vec<_>>());
+        eprintln!("arguments passed: {ok}");
+    }
     let mut max: u64 = 2_000_000_000;
     let mut brk: Option<u32> = None;
     let mut hits = 1u32;

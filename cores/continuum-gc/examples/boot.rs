@@ -4,6 +4,21 @@ use continuum_gc::libretro::open;
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut m = open(&args[1]).expect("boots");
+    // CGC_DISC=image: put a raw image in the drive (for programs that read data from a disc).
+    if let Ok(d) = std::env::var("CGC_DISC") {
+        m.hw.disc = Some(Box::new(continuum_gc::disc::PlainImage::open(&d).expect("disc image")));
+    }
+    // CGC_SD=image: an SD card (FAT image) in serial port 2.
+    if let Ok(d) = std::env::var("CGC_SD") {
+        m.hw.sd = Some(continuum_gc::sd::SdCard::open(&d).expect("sd image"));
+    }
+    // CGC_ARGV="a b" and CGC_ENV="K=V K2=V2": the command line and environment a loader passes.
+    if let Ok(args) = std::env::var("CGC_ARGV") {
+        let env = std::env::var("CGC_ENV").unwrap_or_default();
+        let entry = m.cpu.pc;
+        let ok = m.set_args(entry, &args.split(' ').collect::<Vec<_>>(), &env.split(' ').filter(|s| !s.is_empty()).collect::<Vec<_>>());
+        eprintln!("arguments passed: {ok}");
+    }
     let fields: u32 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(120);
     let t = std::time::Instant::now();
     let mut pcs = std::collections::HashMap::<u32, u32>::new();
@@ -24,6 +39,10 @@ fn main() {
     eprintln!("faults (vector, at, address): {:08X?}", m.cpu.fault_log);
     eprintln!("unknown registers: {:X?}", m.hw.unknown.iter().take(40).collect::<Vec<_>>());
     eprintln!("graphics: {:?}", m.hw.gx.stats);
+    eprintln!("disc commands: {:X?}", m.hw.di_commands);
+    if std::env::var("CGC_DI_TRACE").is_ok() {
+        eprintln!("disc register writes: {:X?}", m.hw.di_trace);
+    }
     eprintln!("uart: {}", String::from_utf8_lossy(&m.hw.uart).replace('\r', "\n"));
     let mut p: Vec<_> = pcs.into_iter().collect();
     p.sort_by_key(|(_, n)| std::cmp::Reverse(*n));

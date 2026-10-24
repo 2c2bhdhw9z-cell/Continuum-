@@ -118,6 +118,37 @@ impl Machine {
         self.cpu.pc = exe.entry;
     }
 
+    /// Hands a homebrew program its command line and environment, the way homebrew loaders do:
+    /// programs built with the homebrew SDK keep two small blocks right after their entry point,
+    /// marked "_arg" and "_env". Each gets a pointer to NUL-separated strings, which the program
+    /// copies away first thing. Returns false when the program has no such blocks.
+    pub fn set_args(&mut self, entry: u32, argv: &[&str], envp: &[&str]) -> bool {
+        const ARGV_MAGIC: u32 = 0x5F61_7267;
+        const ENVP_MAGIC: u32 = 0x5F65_6E76;
+        let pa = |ea: u32| ea & 0x01FF_FFFF;
+        if self.hw.read32(pa(entry + 4)) != ARGV_MAGIC {
+            return false;
+        }
+        let mut put = |m: &mut Machine, block: u32, magic: u32, strings: &[&str], at: u32| {
+            let mut z = Vec::new();
+            for s in strings {
+                z.extend_from_slice(s.as_bytes());
+                z.push(0);
+            }
+            m.hw.dma_write(pa(at), &z);
+            for (k, w) in [magic, at, z.len() as u32, 0, 0, 0].iter().enumerate() {
+                m.w32(block + 4 * k as u32, *w);
+            }
+        };
+        if !argv.is_empty() {
+            put(self, entry + 8, ARGV_MAGIC, argv, 0x817F_0000);
+        }
+        if !envp.is_empty() && self.hw.read32(pa(entry + 36)) == ENVP_MAGIC {
+            put(self, entry + 40, ENVP_MAGIC, envp, 0x817F_8000);
+        }
+        true
+    }
+
     fn load(&mut self, exe: &Executable) {
         for s in &exe.sections {
             self.hw.dma_write(s.addr & 0x1FFF_FFFF, &s.data);

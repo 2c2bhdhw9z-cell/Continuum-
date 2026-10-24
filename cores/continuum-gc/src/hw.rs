@@ -222,6 +222,13 @@ pub struct Hw {
     pub uart: Vec<u8>,
     /// Register addresses nothing answers yet, with how often they were touched (development aid).
     pub unknown: std::collections::BTreeMap<u32, u32>,
+    /// Disc drive commands seen, by command byte (development aid).
+    pub di_commands: std::collections::BTreeMap<u8, u32>,
+    /// The first disc drive register writes (offset, value), for development.
+    pub di_trace: Vec<(u32, u32)>,
+    /// An SD card adapter and the EXI channel it sits on (2: serial port 2, like SD2SP2).
+    pub sd: Option<crate::sd::SdCard>,
+    pub sd_channel: usize,
 }
 
 impl Hw {
@@ -244,6 +251,10 @@ impl Hw {
             invalidated: Vec::new(),
             uart: Vec::new(),
             unknown: Default::default(),
+            di_commands: Default::default(),
+            di_trace: Vec::new(),
+            sd: None,
+            sd_channel: 2,
         }
     }
 
@@ -728,14 +739,19 @@ impl Hw {
     }
 
     /// One EXI transfer, completed at once. Channel 0, device 1 is the clock / SRAM / IPL ROM /
-    /// UART chip; every other device slot is empty for now (memory cards come with step G9).
+    /// UART chip; an SD card adapter answers on its channel's device 0 (and, like the real
+    /// adapters, also while no chip select is up); every other slot is empty for now (memory
+    /// cards come with step G9).
     fn exi_transfer(&mut self, c: usize) {
         let cr = self.exi.ch[c].cr;
         let dma = cr & 2 != 0;
         let rw = (cr >> 2) & 3; // 0 read, 1 write, 2 read-write
         let len = if dma { self.exi.ch[c].len } else { ((cr >> 4) & 3) + 1 };
-        let dev = (self.exi.ch[c].csr >> 7) & 7;
-        if c == 0 && dev == 2 && !dma {
+        let cs = (self.exi.ch[c].csr >> 7) & 7;
+        let sd_here = self.sd.is_some() && self.sd_channel == c && (cs == 0 || cs == 1);
+        if sd_here {
+            self.sd_transfer(c, dma, rw, len);
+        } else if c == 0 && cs == 2 && !dma {
             // Device select bit 1 (value 2 in CS) is the clock/SRAM chip.
             let data = self.exi.ch[c].data;
             match self.exi.ch[c].dev_addr {
@@ -749,7 +765,7 @@ impl Hw {
                     }
                 }
             }
-        } else if c == 0 && dev == 2 && dma {
+        } else if c == 0 && cs == 2 && dma {
             if let Some(addr) = self.exi.ch[c].dev_addr {
                 let n = len as usize;
                 if rw == 0 {
@@ -759,12 +775,40 @@ impl Hw {
                 }
             }
         } else if !dma && rw != 1 {
-            // Nothing in this slot: reads give all ones? Real hardware floats to zero for an ID.
-            self.exi.ch[c].data = 0;
+            // Nothing answers: with no device selected the lines float high, an empty slot
+            // reads as zero.
+            self.exi.ch[c].data = if cs == 0 { 0xFFFF_FFFF } else { 0 };
         }
         self.exi.ch[c].cr &= !1;
         // TCINT.
         self.exi.ch[c].csr |= 0x8;
+    }
+
+    fn sd_transfer(&mut self, c: usize, dma: bool, rw: u32, len: u32) {
+        let Some(sd) = self.sd.as_mut() else { return };
+        if dma {
+            let mar = self.exi.ch[c].mar;
+            if rw == 0 {
+                let bytes: Vec<u8> = (0..len).map(|_| sd.exchange(0xFF)).collect();
+                self.dma_write(mar, &bytes);
+            } else {
+                let bytes = self.dma_read(mar, len as usize);
+                let sd = self.sd.as_mut().unwrap();
+                let back: Vec<u8> = bytes.iter().map(|b| sd.exchange(*b)).collect();
+                if rw == 2 {
+                    self.dma_write(mar, &back);
+                }
+            }
+        } else {
+            let out = self.exi.ch[c].data.to_be_bytes();
+            let mut back = [0xFFu8; 4];
+            for k in 0..len as usize {
+                back[k] = sd.exchange(if rw == 0 { 0xFF } else { out[k] });
+            }
+            if rw != 1 {
+                self.exi.ch[c].data = u32::from_be_bytes(back);
+            }
+        }
     }
 
     /// One byte of a DMA from the clock/SRAM chip: SRAM when the address is SRAM's.
@@ -840,6 +884,9 @@ impl Hw {
     }
 
     fn di_write(&mut self, off: u32, v: u32) {
+        if self.di_trace.len() < 400 {
+            self.di_trace.push((off, v));
+        }
         match off {
             0x00 => {
                 // DEINT (2), TCINT (4), BRKINT (6) clear on 1; masks (1, 3, 5) and BRK (0) stored.
@@ -868,6 +915,7 @@ impl Hw {
 
     fn di_command(&mut self) {
         let cmd = self.di.cmd[0] >> 24;
+        *self.di_commands.entry(cmd as u8).or_default() += 1;
         let mut error = false;
         match cmd {
             // Read: offset in 4-byte units, length in bytes.
