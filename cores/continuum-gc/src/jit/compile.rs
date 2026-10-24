@@ -1,8 +1,8 @@
 //! The block compiler: one block of PowerPC instructions to ARM64 code.
 //!
-//! Generated code is called as `extern "C" fn(cpu, hw, ctx) -> u64` and returns how many
-//! instructions it ran. It keeps x19 = &Cpu, x20 = &Hw, x21 = &JitCtx, x22 = main memory,
-//! x23 = the code-page bitmap.
+//! Generated code is called as `extern "C" fn(cpu, hw, ctx, budget) -> budget left`, where the
+//! budget is how many instructions it may run. It keeps x19 = &Cpu, x20 = &Hw, x21 = &JitCtx,
+//! x22 = main memory, x23 = the code-page bitmap and x25 = the budget left.
 //!
 //! Every instruction is either compiled natively (integer arithmetic and logic, rotates,
 //! compares, LR/CTR moves, loads and stores with an inline main-memory path, branches) or
@@ -10,9 +10,14 @@
 //! does exactly what that handler does; whenever its quick path does not apply (an address
 //! outside the standard block mapping, a page holding cached code), it calls the handler too.
 //! So the results are the fast interpreter's, which are the plain interpreter's.
+//!
+//! Blocks chain: an exit whose target is known can be patched (by the runtime) to jump
+//! straight into the target block's second entry, which skips the register set-up and first
+//! checks that the budget left covers the whole block (else it returns, with the PC at its
+//! start, for the runtime to finish exactly as the interpreter would).
 
-use super::a64::{Asm, Cond, Shift, R, ZR};
-use crate::cpu::fast_ops::Op;
+use super::a64::{Asm, Cond, Shift, R};
+use crate::cpu::fast_ops::{ends_block, Op};
 use crate::cpu::Cpu;
 use crate::hw::MEM1_SIZE;
 use std::mem::offset_of;
@@ -26,11 +31,16 @@ pub struct JitCtx {
     pub fallback: u64,
 }
 
+/// The word a link site holds while it is not linked: a branch to the next instruction, which
+/// is the stub that stores the target PC and returns.
+pub const UNLINKED: u32 = 0x1400_0001;
+
 const CPU: R = 19;
 const HW: R = 20;
 const CTX: R = 21;
 const MEM: R = 22;
 const PAGES: R = 23;
+const BUDGET: R = 25;
 
 fn gpr(r: u8) -> u32 {
     (offset_of!(Cpu, gpr) + 4 * r as usize) as u32
@@ -66,12 +76,21 @@ pub struct Inst<'a> {
 /// The code for a block, and where its exits are.
 pub struct Compiled {
     pub code: Vec<u32>,
+    /// Where chained blocks enter (word index): after the set-up, at the budget check.
+    pub inner: usize,
+    /// Exits with a known target: (word index of the branch to patch, target effective address).
+    pub links: Vec<(usize, u32)>,
+    /// How many instructions were compiled natively (the rest run their handlers).
+    pub native: usize,
 }
 
 struct Ctx {
     a: Asm,
-    /// Branches to patch to the shared epilogue with a given count: (at, count, kind).
+    /// Branches to patch to the shared exit stub for a given count: (at, count, kind).
     exits: Vec<(usize, u32, ExitKind)>,
+    /// Branches to the epilogue itself: (at).
+    to_epilogue: Vec<usize>,
+    links: Vec<(usize, u32)>,
     fast_mem: bool,
 }
 
@@ -123,6 +142,20 @@ impl Ctx {
         self.a.emit(0);
         self.exits.push((at, count, ExitKind::B));
     }
+    /// Leaves the block after `count` instructions for `target`: through a branch the runtime
+    /// may point straight at the target block, else storing the PC and returning.
+    fn exit_to(&mut self, count: u32, target: u32) {
+        self.a.sub_imm(true, BUDGET, BUDGET, count);
+        self.links.push((self.a.here(), target));
+        self.a.emit(UNLINKED);
+        self.a.mov_imm(false, 0, target as u64);
+        self.str(0, off_pc());
+        self.b_epilogue();
+    }
+    fn b_epilogue(&mut self) {
+        self.to_epilogue.push(self.a.here());
+        self.a.emit(0);
+    }
     /// The CR field nibble from the flags of a compare (signed or not) plus XER[SO], into w1.
     fn cr_nibble(&mut self, signed: bool) {
         let (lt, gt) = if signed { (Cond::Lt, Cond::Gt) } else { (Cond::Lo, Cond::Hi) };
@@ -170,22 +203,32 @@ fn eor_top_bit(rd: R, rn: R) -> u32 {
 }
 
 pub fn compile(insts: &[Inst], fast_mem: bool) -> Compiled {
-    let mut c = Ctx { a: Asm::new(), exits: Vec::new(), fast_mem };
-    // Prologue.
+    let mut c = Ctx { a: Asm::new(), exits: Vec::new(), to_epilogue: Vec::new(), links: Vec::new(), fast_mem };
+    // Prologue (the entry the runtime calls).
     c.a.stp_pre(29, 30, 31, -16);
     c.a.stp_pre(19, 20, 31, -16);
     c.a.stp_pre(21, 22, 31, -16);
     c.a.stp_pre(23, 24, 31, -16);
+    c.a.stp_pre(25, 26, 31, -16);
     c.a.mov(true, CPU, 0);
     c.a.mov(true, HW, 1);
     c.a.mov(true, CTX, 2);
+    c.a.mov(true, BUDGET, 3);
     c.a.ldr_x(MEM, CTX, offset_of!(JitCtx, mem1) as u32);
     c.a.ldr_x(PAGES, CTX, offset_of!(JitCtx, code_pages) as u32);
-    c.a.strb(ZR, CPU, off_exit());
+    // The entry chained blocks use: is there budget for the whole block?
+    let inner = c.a.here();
+    let start = insts.first().map_or(0, |i| i.ea);
+    c.a.cmp_imm(true, BUDGET, insts.len() as u32);
+    let bail_at = c.a.here();
+    c.a.emit(0);
+    let mut native_count = 0;
     let mut ended = false;
     for (k, ins) in insts.iter().enumerate() {
         let count = k as u32 + 1;
-        if !native(&mut c, ins, count) {
+        if native(&mut c, ins, count) {
+            native_count += 1;
+        } else {
             c.fallback(ins, count);
         }
         if is_branch(ins.op.inst) {
@@ -195,37 +238,46 @@ pub fn compile(insts: &[Inst], fast_mem: bool) -> Compiled {
     }
     if !ended {
         let next = insts.last().map_or(0, |i| i.ea.wrapping_add(4));
-        c.a.mov_imm(false, 0, next as u64);
-        c.str(0, off_pc());
-        c.exit(insts.len() as u32);
+        let last = insts.last().map_or(0, |i| i.op.inst);
+        // After an instruction that can change translation, the MSR or the BATs (all of which
+        // end blocks and run their handlers), the runtime must look again before going on.
+        if insts.last().is_some_and(|i| ends_block(i.op.inst)) && !is_native_kind(last) {
+            c.a.mov_imm(false, 0, next as u64);
+            c.str(0, off_pc());
+            c.exit(insts.len() as u32);
+        } else {
+            c.exit_to(insts.len() as u32, next);
+        }
     }
-    // Exit stubs: "mov x0, #count; b epilogue".
-    let mut stubs: Vec<(u32, usize)> = Vec::new();
+    // Not enough budget: return with the PC at the block's start, nothing run.
+    let bail = c.a.here();
+    c.a.patch(bail_at, Asm::b_cond_to(bail_at, bail, Cond::Lo));
+    c.a.mov_imm(false, 0, start as u64);
+    c.str(0, off_pc());
+    c.b_epilogue();
+    // Exit stubs: "sub x25, x25, #count; b epilogue".
     let exits = std::mem::take(&mut c.exits);
     let mut counts: Vec<u32> = exits.iter().map(|e| e.1).collect();
     counts.sort_unstable();
     counts.dedup();
-    let epilogue_at = {
-        for &n in &counts {
-            stubs.push((n, c.a.here()));
-            c.a.mov_imm(true, 0, n as u64);
-            let b_at = c.a.here();
-            c.a.emit(0);
-            stubs.last_mut().unwrap().1 = b_at - 1;
-        }
-        c.a.here()
-    };
-    // Patch the stub branches to the epilogue.
-    for &(_, stub) in &stubs {
-        let b_at = stub + 1;
-        let w = c.a.b_to(b_at, epilogue_at, false);
-        c.a.patch(b_at, w);
+    let mut stubs: Vec<(u32, usize)> = Vec::new();
+    for &n in &counts {
+        stubs.push((n, c.a.here()));
+        c.a.sub_imm(true, BUDGET, BUDGET, n);
+        c.b_epilogue();
     }
+    let epilogue = c.a.here();
+    c.a.mov(true, 0, BUDGET);
+    c.a.ldp_post(25, 26, 31, 16);
     c.a.ldp_post(23, 24, 31, 16);
     c.a.ldp_post(21, 22, 31, 16);
     c.a.ldp_post(19, 20, 31, 16);
     c.a.ldp_post(29, 30, 31, 16);
     c.a.ret();
+    for at in std::mem::take(&mut c.to_epilogue) {
+        let w = c.a.b_to(at, epilogue, false);
+        c.a.patch(at, w);
+    }
     for (at, n, kind) in exits {
         let stub = stubs.iter().find(|s| s.0 == n).unwrap().1;
         let w = match kind {
@@ -235,7 +287,13 @@ pub fn compile(insts: &[Inst], fast_mem: bool) -> Compiled {
         c.a.patch(at, w);
     }
     let _ = c.fast_mem;
-    Compiled { code: c.a.code }
+    Compiled { code: c.a.code, inner, links: c.links, native: native_count }
+}
+
+/// Whether an instruction that ends a block is one this compiler always does natively (the
+/// branches), so the block's fall-through exit may chain.
+fn is_native_kind(i: u32) -> bool {
+    is_branch(i)
 }
 
 fn is_branch(i: u32) -> bool {
@@ -353,9 +411,7 @@ fn native(c: &mut Ctx, ins: &Inst, count: u32) -> bool {
                 c.a.mov_imm(false, 0, ins.ea.wrapping_add(4) as u64);
                 c.str(0, off_lr());
             }
-            c.a.mov_imm(false, 0, target as u64);
-            c.str(0, off_pc());
-            c.exit(count);
+            c.exit_to(count, target);
         }
         16 => {
             let target = if i & 2 != 0 { op.imm } else { ins.ea.wrapping_add(op.imm) };
@@ -410,22 +466,19 @@ fn branch_cond(c: &mut Ctx, ins: &Inst, count: u32, bo: u32, bi: u32, use_ctr: b
         c.str(0, off_lr());
     }
     match target {
-        Some(t) => {
-            c.a.mov_imm(false, 0, t as u64);
-            c.str(0, off_pc());
+        Some(t) => c.exit_to(count, t),
+        None => {
+            c.str(6, off_pc());
+            c.exit(count);
         }
-        None => c.str(6, off_pc()),
     }
-    c.exit(count);
     // Not taken.
     let not_taken = c.a.here();
     if link {
         c.a.mov_imm(false, 0, next as u64);
         c.str(0, off_lr());
     }
-    c.a.mov_imm(false, 0, next as u64);
-    c.str(0, off_pc());
-    c.exit(count);
+    c.exit_to(count, next);
     for (at, is_cr, v) in skips {
         let w = if is_cr {
             // Condition bit set must equal (bo & 8 != 0): skip with TBZ when we needed it set.

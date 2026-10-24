@@ -90,7 +90,7 @@ fn branch(rng: &mut Rng) -> u32 {
         0 => (18 << 26) | ((rng.next() & 0x3FFC) | (rng.next() & 1)),
         1 => (16 << 26) | (rng.next() & 0x03FF_FFFD),
         2 => (19 << 26) | (rng.next() & 0x03FF_F800) | (16 << 1) | (rng.next() & 1),
-        _ => (19 << 26) | ((rng.next() & 0x03FF_F800) | 0x0280_0000) | (528 << 1) | (rng.next() & 1),
+        _ => (19 << 26) | ((rng.next() & 0x03FF_F800) | if rng.next() % 2 == 0 { 0x0280_0000 } else { 0 }) | (528 << 1) | (rng.next() & 1),
     }
 }
 
@@ -150,17 +150,36 @@ fn jit_blocks_match_the_interpreter() {
 
     let blocks = 20_000;
     let mut native_hits = 0usize;
+    let mut chained = 0usize;
     for case in 0..blocks {
+        // Block A, and sometimes a block B straight after it that A's fall-through exit is
+        // linked to, as the runtime links blocks.
+        let with_b = rng.next() % 3 == 0;
         let len = 1 + (rng.next() % 10) as usize;
         let mut words: Vec<u32> = (0..len).map(|_| instruction(&mut rng)).collect();
-        if rng.next() % 2 == 0 {
+        if !with_b && rng.next() % 2 == 0 {
             words.push(branch(&mut rng));
         }
-        let ops: Vec<Op> = words.iter().map(|&w| decode(w)).collect();
         let base = 0x8000_3100u32;
+        let b_base = base + 4 * words.len() as u32;
+        let mut b_words: Vec<u32> = Vec::new();
+        if with_b {
+            let n = 1 + (rng.next() % 6) as usize;
+            b_words = (0..n).map(|_| instruction(&mut rng)).collect();
+            if rng.next() % 2 == 0 {
+                b_words.push(branch(&mut rng));
+            }
+        }
+        let ops: Vec<Op> = words.iter().map(|&w| decode(w)).collect();
+        let b_ops: Vec<Op> = b_words.iter().map(|&w| decode(w)).collect();
         let insts: Vec<Inst> = ops.iter().enumerate().map(|(k, op)| Inst { ea: base + 4 * k as u32, op }).collect();
+        let b_insts: Vec<Inst> = b_ops.iter().enumerate().map(|(k, op)| Inst { ea: b_base + 4 * k as u32, op }).collect();
         let compiled = compile(&insts, true);
-        native_hits += compiled.code.len();
+        native_hits += compiled.native;
+        let b_compiled = with_b.then(|| compile(&b_insts, true));
+        // Usually enough budget for everything; sometimes not, to check the budget tests.
+        let total = ops.len() + b_ops.len();
+        let budget = if rng.next() % 4 == 0 { (rng.next() as usize % (total + 2)) as u64 } else { 1000 };
 
         let mut cpu_ref = Cpu::default();
         setup(&mut cpu_ref, &mut rng);
@@ -173,33 +192,61 @@ fn jit_blocks_match_the_interpreter() {
         hw_jit.irq_dirty = false;
         hw_ref.invalidated.clear();
         hw_jit.invalidated.clear();
-        // Reference: the handlers, as the fast interpreter runs a block.
-        cpu_ref.exit = false;
-        cpu_ref.faulted = false;
-        let mut ea = base;
+        // Reference: the handlers, as the fast interpreter runs blocks, block by block, each
+        // only when the budget left covers all of it (the runtime finishes the rest).
+        let mut left = budget;
         let mut n_ref = 0u64;
-        for op in &ops {
-            cpu_ref.cur_pc = ea;
-            (op.f)(&mut cpu_ref, &mut hw_ref, op);
-            n_ref += 1;
+        for (blk, blk_base) in [(&ops, base), (&b_ops, b_base)] {
+            if blk.is_empty() || cpu_ref.pc != blk_base || (left as usize) < blk.len() {
+                break;
+            }
+            cpu_ref.exit = false;
+            cpu_ref.faulted = false;
+            let mut ea = blk_base;
+            let mut n = 0u64;
+            for op in blk.iter() {
+                cpu_ref.cur_pc = ea;
+                (op.f)(&mut cpu_ref, &mut hw_ref, op);
+                n += 1;
+                if cpu_ref.exit {
+                    break;
+                }
+                ea = ea.wrapping_add(4);
+            }
+            if !cpu_ref.exit {
+                cpu_ref.pc = ea;
+            }
+            n_ref += n;
+            left -= n;
             if cpu_ref.exit {
                 break;
             }
-            ea = ea.wrapping_add(4);
-        }
-        if !cpu_ref.exit {
-            cpu_ref.pc = ea;
         }
 
-        // The JIT, in the emulator.
-        let code: Vec<u8> = compiled.code.iter().flat_map(|w| w.to_le_bytes()).collect();
+        // The JIT, in the emulator: A at CODE, B at CODE + 0x8000, A's link to B patched in.
+        let mut code_a = compiled.code.clone();
+        if let Some(bc) = &b_compiled {
+            let b_at = 0x8000 / 4 + bc.inner;
+            for &(site, target) in &compiled.links {
+                if target == b_base {
+                    code_a[site] = 0x1400_0000 | ((b_at as u32).wrapping_sub(site as u32) & 0x03FF_FFFF);
+                    chained += 1;
+                }
+            }
+            let code_b: Vec<u8> = bc.code.iter().flat_map(|w| w.to_le_bytes()).collect();
+            uc.mem_write(CODE + 0x8000, &code_b).unwrap();
+        }
+        let code: Vec<u8> = code_a.iter().flat_map(|w| w.to_le_bytes()).collect();
         uc.mem_write(CODE, &code).unwrap();
         // Unicorn keeps translated code; drop it so the new block is what runs.
         uc.ctl_remove_cache(CODE, CODE + (1 << 20)).unwrap();
+        cpu_jit.exit = false;
+        cpu_jit.faulted = false;
         write_cpu(&mut uc, &cpu_jit);
         uc.reg_write(RegisterARM64::X0, CPUMEM).unwrap();
         uc.reg_write(RegisterARM64::X1, 0).unwrap();
         uc.reg_write(RegisterARM64::X2, CTXMEM).unwrap();
+        uc.reg_write(RegisterARM64::X3, budget).unwrap();
         uc.reg_write(RegisterARM64::SP, STACK + 0x8000).unwrap();
         // Returning from the block lands on an address we stop at.
         let end = CODE + 0xF_FF00;
@@ -226,7 +273,10 @@ fn jit_blocks_match_the_interpreter() {
         uc.emu_start(CODE, end, 0, 1_000_000).unwrap();
         uc.remove_hook(hook).unwrap();
         read_cpu(&uc, &mut cpu_jit);
-        let n_jit = uc.reg_read(RegisterARM64::X0).unwrap();
+        let n_jit = budget - uc.reg_read(RegisterARM64::X0).unwrap();
+        if with_b {
+            words.extend_from_slice(&b_words);
+        }
 
         let same = cpu_ref.gpr == cpu_jit.gpr && cpu_ref.cr == cpu_jit.cr && cpu_ref.xer == cpu_jit.xer && cpu_ref.lr == cpu_jit.lr && cpu_ref.ctr == cpu_jit.ctr && cpu_ref.pc == cpu_jit.pc && cpu_ref.msr == cpu_jit.msr && cpu_ref.srr0 == cpu_jit.srr0 && cpu_ref.dar == cpu_jit.dar;
         let whole = case % 500 == 499 || case == blocks - 1;
@@ -258,5 +308,5 @@ fn jit_blocks_match_the_interpreter() {
             );
         }
     }
-    assert!(native_hits > 0);
+    assert!(native_hits > 0 && chained > 0);
 }
