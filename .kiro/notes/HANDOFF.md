@@ -25,7 +25,11 @@ Paste this to start a new chat:
   a sentence with the detail ("cGC: " log line; engine refusal_from_log + launch_failure SPEAKS_FOR_ITSELF).
   If a game boots but shows nothing for 15 seconds, the core shows a status screen (notice.rs: PC, LR,
   exceptions, faults, disc commands, sound program, registers, GX counters, the apploader's last line) so his
-  screenshot carries the state. (Run 40118325908, started by hand
+  screenshot carries the state.
+- Also found by reading Animal Crossing's disc library (ac-decomp dvdlow.c, reading only): every drive command
+  completed inside the register write, so the completion interrupt could come before the library set its
+  ten-second timeout; ten seconds later the timeout masked the drive's interrupt for good (a hang mid-boot).
+  Drive commands now complete two video lines later (DI_COMMAND_LINES; TSTART stays set until then). (Run 40118325908, started by hand
   1:55 PM from af13640, which adds the drive's streamed music that Ikaruga uses; 215 was cancelled for it.) It is
   the one experimental GameCube build the owner agreed to. Build 214 (ac4deec, the wiring) built and verified its .ipa (continuum_gc dylib inside) but
   FAILED at "Upload the .ipa": GitHub's own network (ENOTFOUND creating the artifact), not our code. Its cores were

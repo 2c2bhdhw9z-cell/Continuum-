@@ -42,6 +42,10 @@ const RSWST: u32 = 1 << 16;
 /// scan possible), bit 1 a Japanese console.
 pub const VI_DTV: usize = 0x6E;
 
+/// Video lines a disc drive command takes (about 130 microseconds): far quicker than a real
+/// drive, so games load fast, but never inside the write that starts it.
+pub const DI_COMMAND_LINES: u64 = 2;
+
 /// The controller buttons as SI reports them (the high half of the first reply word).
 pub mod pad {
     pub const LEFT: u16 = 0x0001;
@@ -210,8 +214,14 @@ pub struct Di {
     pub cr: u32,
     pub imm: u32,
     pub cfg: u32,
-    /// Cycles until the current command completes (0 = idle).
+    /// Video lines until the current command completes (0: idle), and the status bit it ends
+    /// with (TCINT, or DEINT for an error). A real drive always takes a moment, and Nintendo's
+    /// disc library relies on it: it starts a command, then sets its ten-second timeout, which
+    /// the completion interrupt cancels. Completing inside the register write raised the
+    /// interrupt before the timeout existed, and ten seconds later the timeout masked the
+    /// drive's interrupt for good.
     pub busy: u64,
+    pub ends_with: u32,
     /// Music the drive streams off the disc (dtk.rs), and where the audio interface is between
     /// two of its 32 kHz samples when it plays them at that rate.
     pub stream: crate::dtk::Stream,
@@ -684,6 +694,7 @@ impl Hw {
         let before = self.exi.card.irq();
         self.exi.card.line();
         self.card_irq_edge(before);
+        self.di_line();
         self.vi.line += 1;
         if self.vi.line > total {
             self.vi.line = 1;
@@ -1289,8 +1300,22 @@ impl Hw {
             0xAB | 0xE3 | 0xE4 => self.di.imm = 0,
             _ => error = true,
         }
-        self.di.cr &= !1;
-        self.di.sr |= if error { 0x04 } else { 0x10 };
+        // TSTART stays set until the command completes (vi_line).
+        self.di.ends_with = if error { 0x04 } else { 0x10 };
+        self.di.busy = DI_COMMAND_LINES;
+    }
+
+    /// One video line of the drive: a command in progress may complete.
+    fn di_line(&mut self) {
+        if self.di.busy == 0 {
+            return;
+        }
+        self.di.busy -= 1;
+        if self.di.busy == 0 {
+            self.di.cr &= !1;
+            self.di.sr |= self.di.ends_with;
+            self.irq_dirty = true;
+        }
     }
 
     // ------------------------------------------------------------------ DSP and ARAM

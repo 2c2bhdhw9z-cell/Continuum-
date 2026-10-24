@@ -497,3 +497,31 @@ fn an_apploader_that_faults_is_refused_at_once_saying_where() {
     let line = continuum_gc::libretro::refusal(&err);
     assert!(line.starts_with("Continuum GC could not start the game: this game's start-up program stopped."), "{line}");
 }
+
+#[test]
+fn a_disc_read_completes_a_moment_after_it_starts() {
+    use continuum_gc::bus::Bus;
+    let mut m = booted(&dol(&[(0x8000_3100, vec![HANG])], 0x8000_3100));
+    let mut disc = vec![0u8; 0x1000];
+    disc[0x800..0x820].copy_from_slice(&[0x5A; 32]);
+    m.hw.disc = Some(Box::new(DiscBytes(disc)));
+    // DISR: the transfer-complete interrupt unmasked. Then a 32-byte read from 0x800 to 0x4000.
+    m.hw.write32(0x0C00_6000, 0x08);
+    m.hw.write32(0x0C00_6008, 0xA800_0000);
+    m.hw.write32(0x0C00_600C, 0x800 >> 2);
+    m.hw.write32(0x0C00_6010, 32);
+    m.hw.write32(0x0C00_6014, 0x4000);
+    m.hw.write32(0x0C00_6018, 32);
+    m.hw.write32(0x0C00_601C, 3);
+    // Still going right after the write: the library sets its timeout next.
+    assert_eq!(m.hw.read32(0x0C00_601C) & 1, 1, "TSTART still set");
+    assert_eq!(m.hw.read32(0x0C00_6000) & 0x10, 0, "no TCINT yet");
+    assert_eq!(m.hw.cause() & continuum_gc::hw::INT_DI, 0);
+    for _ in 0..continuum_gc::hw::DI_COMMAND_LINES {
+        m.hw.vi_line();
+    }
+    assert_eq!(m.hw.read32(0x0C00_601C) & 1, 0, "done");
+    assert_ne!(m.hw.read32(0x0C00_6000) & 0x10, 0, "TCINT");
+    assert_ne!(m.hw.cause() & continuum_gc::hw::INT_DI, 0, "the interrupt is asked for");
+    assert_eq!(&m.hw.mem1[0x4000..0x4020], &[0x5A; 32]);
+}
