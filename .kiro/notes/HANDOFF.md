@@ -5,7 +5,42 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (24 October 2026, about 4:30 PM Eastern): Animal Crossing boots on build 219, stuck in a sound timing loop
+## START HERE (24 October 2026, evening Eastern): the sound timing fix is done; build 220 for the owner
+
+Done this session (cores/continuum-gc, commits 2712fbd and the one after it):
+- The AI sample counter counts from the CPU's clock sample by sample (Hw::ai_sync, `Ai.at`; 54 MHz / 1124 at
+  48 kHz, / 1686 at 32 kHz; re-anchored on AICR start/stop/rate/SCRESET and AISCNT writes; AIINT when it reaches
+  AIIT, checked on reads and once a line via Hw::ai_line). Every register access knows the CPU's time: Cpu::now()
+  = cycles + the running fast-interpreter block's instructions (Cpu::block_ea) or the JIT chain's (the JIT's
+  fallback stub stores x25 - (count - 1) into Cpu::jit_left; run_native sets jit_budget); Cpu::read/write call
+  Bus::clock(now) and Hw keeps it in `now`. Machine::run_field sets hw.now before the line ticks. Save state
+  layout 6.
+- Item 2 of the old plan needed nothing: the idle-loop skip never fires for a loop that reads a hardware
+  register (mmio_read sets irq_dirty, which both ends the block and blocks the skip).
+- Tests (tests/machine.rs): __AI_SRC_INIT replayed as a PowerPC program passes first time, four rounds, on the
+  plain interpreter, the fast interpreter and the JIT (run with `--features unicorn`); the counter read inside a
+  long compiled loop is identical on all three (and the test fails if the JIT's clock store is removed); rate,
+  stop, SCRESET, AIIT interrupt and save states.
+- The status screen redraws every 5 seconds (libretro.rs NOTICE_EVERY), so a screenshot is steady.
+- Animal Crossing's own sound program is in ac-decomp's dspboot.c (`jdsp[]`, Ector 0x4BE6A5CB, 6656 bytes; saved
+  to .scratch/ac_jdsp.bin when needed: parse the array). Its command jump table is at word 0x0062 (2 words per
+  command; the light ack is 0x80000000 | the table entry's address). Read from the code: command 0B takes ONE
+  word (fixed in dsp_zelda.rs; it called IROM 0x8644, the card decode, which our always-unlocked card never
+  needs), 0C one word, 1 four, 2 two; command 2 then loops over the subframes, each waiting for one CPU mail
+  (the zero mail from JAudio's DSPReleaseHalt) and raising DSPINT after its voices, as dsp_zelda models it.
+  Its whole start-up (MXIC boot through the boot ROM protocol, hello 0x88881111, DwaitFrame, DsetupTable,
+  DiplSec, frames of 7 subframes) is replayed in a test.
+- What Animal Crossing does next (boot.c, read only): sound_initial (Na_InitAudio: AIInit, then the audio thread
+  boots the DSP program and starts AI DMA; msleep 2.5 s), initial_menu_init, dvderr_init, sound_initial2 (waits
+  for "Neos": its thread loads /audiorom.img from the disc into ARAM through DVD reads and ARAM DMA), then
+  /COPYDATE, /static.str and /foresta.rel.szs from the disc. So the next things the game leans on are disc reads
+  through the FST, ARAM DMA with its interrupt, and the DSP interrupt cycle above.
+- NEXT: build 220 by hand (the engine is unchanged: `gh api -X POST
+  repos/2c2bhdhw9z-cell/Continuum-/actions/workflows/ios.yml/dispatches -f ref=master`), check the .ipa (0.8.0
+  (220), Frameworks/continuum_gc_libretro_ios.dylib), give the owner the link and the test steps, then wait for
+  his report. Then the GPU drawer (G6), a replacement IPL font, PAL (0xCC).
+
+## Earlier (24 October 2026, about 4:30 PM Eastern): Animal Crossing boots on build 219, stuck in a sound timing loop
 
 The owner opened a new chat because this one got too long (his phone was heating up). He is tired of games not
 loading: fix this first, build once, give the link and steps. He sent two screenshots of the new status screen

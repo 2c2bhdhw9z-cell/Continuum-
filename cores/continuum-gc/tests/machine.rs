@@ -531,47 +531,62 @@ fn a_disc_read_completes_a_moment_after_it_starts() {
 /// must end.
 #[test]
 fn the_os_audio_start_up_sequence_never_waits_forever() {
-    use continuum_gc::bus::Bus;
     let mut m = booted(&dol(&[(0x8000_3100, vec![HANG])], 0x8000_3100));
-    let r16 = |m: &mut Machine, i: u32| m.hw.read16(0x0C00_5000 + 2 * i);
-    let w16 = |m: &mut Machine, i: u32, v: u16| m.hw.write16(0x0C00_5000 + 2 * i, v);
-    let w32 = |m: &mut Machine, i: u32, v: u32| m.hw.write32(0x0C00_5000 + 2 * i, v);
-    let wait = |m: &mut Machine, what: &str, done: &dyn Fn(&mut Machine) -> bool| {
-        for _ in 0..10_000 {
-            if done(m) {
-                return;
-            }
-            m.hw.vi_line();
+    os_audio_init(&mut m);
+}
+
+/// DSP registers by halfword (0: CPU mailbox high, 2-3: the DSP's mailbox, 5: control).
+fn r16(m: &mut Machine, i: u32) -> u16 {
+    use continuum_gc::bus::Bus;
+    m.hw.read16(0x0C00_5000 + 2 * i)
+}
+fn w16(m: &mut Machine, i: u32, v: u16) {
+    use continuum_gc::bus::Bus;
+    m.hw.write16(0x0C00_5000 + 2 * i, v)
+}
+fn w32(m: &mut Machine, i: u32, v: u32) {
+    use continuum_gc::bus::Bus;
+    m.hw.write32(0x0C00_5000 + 2 * i, v)
+}
+fn wait(m: &mut Machine, what: &str, done: &dyn Fn(&mut Machine) -> bool) {
+    for _ in 0..10_000 {
+        if done(m) {
+            return;
         }
-        panic!("waits forever: {what}");
-    };
-    w16(&mut m, 9, 0x43);
-    w16(&mut m, 5, 0x8AC);
-    let v = r16(&mut m, 5);
-    w16(&mut m, 5, v | 1);
-    wait(&mut m, "reset", &|m| r16(m, 5) & 1 == 0);
-    w16(&mut m, 0, 0);
-    wait(&mut m, "mailbox from the DSP empty", &|m| ((r16(m, 2) as u32) << 16 | r16(m, 3) as u32) & 0x8000_0000 == 0);
-    for _ in 0..2 {
-        w32(&mut m, 16, 0x0100_0000);
-        w32(&mut m, 18, 0);
-        w32(&mut m, 20, 0x20);
-        wait(&mut m, "ARAM DMA interrupt", &|m| r16(m, 5) & 0x20 != 0);
-        let v = r16(&mut m, 5);
-        w16(&mut m, 5, v);
+        m.hw.vi_line();
     }
-    let v = r16(&mut m, 5);
-    w16(&mut m, 5, v & !0x800);
-    wait(&mut m, "DSP DMA idle", &|m| r16(m, 5) & 0x400 == 0);
-    let v = r16(&mut m, 5);
-    w16(&mut m, 5, v & !4);
-    wait(&mut m, "the init program's mail", &|m| r16(m, 2) & 0x8000 != 0);
-    let v = r16(&mut m, 5);
-    w16(&mut m, 5, v | 4);
-    w16(&mut m, 5, 0x8AC);
-    let v = r16(&mut m, 5);
-    w16(&mut m, 5, v | 1);
-    wait(&mut m, "second reset", &|m| r16(m, 5) & 1 == 0);
+    panic!("waits forever: {what}");
+}
+
+/// OSInit's sound-chip start-up (__OSInitAudioSystem), register by register.
+fn os_audio_init(m: &mut Machine) {
+    w16(m, 9, 0x43);
+    w16(m, 5, 0x8AC);
+    let v = r16(m, 5);
+    w16(m, 5, v | 1);
+    wait(m, "reset", &|m| r16(m, 5) & 1 == 0);
+    w16(m, 0, 0);
+    wait(m, "mailbox from the DSP empty", &|m| ((r16(m, 2) as u32) << 16 | r16(m, 3) as u32) & 0x8000_0000 == 0);
+    for _ in 0..2 {
+        w32(m, 16, 0x0100_0000);
+        w32(m, 18, 0);
+        w32(m, 20, 0x20);
+        wait(m, "ARAM DMA interrupt", &|m| r16(m, 5) & 0x20 != 0);
+        let v = r16(m, 5);
+        w16(m, 5, v);
+    }
+    let v = r16(m, 5);
+    w16(m, 5, v & !0x800);
+    wait(m, "DSP DMA idle", &|m| r16(m, 5) & 0x400 == 0);
+    let v = r16(m, 5);
+    w16(m, 5, v & !4);
+    wait(m, "the init program's mail", &|m| r16(m, 2) & 0x8000 != 0);
+    let v = r16(m, 5);
+    w16(m, 5, v | 4);
+    w16(m, 5, 0x8AC);
+    let v = r16(m, 5);
+    w16(m, 5, v | 1);
+    wait(m, "second reset", &|m| r16(m, 5) & 1 == 0);
 }
 
 /// The OS's ARAM size check (ARInit's __ARChecksize, as decompiled by the Animal Crossing
@@ -828,4 +843,101 @@ fn the_sample_counter_counts_at_the_streams_rate_and_interrupts_at_aiit() {
     again.hw.now = m.hw.now + 10 * 15_174;
     m.hw.now += 10 * 15_174;
     assert_eq!(again.hw.read32(0x0C00_6C08), m.hw.read32(0x0C00_6C08));
+}
+
+// ---------------------------------------------------------------------- Animal Crossing's sound start-up
+
+/// Bytes whose Ector checksum (the rotate-xor the community identifies sound programs by) is
+/// `target`: our own filler, never anyone's code, `len` bytes long.
+fn bytes_with_ector(target: u32, len: usize) -> Vec<u8> {
+    let mut tail = Vec::new();
+    let mut s = target;
+    while s != 0 {
+        let x = s.rotate_right(3);
+        tail.push((x & 0xFF) as u8);
+        s = x & !0xFF;
+    }
+    tail.reverse();
+    let mut out = vec![0u8; len - tail.len()];
+    out.extend(tail);
+    out
+}
+
+fn dsp_mail_waiting(m: &mut Machine) -> bool {
+    r16(m, 2) & 0x8000 != 0
+}
+fn dsp_take_mail(m: &mut Machine) -> u32 {
+    wait(m, "a mail from the DSP", &dsp_mail_waiting);
+    ((r16(m, 2) as u32) << 16) | r16(m, 3) as u32
+}
+fn dsp_send(m: &mut Machine, mail: u32) {
+    w16(m, 0, (mail >> 16) as u16);
+    w16(m, 1, mail as u16);
+    wait(m, "the DSP takes the mail", &|m| r16(m, 0) & 0x8000 == 0);
+}
+/// JAudio's DSPSendCommands and DSPWaitFinish: both mailboxes must be empty first (else the
+/// library sends nothing and then waits for ever), then an answer other than 0x88881357.
+fn jaudio_command(m: &mut Machine, words: &[u32]) -> u32 {
+    assert!(!dsp_mail_waiting(m), "a mail from the DSP is still waiting: the library would not send {:08X}", words[0]);
+    for &w in words {
+        dsp_send(m, w);
+    }
+    loop {
+        let mail = dsp_take_mail(m);
+        if mail != 0x8888_1357 {
+            return mail;
+        }
+    }
+}
+
+/// Animal Crossing's sound start-up as its JAudio library runs it (as decompiled by the Animal
+/// Crossing project): the OS's sound-chip start-up, then its own program booted through the
+/// boot ROM's upload protocol (DSPInit2, __DSPCheckMXICBoot2), the hello, DwaitFrame,
+/// DsetupTable, and frames of seven subframes, each released by a zero mail and answered with
+/// the DSP interrupt (UpdateDSP, __DspSync). The memory-card decode command (DiplSec) takes
+/// its one word without leaving a stray answer behind.
+#[test]
+fn animal_crossings_sound_program_starts_and_renders_frames() {
+    let mut m = booted(&dol(&[(0x8000_3100, vec![HANG])], 0x8000_3100));
+    os_audio_init(&mut m);
+    // The program's code at 0x00200000: 6656 bytes with the checksum of Animal Crossing's.
+    let code = bytes_with_ector(0x4BE6_A5CB, 6656);
+    m.hw.dma_write(0x0020_0000, &code);
+    // DSPInit2.
+    let v = r16(&mut m, 5);
+    w16(&mut m, 5, (v & !0xA8) | 0x800);
+    let v = r16(&mut m, 5);
+    w16(&mut m, 5, v & !0xAC);
+    assert_eq!(dsp_take_mail(&mut m), 0x8071_FEED, "the boot ROM is ready");
+    for w in [0x80F3_A001, 0x8020_0000, 0x80F3_A002, 6656, 0x80F3_C002, 0, 0x80F3_B002, 0, 0x80F3_D001, 0] {
+        dsp_send(&mut m, w);
+    }
+    assert_eq!(m.hw.dsp.hle.kind, continuum_gc::dsp_hle::Kind::Zelda);
+    // DspBoot: the hello, then DwaitFrame.
+    assert_eq!(dsp_take_mail(&mut m), 0x8888_1111);
+    assert_eq!(jaudio_command(&mut m, &[0x8000_0000]), 0x8000_0062);
+    // DsetupTable: 64 voice blocks (all silent), the resampling and ADPCM tables, the effects.
+    for a in [0x0030_0000u32, 0x0031_0000, 0x0032_0000, 0x0033_0000] {
+        m.hw.dma_write(a, &vec![0; 0x8000]);
+    }
+    assert_eq!(jaudio_command(&mut m, &[0x8100_0040, 0x8030_0000, 0x8031_0000, 0x8032_0000, 0x8033_0000]), 0x8000_0064);
+    // DiplSec: one word, one answer.
+    jaudio_command(&mut m, &[0x8B00_0008, 0x8034_0000]);
+    for frame in 0..3 {
+        // DsyncFrame: seven subframes into two buffers, then UpdateDSP releases each one.
+        jaudio_command(&mut m, &[0x8207_4000, 0x8035_0000, 0x8036_0000]);
+        for sub in 0..7 {
+            wait(&mut m, "the DSP takes the release", &|m| r16(m, 0) & 0x8000 == 0);
+            dsp_send(&mut m, 0);
+            if dsp_mail_waiting(&mut m) {
+                dsp_take_mail(&mut m);
+            }
+            let csr = r16(&mut m, 5);
+            assert_ne!(csr & 0x80, 0, "frame {frame} subframe {sub}: the DSP interrupt");
+            // __DspSync acknowledges it.
+            w16(&mut m, 5, (csr & !0x28) | 0x80);
+            assert_eq!(r16(&mut m, 5) & 0x80, 0);
+        }
+    }
+    assert!(!dsp_mail_waiting(&mut m), "nothing left over");
 }

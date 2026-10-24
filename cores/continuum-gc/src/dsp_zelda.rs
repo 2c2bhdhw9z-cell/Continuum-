@@ -462,7 +462,11 @@ impl Hw {
                 z.expected = match cmd {
                     1 => 4,
                     2 => 2,
-                    0x0C if z.variant.gba_crypto => 1,
+                    // In Animal Crossing's and Pikmin's version, 0B (the memory-card decode its
+                    // library sends as DiplSec) and 0C (the GBA key, DagbSec) each take one
+                    // word: read from the program's own command handlers (its jump table at
+                    // 0x0062, and the mail reads in the handlers at 0x0721 and 0x0BA7).
+                    0x0B | 0x0C if z.variant.gba_crypto => 1,
                     0x0C if z.variant.weird_0c => 2,
                     _ => 0,
                 };
@@ -523,6 +527,12 @@ impl Hw {
             let extra = m & 0xFFFF;
             z.pending -= 1;
             match command {
+                0x0B if z.variant.gba_crypto => {
+                    // The card decode's parameter block. Our memory card starts unlocked, so
+                    // the card library never needs the answer; the word is taken and answered.
+                    z.read32();
+                    self.zelda_ack(z, sync);
+                }
                 0x00 | 0x0A | 0x0B | 0x0F => self.zelda_ack(z, sync),
                 0x03 => {
                     if !z.variant.light {

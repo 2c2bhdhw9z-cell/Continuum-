@@ -7,6 +7,15 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Build 220 (24 October): GameCube, Animal Crossing past the sound check
+
+Owner on 219: Animal Crossing started its own code and sat in the sound chip's timing check
+(status screen, two screenshots, written down in HANDOFF.md). Fixed in 220.
+
+1. GameCube switch on (Settings, ABOUT, tap Version 7 times, switch on). Open Animal Crossing.
+2. Wait about a minute. Either the game shows a picture, or the status screen comes up after 15
+   seconds; its numbers now hold still for 5 seconds. Screenshot it once after about a minute.
+
 ## Next install (after 212): the turned box, and the bug hunt's fixes
 
 Owner on 212: circled the hero box's side (a flat strip stuck on). He did not want to verify the
