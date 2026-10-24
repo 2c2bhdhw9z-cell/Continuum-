@@ -268,3 +268,59 @@ fn a_memory_card_is_in_slot_a_and_survives_save_states() {
     old[3] = b'2';
     assert!(m.load_state(&old).unwrap_err().contains("older version"));
 }
+
+#[test]
+fn controller_input_arrives_with_each_poll() {
+    use continuum_gc::bus::Bus;
+    use continuum_gc::hw::{pad, INT_SI};
+    let mut m = booted(&dol(&[(0x8000_3100, vec![HANG])], 0x8000_3100));
+    m.hw.si.pads[0].connected = true;
+    m.hw.si.pads[0].buttons = pad::A | pad::START;
+    // SIPOLL: every 7 lines, twice a field, channels 0 and 1 (channel 1 has no controller).
+    m.hw.write32(0x0C00_6430, (7 << 16) | (2 << 8) | (0xC << 4));
+    let sr = |m: &mut Machine| m.hw.read32(0x0C00_6438);
+    assert_eq!(sr(&mut m) & 0x2000_0000, 0, "no input before the first poll");
+    for _ in 0..7 {
+        m.hw.vi_line();
+    }
+    assert_ne!(sr(&mut m) & 0x2000_0000, 0, "RDST: channel 0 has new input");
+    assert_ne!(sr(&mut m) & 0x0008_0000 & 0x00FF_0000, 0, "NOREP: nobody on channel 1");
+    let word = m.hw.read32(0x0C00_6404);
+    assert_eq!((word >> 16) as u16 & (pad::A | pad::START), pad::A | pad::START);
+    assert_eq!(sr(&mut m) & 0x2000_0000, 0, "reading the buffer takes the input");
+    // RDSTINT with its mask asks for the SI interrupt; reading the input stops it.
+    m.hw.write32(0x0C00_6434, 1 << 27);
+    for _ in 0..7 {
+        m.hw.vi_line();
+    }
+    assert_ne!(m.hw.read32(0x0C00_6434) & (1 << 28), 0, "RDSTINT");
+    assert_ne!(m.hw.cause() & INT_SI, 0);
+    m.hw.read32(0x0C00_6404);
+    assert_eq!(m.hw.cause() & INT_SI, 0);
+    // Writing 1 to NOREP clears it.
+    m.hw.write32(0x0C00_6438, 0x0008_0000);
+    assert_eq!(sr(&mut m) & 0x0008_0000, 0);
+}
+
+#[test]
+fn an_immediate_exi_transfer_takes_its_time_on_the_wire() {
+    use continuum_gc::bus::Bus;
+    let mut m = booted(&dol(&[(0x8000_3100, vec![HANG])], 0x8000_3100));
+    // Channel 1 (an empty slot), device 0 selected at 1 MHz; a 4-byte write is 32 microseconds.
+    m.hw.write32(0x0C00_6814, 0x80);
+    m.hw.write32(0x0C00_6814 + 0x10, 0);
+    m.hw.write32(0x0C00_6814 + 0x0C, (3 << 4) | (1 << 2) | 1);
+    assert_eq!(m.hw.stall, 32 * 486);
+    // The same at 32 MHz: one microsecond.
+    m.hw.stall = 0;
+    m.hw.write32(0x0C00_6814, 0x80 | (5 << 4));
+    m.hw.write32(0x0C00_6814 + 0x0C, (3 << 4) | (1 << 2) | 1);
+    assert_eq!(m.hw.stall, 486);
+    // The machine counts it as time passing.
+    let tb = m.cpu.tb;
+    m.run_field(1);
+    assert!(m.cpu.tb >= tb + 486 / 12, "time base moved on by the transfer");
+    assert_eq!(m.hw.stall, 0);
+    // The registers repeat every 64 bytes: channel 0's control register at 0x8C.
+    assert_eq!(m.hw.read32(0x0C00_688C), m.hw.read32(0x0C00_680C));
+}

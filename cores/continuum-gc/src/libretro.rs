@@ -398,6 +398,8 @@ fn local_seconds_since_2000() -> u32 {
 // tm_gmtoff is a C long: 64 bits on the phone, 32 on some other systems.
 #[allow(clippy::unnecessary_cast)]
 fn utc_offset_seconds(unix: i64) -> i64 {
+    // (time_t is marked as changing on musl, the ARM64 Linux test builds; not on the phone.)
+    #[allow(deprecated)]
     let t = unix as libc::time_t;
     // SAFETY: localtime_r only writes the tm it is given.
     unsafe {

@@ -218,6 +218,7 @@ impl Machine {
             }
         }
         let entry = self.call(close, &[])?;
+        self.hw.stall = 0;
         // The IPL hands over with a fresh stack and translation as it left it.
         self.ipl_cpu_state();
         self.cpu.pc = entry;
@@ -301,9 +302,16 @@ impl Machine {
             } else {
                 self.cpu.step(&mut self.hw)
             };
+            // Time the program spent waiting on the hardware (immediate EXI transfers), counted
+            // now: the write that started it ended the slice.
+            let stall = std::mem::take(&mut self.hw.stall);
+            if stall > 0 {
+                self.cpu.advance_time(stall);
+            }
+            let c = c + stall;
             ran += c;
             self.line_cycles += c;
-            if self.line_cycles >= per_line {
+            while self.line_cycles >= per_line {
                 self.line_cycles -= per_line;
                 self.hw.vi_line();
                 // 48 kHz streaming audio: about 3 samples a line.

@@ -20,12 +20,55 @@ fn main() {
         eprintln!("arguments passed: {ok}");
     }
     let fields: u32 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(120);
+    // CGC_CARD_IN=file: the memory card's bytes before the program starts (a .srm / .raw).
+    if let Ok(p) = std::env::var("CGC_CARD_IN") {
+        let bytes = std::fs::read(&p).expect("card file");
+        let n = bytes.len().min(m.hw.card.len());
+        m.hw.card[..n].copy_from_slice(&bytes[..n]);
+    }
+    // CGC_PAD="300-305:X,360-365:A+UP": buttons held on controller 1 during those fields.
+    let script: Vec<(u32, u32, u16)> = std::env::var("CGC_PAD").map(|s| {
+        s.split(',').filter(|p| !p.is_empty()).map(|p| {
+            let (range, keys) = p.split_once(':').expect("from-to:BUTTONS");
+            let (a, b) = range.split_once('-').unwrap_or((range, range));
+            use continuum_gc::hw::pad;
+            let bits = keys.split('+').map(|k| match k {
+                "A" => pad::A, "B" => pad::B, "X" => pad::X, "Y" => pad::Y, "Z" => pad::Z, "L" => pad::L, "R" => pad::R,
+                "START" => pad::START, "UP" => pad::UP, "DOWN" => pad::DOWN, "LEFT" => pad::LEFT, "RIGHT" => pad::RIGHT,
+                other => panic!("unknown button {other}"),
+            }).fold(0, |x, y| x | y);
+            (a.parse().unwrap(), b.parse().unwrap(), bits)
+        }).collect()
+    }).unwrap_or_default();
+    if std::env::var("CGC_PAD").is_ok() {
+        m.hw.si.pads[0].connected = true;
+    }
+    // CGC_EXI_TRACE=file: the memory card slots' traffic, written at the end.
+    if std::env::var("CGC_EXI_TRACE").is_ok() {
+        m.hw.exi_trace = Some(Vec::new());
+    }
+    // CGC_SHOTS="100,200" with CGC_SHOT_DIR=dir: pictures at the end of those fields.
+    let shots: Vec<u32> = std::env::var("CGC_SHOTS").map(|s| s.split(',').filter_map(|f| f.parse().ok()).collect()).unwrap_or_default();
+    let shot_dir = std::env::var("CGC_SHOT_DIR").unwrap_or_else(|_| "/tmp".into());
     let t = std::time::Instant::now();
     let mut pcs = std::collections::HashMap::<u32, u32>::new();
     let mut causes = [0u64; 32];
     let mut wav: Vec<i16> = Vec::new();
     for f in 0..fields {
+        if !script.is_empty() {
+            let held = script.iter().filter(|(a, b, _)| (*a..=*b).contains(&f)).fold(0, |x, s| x | s.2);
+            m.hw.si.pads[0].buttons = held;
+            let full = |bit: u16| if held & bit != 0 { 255 } else { 0 };
+            m.hw.si.pads[0].triggers = (full(continuum_gc::hw::pad::L), full(continuum_gc::hw::pad::R));
+        }
         m.run_field(m.cpu_hz / 60);
+        if shots.contains(&f) {
+            if let Some((w, h, px)) = m.hw.vi_picture() {
+                let mut ppm = format!("P6 {w} {h} 255\n").into_bytes();
+                for p in px { ppm.extend_from_slice(&[(p >> 16) as u8, (p >> 8) as u8, p as u8]); }
+                std::fs::write(format!("{shot_dir}/field-{f}.ppm"), ppm).unwrap();
+            }
+        }
         wav.extend_from_slice(&m.hw.audio_out);
         m.hw.audio_out.clear();
         let c = m.hw.cause() & m.hw.pi.mask;
@@ -81,6 +124,15 @@ fn main() {
     }
     std::fs::write("/tmp/gc-dump.txt", dump).unwrap();
     eprintln!("gprs: {:08X?}", &m.cpu.gpr[..16]);
+    if let (Ok(p), Some(t)) = (std::env::var("CGC_EXI_TRACE"), m.hw.exi_trace.as_ref()) {
+        std::fs::write(&p, t.join("\n")).unwrap();
+        eprintln!("{} EXI events written to {p}", t.len());
+    }
+    // CGC_CARD_OUT=file: the memory card's bytes at the end.
+    if let Ok(p) = std::env::var("CGC_CARD_OUT") {
+        std::fs::write(&p, &m.hw.card).unwrap();
+        eprintln!("card written to {p}");
+    }
     if let Some(out) = args.get(3) {
         if let Some((w, h, px)) = m.hw.vi_picture() {
             let mut ppm = format!("P6 {w} {h} 255\n").into_bytes();

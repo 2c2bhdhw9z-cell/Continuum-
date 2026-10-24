@@ -111,7 +111,23 @@ pub struct Si {
     pub exilk: u32,
     pub buf: Vec<u8>,
     pub pads: [PadState; 4],
+    /// Polling: video lines since the last poll, and polls so far this field.
+    pub poll_lines: u32,
+    pub polls: u32,
 }
+
+// SISR: a byte per channel (channel 0 the top one): RDST (new input in the channel's buffer,
+// until the program reads it), WRST, NOREP (no controller answered), COLL, OVRUN, UNRUN.
+const SISR_RDST: u32 = 0x20;
+const SISR_NOREP: u32 = 0x08;
+const SISR_ERRORS: u32 = 0x0F;
+// SICOMCSR: TCINT and its mask, COMERR (the last transfer failed), RDSTINT (a channel has new
+// input) and its mask.
+const SI_TCINT: u32 = 1 << 31;
+const SI_TCINTMSK: u32 = 1 << 30;
+const SI_COMERR: u32 = 1 << 29;
+const SI_RDSTINT: u32 = 1 << 28;
+const SI_RDSTINTMSK: u32 = 1 << 27;
 
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct ExiChannel {
@@ -265,6 +281,13 @@ pub struct Hw {
     pub di_commands: std::collections::BTreeMap<u8, u32>,
     /// The first disc drive register writes (offset, value), for development.
     pub di_trace: Vec<(u32, u32)>,
+    /// EXI channel 0 and 1 traffic, when a development tool turns it on (Some).
+    pub exi_trace: Option<Vec<String>>,
+    /// CPU cycles the program waits for that have not been counted yet: an immediate EXI
+    /// transfer takes its bytes' time on the wire, which programs wait out right away
+    /// (EXISync), so the machine adds it to the CPU's time once the write that started it has
+    /// finished.
+    pub stall: u64,
     /// Something that can change the interrupt line happened since the CPU last looked.
     pub irq_dirty: bool,
     /// Sound for the frontend: interleaved left/right 16-bit samples at 48 kHz.
@@ -305,6 +328,8 @@ impl Hw {
             unknown: Default::default(),
             di_commands: Default::default(),
             di_trace: Vec::new(),
+            exi_trace: None,
+            stall: 0,
             sd: None,
             sd_channel: 2,
             card: if wii { Vec::new() } else { crate::memcard::blank(&Self::card_format(0, &default_sram(), 0)) },
@@ -324,7 +349,8 @@ impl Hw {
         if self.vi_irq() {
             c |= INT_VI;
         }
-        if self.si.comcsr & 0xC000_0000 == 0xC000_0000 {
+        let comcsr = self.si.comcsr;
+        if comcsr & (SI_TCINT | SI_TCINTMSK) == SI_TCINT | SI_TCINTMSK || (comcsr & SI_RDSTINTMSK != 0 && self.si_new_input()) {
             c |= INT_SI;
         }
         if self.exi.ch.iter().any(|ch| {
@@ -665,10 +691,12 @@ impl Hw {
                 self.vi.regs[(0x30 / 2 + 2 * k) as usize] |= 0x8000;
             }
         }
-        if line == 1 || line == total / 2 + 1 {
+        let field_start = line == 1 || line == total / 2 + 1;
+        if field_start {
             self.vi.field_done = true;
             self.vi.odd_field = line != 1;
         }
+        self.si_poll_line(field_start);
     }
 
     /// The picture VI is showing, converted from the external framebuffer's YUV to 0RGB.
@@ -720,12 +748,17 @@ impl Hw {
                 let ch = (off / 12) as usize;
                 match off % 12 {
                     0 => self.si.out[ch],
-                    4 => self.pad_word(ch, true),
+                    4 => {
+                        // Reading the buffer's first word takes the new input.
+                        self.si.sr &= !(SISR_RDST << (8 * (3 - ch)));
+                        self.irq_dirty = true;
+                        self.pad_word(ch, true)
+                    }
                     _ => self.pad_word(ch, false),
                 }
             }
             0x30 => self.si.poll,
-            0x34 => self.si.comcsr,
+            0x34 => self.si.comcsr | if self.si_new_input() { SI_RDSTINT } else { 0 },
             0x38 => self.si.sr,
             0x3C => self.si.exilk,
             0x80..=0xFF => {
@@ -763,16 +796,21 @@ impl Hw {
             }
             0x30 => self.si.poll = v,
             0x34 => {
-                // TCINT (31) is cleared by writing 1; TCINTMSK (30) is stored.
-                if v & 0x8000_0000 != 0 {
-                    self.si.comcsr &= !0x8000_0000;
+                // TCINT (31) is cleared by writing 1; COMERR (29) and RDSTINT (28) are status;
+                // the masks and the transfer's settings are stored.
+                if v & SI_TCINT != 0 {
+                    self.si.comcsr &= !SI_TCINT;
                 }
-                self.si.comcsr = (self.si.comcsr & 0x8000_0000) | (v & 0x7FFF_FFFE);
+                self.si.comcsr = (self.si.comcsr & (SI_TCINT | SI_COMERR)) | (v & !(SI_TCINT | SI_COMERR | SI_RDSTINT | 1));
                 if v & 1 != 0 {
                     self.si_transfer();
                 }
             }
-            0x38 => self.si.sr = v & 0x8080_8080,
+            // Error bits clear on writing 1; WR (copy the commands out) happens at once.
+            0x38 => {
+                let errors = (0..4).fold(0, |m, ch| m | SISR_ERRORS << (8 * ch));
+                self.si.sr &= !(v & errors);
+            }
             0x3C => self.si.exilk = v,
             0x80..=0xFF => {
                 let i = (off - 0x80) as usize;
@@ -788,8 +826,44 @@ impl Hw {
         }
     }
 
+    /// Whether a channel has input the program has not read yet (RDSTINT).
+    fn si_new_input(&self) -> bool {
+        self.si.sr & (SISR_RDST * 0x0101_0101) != 0
+    }
+
+    /// One video line of SI's polling (SIPOLL: X lines apart, Y polls a field, channels on in
+    /// EN): each poll brings a channel's controller state into its input buffer (RDST), or finds
+    /// nobody there (NOREP). Programs read the buffers when RDST says so, many of them from the
+    /// RDSTINT interrupt.
+    fn si_poll_line(&mut self, field_start: bool) {
+        if field_start {
+            self.si.poll_lines = 0;
+            self.si.polls = 0;
+        }
+        let x = (self.si.poll >> 16) & 0x3FF;
+        let y = (self.si.poll >> 8) & 0xFF;
+        let enabled = (self.si.poll >> 4) & 0xF;
+        if enabled == 0 || self.si.polls >= y.max(1) {
+            return;
+        }
+        self.si.poll_lines += 1;
+        if self.si.poll_lines < x.max(1) {
+            return;
+        }
+        self.si.poll_lines = 0;
+        self.si.polls += 1;
+        for ch in 0..4 {
+            if enabled & (8 >> ch) != 0 {
+                let bit = if self.si.pads[ch].connected { SISR_RDST } else { SISR_NOREP };
+                self.si.sr |= bit << (8 * (3 - ch));
+            }
+        }
+        self.irq_dirty = true;
+    }
+
     /// A command through SI's I/O buffer (COMCSR: channel bits 1-2, in length 8-14, out 16-22).
     fn si_transfer(&mut self) {
+        self.si.comcsr &= !SI_COMERR;
         let ch = ((self.si.comcsr >> 1) & 3) as usize;
         let reply: Vec<u8> = if !self.si.pads[ch].connected {
             Vec::new()
@@ -803,8 +877,10 @@ impl Hw {
             }
         };
         if reply.is_empty() {
-            // No response on this channel (SISR NOREP bit for the channel).
-            self.si.sr |= 0x08 << (8 * (3 - ch));
+            // No response on this channel (SISR NOREP bit for the channel), and the transfer
+            // failed (COMERR).
+            self.si.sr |= SISR_NOREP << (8 * (3 - ch));
+            self.si.comcsr |= SI_COMERR;
         }
         for (k, b) in reply.iter().enumerate() {
             self.si.buf[k] = *b;
@@ -816,6 +892,9 @@ impl Hw {
     // ------------------------------------------------------------------ EXI
 
     fn exi_read(&mut self, off: u32) -> u32 {
+        // The three channels' registers repeat every 64 bytes (libogc2's EXI_Sync reads the
+        // control register through the copy at 0x8C + 20 x channel).
+        let off = off & 0x3F;
         let (c, r) = ((off / 0x14) as usize, off % 0x14);
         if c > 2 {
             return 0;
@@ -838,6 +917,7 @@ impl Hw {
     }
 
     fn exi_write(&mut self, off: u32, v: u32) {
+        let off = off & 0x3F;
         let (c, r) = ((off / 0x14) as usize, off % 0x14);
         if c > 2 {
             return;
@@ -853,6 +933,10 @@ impl Hw {
                 let new_cs = ch.csr & 0x380;
                 if new_cs != old_cs {
                     ch.dev_addr = None;
+                }
+                let csr = ch.csr;
+                if let Some(t) = self.exi_trace.as_mut().filter(|_| c < 2) {
+                    t.push(format!("ch{c} csr <- {v:08X} = {csr:08X}{}", if new_cs != old_cs { " (cs change)" } else { "" }));
                 }
                 // Device 0 of channel 0 (chip select bit 7) is the memory card in slot A.
                 if c == 0 && (old_cs ^ new_cs) & 0x80 != 0 && self.card_in_slot_a() {
@@ -885,11 +969,23 @@ impl Hw {
         let rw = (cr >> 2) & 3; // 0 read, 1 write, 2 read-write
         let len = if dma { self.exi.ch[c].len } else { ((cr >> 4) & 3) + 1 };
         let cs = (self.exi.ch[c].csr >> 7) & 7;
+        if !dma {
+            // 8 bits a byte at the channel's clock (CSR bits 4-6: 1 MHz doubled that many
+            // times, at most 32 MHz). DMA runs alongside the program and costs it nothing here.
+            let clk = ((self.exi.ch[c].csr >> 4) & 7).min(5);
+            let cycles_per_us = if self.wii { 729 } else { 486 };
+            self.stall += (len as u64 * 8 * cycles_per_us) >> clk;
+        }
         let sd_here = self.sd.is_some() && self.sd_channel == c && (cs == 0 || cs == 1);
         if sd_here {
             self.sd_transfer(c, dma, rw, len);
         } else if c == 0 && cs == 1 && self.card_in_slot_a() {
+            let out = self.exi.ch[0].data;
             self.card_transfer(dma, rw, len);
+            if let Some(t) = self.exi_trace.as_mut() {
+                let back = self.exi.ch[0].data;
+                t.push(format!("card {} rw{rw} len {len} out {out:08X} in {back:08X} status {:02X}", if dma { "dma" } else { "imm" }, self.exi.card.status()));
+            }
         } else if c == 0 && cs == 2 && !dma {
             // Device select bit 1 (value 2 in CS) is the clock/SRAM chip.
             let data = self.exi.ch[c].data;
@@ -917,6 +1013,9 @@ impl Hw {
             // Nothing answers: with no device selected the lines float high, an empty slot
             // reads as zero.
             self.exi.ch[c].data = if cs == 0 { 0xFFFF_FFFF } else { 0 };
+        }
+        if let Some(t) = self.exi_trace.as_mut().filter(|_| c < 2 && !(c == 0 && cs == 1)) {
+            t.push(format!("ch{c} cs{cs} {} rw{rw} len {len} data {:08X}", if dma { "dma" } else { "imm" }, self.exi.ch[c].data));
         }
         self.exi.ch[c].cr &= !1;
         // TCINT.
