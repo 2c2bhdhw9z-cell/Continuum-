@@ -129,6 +129,8 @@ struct PlayerScreen: View {
     /// while the menu had paused the game: the game stays paused under that sheet and carries on
     /// when it closes, instead of running behind it.
     @State private var resumeAfterFollowOn = false
+    /// Whether opening Core settings paused the game (so closing them carries it on).
+    @State private var pausedForCoreSettings = false
     @State private var followOnSkinSheet = false
     @State private var followOnControllers = false
 
@@ -242,8 +244,17 @@ struct PlayerScreen: View {
                 WebPlayerSettingsSheet(host: host, session: player)
             }
         }
-        .sheet(item: $coreActions.sheet) { sheet in
+        .sheet(item: $coreActions.sheet, onDismiss: resumeAfterCoreSettings) { sheet in
             CoreActionSheet(host: host, sheet: sheet)
+        }
+        // Core settings pause the game while they are open. The game runs on the same thread as
+        // the screen, and a game running slower than full speed (GameCube) kept it so busy that
+        // the settings could not be changed (owner, build 221: the speed read-out would not
+        // turn on). Online play is left running: a paused phone stalls the other one.
+        .onChange(of: coreActions.sheet) { sheet in
+            guard case .some(.coreSettings(_)) = sheet, !host.paused, !host.netplayLive, host.webPlayer == nil else { return }
+            host.togglePause()
+            pausedForCoreSettings = host.paused
         }
         // Sheets the skin function buttons open (SkinFunctions.swift, SkinLibraryScreen.swift).
         .modifier(SkinFunctionSheets(host: host))
@@ -410,6 +421,14 @@ struct PlayerScreen: View {
     }
 
     /// The sheet a pause-menu choice opened has closed: carry on with the game.
+    /// Core settings closed: the game carries on if opening them paused it. A restart from the
+    /// settings starts a new, running session, which is left alone.
+    private func resumeAfterCoreSettings() {
+        guard pausedForCoreSettings else { return }
+        pausedForCoreSettings = false
+        if host.paused { host.togglePause() }
+    }
+
     private func resumeFromFollowOn() {
         guard resumeAfterFollowOn else { return }
         resumeAfterFollowOn = false

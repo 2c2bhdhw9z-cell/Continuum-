@@ -7,6 +7,11 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Build 222 (24 October): the speed read-out can be switched on
+
+Owner on 221: no difference felt; Speed read-out would not turn on. 222 pauses the game while Core
+settings is open, so its choices respond. Steps as for 221 below.
+
 ## Build 221 (24 October): GameCube speed read-out
 
 Owner on 220: Animal Crossing loads to its title screen; 12-20 fps with sound, ~60 without.
