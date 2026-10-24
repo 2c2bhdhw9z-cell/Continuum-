@@ -19,7 +19,9 @@ Paste this to start a new chat:
   (`cores/continuum-gb`) and the arcade core (`cores/continuum-arcade`). NOT Dolphin, not a
   wrapper of anyone's emulator: the point of our own cores is to get rid of credits and outside
   licences (owner-rules, "Licences"). `tasks/gamecube.json` (Dolphin plus our interpreter) is
-  replaced by this.
+  replaced by this. It needs BOTH: a JIT of our own for every phone that allows JIT (used
+  automatically, through `crates/emulator-bridge/src/jit.rs`, owner-rules "JIT IS STILL REQUIRED
+  FOR EVERYONE ELSE"), and a fast interpreter for phones without it, like the owner's.
 
 ## Earlier (23 October 2026, about 7 PM Eastern): box side fixed (not built), bugs to verify
 
