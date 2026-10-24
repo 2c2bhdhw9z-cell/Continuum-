@@ -79,6 +79,18 @@ fn off_cur_pc() -> u32 {
 fn off_exit() -> u32 {
     offset_of!(Cpu, exit) as u32
 }
+fn off_msr() -> u32 {
+    offset_of!(Cpu, msr) as u32
+}
+fn off_fpscr() -> u32 {
+    offset_of!(Cpu, fpscr) as u32
+}
+fn ps0(r: u8) -> u32 {
+    (offset_of!(Cpu, ps0) + 8 * r as usize) as u32
+}
+fn ps1(r: u8) -> u32 {
+    (offset_of!(Cpu, ps1) + 8 * r as usize) as u32
+}
 
 /// Everything the compiler needs to know about one instruction.
 pub struct Inst<'a> {
@@ -401,6 +413,7 @@ fn native(c: &mut Ctx, ins: &Inst, count: u32) -> bool {
             }
         }
         31 => return native31(c, ins, count),
+        59 | 63 if fp_kind(i).is_some() => fp_native(c, ins, count),
         32 | 34 | 40 | 42 | 33 | 35 | 41 | 43 if c.fast_mem && !update_invalid(op) => {
             let n = match i >> 26 {
                 32 | 33 => 4,
@@ -452,6 +465,199 @@ fn native(c: &mut Ctx, ins: &Inst, count: u32) -> bool {
         _ => return false,
     }
     true
+}
+
+/// What a floating-point instruction does, when the JIT does it natively.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Fp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    /// a * c + b, or a * c - b; then negated.
+    Madd { sub: bool, neg: bool },
+    /// fmr, fneg, fabs, fnabs: only the sign bit (op 63 only).
+    Move(u8),
+}
+
+fn fp_kind(i: u32) -> Option<Fp> {
+    let xo5 = (i >> 1) & 0x1F;
+    let k = match xo5 {
+        18 => Fp::Div,
+        20 => Fp::Sub,
+        21 => Fp::Add,
+        25 => Fp::Mul,
+        28 => Fp::Madd { sub: true, neg: false },
+        29 => Fp::Madd { sub: false, neg: false },
+        30 => Fp::Madd { sub: true, neg: true },
+        31 => Fp::Madd { sub: false, neg: true },
+        _ if i >> 26 == 63 => match (i >> 1) & 0x3FF {
+            72 => Fp::Move(0),
+            40 => Fp::Move(1),
+            264 => Fp::Move(2),
+            136 => Fp::Move(3),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    Some(k)
+}
+
+/// x9 = the 11-bit exponent of the double in `r`; branches (patched later) when it is all ones
+/// (infinity or NaN). Returns where the branch is.
+fn exp_all_ones(c: &mut Ctx, r: R) -> usize {
+    c.a.ubfx(true, 9, r, 52, 11);
+    c.a.cmp_imm(false, 9, 0x7FF);
+    let at = c.a.here();
+    c.a.emit(0);
+    at
+}
+
+/// Floating-point arithmetic natively, exactly as the interpreter's quick path does it: every
+/// operand an ordinary number (and a divisor that is not zero), the host's IEEE double
+/// arithmetic (fused for the multiply-adds; single precision rounds the multiplier first and
+/// the result after), the result not infinite, denormals flushed when FPSCR[NI] is set, then
+/// FPRF and CR1. Anything else (an infinity or NaN in or out, a zero divisor, floating point
+/// switched off) runs the handler, which does the full PowerPC rules.
+fn fp_native(c: &mut Ctx, ins: &Inst, count: u32) {
+    let op = ins.op;
+    let i = op.inst;
+    let kind = fp_kind(i).expect("checked");
+    let single = i >> 26 == 59;
+    // frC is not among the decoded fields for these opcodes: from the word itself.
+    let (d, a, b, cc) = (op.d, op.a, op.b, ((i >> 6) & 31) as u8);
+    let rec = i & 1 != 0;
+    let mut slow: Vec<(usize, Cond)> = Vec::new();
+    // Floating point switched off: the handler raises the exception.
+    c.ldr(0, off_msr());
+    let at = c.a.here();
+    c.a.emit(0);
+    let fp_off = at;
+    if let Fp::Move(m) = kind {
+        c.a.ldr_x_any(1, CPU, ps0(b), 16);
+        c.a.mov_imm(true, 11, 1 << 63);
+        match m {
+            0 => {}
+            1 => c.a.eor(true, 1, 1, 11),
+            2 => c.a.bic(true, 1, 1, 11),
+            _ => c.a.orr(true, 1, 1, 11),
+        }
+        c.a.str_x_any(1, CPU, ps0(d), 16);
+        if rec {
+            fp_cr1(c);
+        }
+    } else {
+        let uses_b = !matches!(kind, Fp::Mul);
+        let uses_c = matches!(kind, Fp::Mul | Fp::Madd { .. });
+        c.a.ldr_x_any(1, CPU, ps0(a), 16);
+        slow.push((exp_all_ones(c, 1), Cond::Eq));
+        if uses_b {
+            c.a.ldr_x_any(2, CPU, ps0(b), 16);
+            slow.push((exp_all_ones(c, 2), Cond::Eq));
+        }
+        if kind == Fp::Div {
+            // A zero divisor (either sign).
+            c.a.lsl_imm(true, 9, 2, 1);
+            let at = c.a.here();
+            c.a.emit(0);
+            slow.push((at, Cond::Al)); // patched as CBZ below
+        }
+        if uses_c {
+            c.a.ldr_x_any(3, CPU, ps0(cc), 16);
+            slow.push((exp_all_ones(c, 3), Cond::Eq));
+            if single {
+                // The multiplier sees frC rounded to 25 significant bits.
+                c.a.mov_imm(true, 11, 0x0800_0000);
+                c.a.and(true, 12, 3, 11);
+                c.a.mov_imm(true, 11, 0xFFFF_FFFF_F800_0000);
+                c.a.and(true, 3, 3, 11);
+                c.a.add(true, 3, 3, 12);
+                slow.push((exp_all_ones(c, 3), Cond::Eq));
+            }
+            c.a.fmov_d_x(3, 3);
+        }
+        c.a.fmov_d_x(1, 1);
+        if uses_b {
+            c.a.fmov_d_x(2, 2);
+        }
+        match kind {
+            Fp::Add => c.a.fadd_d(0, 1, 2),
+            Fp::Sub => c.a.fsub_d(0, 1, 2),
+            Fp::Mul => c.a.fmul_d(0, 1, 3),
+            Fp::Div => c.a.fdiv_d(0, 1, 2),
+            Fp::Madd { sub, neg } => {
+                if sub {
+                    c.a.fnmsub_d(0, 1, 3, 2);
+                } else {
+                    c.a.fmadd_d(0, 1, 3, 2);
+                }
+                if neg {
+                    c.a.fneg_d(0, 0);
+                }
+            }
+            Fp::Move(_) => unreachable!(),
+        }
+        if single {
+            c.a.fcvt_s_d(0, 0);
+            c.a.fcvt_d_s(0, 0);
+        }
+        c.a.fmov_x_d(0, 0);
+        // An infinite result sets overflow flags: the handler's job.
+        slow.push((exp_all_ones(c, 0), Cond::Eq));
+        // FPSCR[NI]: denormal results become zero (x9 still holds the exponent).
+        c.ldr(4, off_fpscr());
+        let ni_at = c.a.here();
+        c.a.emit(0);
+        let exp_at = c.a.here();
+        c.a.emit(0);
+        c.a.mov_imm(true, 11, 1 << 63);
+        c.a.and(true, 0, 0, 11);
+        let after_ni = c.a.here();
+        c.a.patch(ni_at, Asm::tbz_to(false, 4, 2, ni_at, after_ni));
+        c.a.patch(exp_at, Asm::cbz_to(false, true, 9, exp_at, after_ni));
+        c.a.str_x_any(0, CPU, ps0(d), 16);
+        if single {
+            c.a.str_x_any(0, CPU, ps1(d), 16);
+        }
+        // FPRF: the result's class. x9 = exponent (0 after a flush too, for a zero).
+        c.a.ubfx(true, 9, 0, 52, 11);
+        c.a.lsr_imm(true, 10, 0, 63);
+        c.a.lsl_imm(true, 11, 0, 12);
+        c.a.mov_imm(false, 12, 4);
+        c.a.lslv(false, 12, 12, 10); // normal: 0x04 / 0x08
+        c.a.mov_imm(false, 13, 2);
+        c.a.logic_reg(false, 0b01, false, 13, 13, 10, Shift::Lsl, 4); // zero: 0x02 / 0x12
+        c.a.mov_imm(false, 14, 0x14);
+        c.a.addsub_reg(false, false, false, 14, 14, 10, Shift::Lsl, 2); // denormal: 0x14 / 0x18
+        c.a.cmp_imm(true, 11, 0);
+        c.a.csel(false, 13, 13, 14, Cond::Eq);
+        c.a.cmp_imm(false, 9, 0);
+        c.a.csel(false, 12, 13, 12, Cond::Eq);
+        c.a.bfi(false, 4, 12, 12, 5);
+        c.str(4, off_fpscr());
+        if rec {
+            fp_cr1(c);
+        }
+    }
+    let done_at = c.a.here();
+    c.a.emit(0);
+    let slow_here = c.a.here();
+    c.a.patch(fp_off, Asm::tbz_to(false, 0, 13, fp_off, slow_here));
+    for (at, cond) in slow {
+        let w = if cond == Cond::Al { Asm::cbz_to(true, false, 9, at, slow_here) } else { Asm::b_cond_to(at, slow_here, cond) };
+        c.a.patch(at, w);
+    }
+    c.fallback(ins, count);
+    let done = c.a.here();
+    let w = c.a.b_to(done_at, done, false);
+    c.a.patch(done_at, w);
+}
+
+/// CR1 = FPSCR[FX, FEX, VX, OX].
+fn fp_cr1(c: &mut Ctx) {
+    c.ldr(4, off_fpscr());
+    c.a.lsr_imm(false, 1, 4, 28);
+    c.set_cr_field(1);
 }
 
 fn update_invalid(op: &Op) -> bool {

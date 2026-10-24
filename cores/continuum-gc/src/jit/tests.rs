@@ -28,9 +28,19 @@ impl Rng {
 }
 
 fn instruction(rng: &mut Rng) -> u32 {
-    let ops = [14u32, 15, 24, 25, 26, 27, 28, 29, 10, 11, 20, 21, 32, 33, 34, 35, 40, 41, 42, 43, 36, 37, 38, 39, 44, 45, 31, 31, 31, 31, 31, 31, 7, 8, 12, 13, 23];
+    let ops = [14u32, 15, 24, 25, 26, 27, 28, 29, 10, 11, 20, 21, 32, 33, 34, 35, 40, 41, 42, 43, 36, 37, 38, 39, 44, 45, 31, 31, 31, 31, 31, 31, 7, 8, 12, 13, 23, 59, 59, 63, 63, 63];
     let op = ops[(rng.next() as usize) % ops.len()];
     let f = rng.next() & 0x03FF_FFFF;
+    if op == 59 || op == 63 {
+        // Arithmetic (A-form), and for op 63 also moves, compares, rounding, conversion.
+        let regs = f & 0x03FF_F7C0 | (rng.next() & 1);
+        if op == 63 && rng.next() % 3 == 0 {
+            let xo = [72u32, 40, 264, 136, 0, 12, 14, 15, 32][(rng.next() % 9) as usize];
+            return (63 << 26) | (regs & 0x03FF_F801) | (xo << 1);
+        }
+        let xo5 = [18u32, 20, 21, 25, 28, 29, 30, 31, 18, 25, 29, 24, 26][(rng.next() % 13) as usize];
+        return (op << 26) | regs | (xo5 << 1);
+    }
     if op == 31 {
         let xos = [266u32, 40, 28, 60, 444, 412, 316, 124, 476, 284, 0, 32, 26, 922, 954, 339, 467, 10, 104, 235, 23, 151, 824];
         let xo = xos[(rng.next() as usize) % xos.len()];
@@ -71,6 +81,30 @@ fn setup(cpu: &mut Cpu, rng: &mut Rng) {
     cpu.xer = rng.next() & 0xE000_007F;
     cpu.lr = 0x8000_4000 + (rng.next() & 0xFFF);
     cpu.ctr = rng.next() % 3;
+    // Floating-point registers: ordinary numbers of every size, and the edge cases.
+    for r in 0..32 {
+        for half in 0..2 {
+            let v = match rng.next() % 12 {
+                0 => [0u64, 1 << 63, 0x7FF0_0000_0000_0000, 0xFFF0_0000_0000_0000, 0x7FF8_0000_0000_0000, 0x7FF4_0000_0000_0001, 0x0000_0000_0000_0001, 0x000F_FFFF_FFFF_FFFF, 0x0010_0000_0000_0000, 0x7FEF_FFFF_FFFF_FFFF, 0x47EF_FFFF_E000_0000, 0x3810_0000_0000_0000][(rng.next() % 12) as usize],
+                1 => (rng.next() as u64) << 32 | rng.next() as u64,
+                2 => (1.0f64 + (rng.next() as f64) / 4e9).to_bits() ^ (((rng.next() & 1) as u64) << 63),
+                3 => ((rng.next() as f64) * 1e300).to_bits(),
+                4 => ((rng.next() as f64) * 1e-310).to_bits(),
+                5 => (((rng.next() as i32) as f32) as f64).to_bits(),
+                _ => (((rng.next() as i32) as f64) / 1000.0).to_bits(),
+            };
+            if half == 0 {
+                cpu.ps0[r] = v;
+            } else {
+                cpu.ps1[r] = v;
+            }
+        }
+    }
+    // FPSCR: random flags, enables and rounding mode, NI sometimes; FP sometimes off.
+    cpu.fpscr = rng.next() & 0xFFFF_F0FF & if rng.next() % 2 == 0 { !0xF8 } else { !0 } & if rng.next() % 3 == 0 { !0 } else { !3 };
+    if rng.next() % 16 == 0 {
+        cpu.msr &= !MSR_FP;
+    }
 }
 
 #[test]
@@ -231,7 +265,7 @@ fn jit_blocks_match_the_interpreter() {
             words.extend_from_slice(&b_words);
         }
 
-        let same = cpu_ref.gpr == cpu_jit.gpr && cpu_ref.cr == cpu_jit.cr && cpu_ref.xer == cpu_jit.xer && cpu_ref.lr == cpu_jit.lr && cpu_ref.ctr == cpu_jit.ctr && cpu_ref.pc == cpu_jit.pc && cpu_ref.msr == cpu_jit.msr && cpu_ref.srr0 == cpu_jit.srr0 && cpu_ref.dar == cpu_jit.dar;
+        let same = cpu_ref.gpr == cpu_jit.gpr && cpu_ref.ps0 == cpu_jit.ps0 && cpu_ref.ps1 == cpu_jit.ps1 && cpu_ref.fpscr == cpu_jit.fpscr && cpu_ref.cr == cpu_jit.cr && cpu_ref.xer == cpu_jit.xer && cpu_ref.lr == cpu_jit.lr && cpu_ref.ctr == cpu_jit.ctr && cpu_ref.pc == cpu_jit.pc && cpu_ref.msr == cpu_jit.msr && cpu_ref.srr0 == cpu_jit.srr0 && cpu_ref.dar == cpu_jit.dar;
         let whole = case % 500 == 499 || case == blocks - 1;
         let mem_same = if whole { hw_ref.mem1 == hw_jit.mem1 } else { hw_ref.mem1[WINDOW..WINDOW + WINDOW_LEN] == hw_jit.mem1[WINDOW..WINDOW + WINDOW_LEN] };
         if !same || n_ref != n_jit || !mem_same {
@@ -241,6 +275,12 @@ fn jit_blocks_match_the_interpreter() {
                 if cpu_ref.gpr[r] != cpu_jit.gpr[r] {
                     diff.push_str(&format!(" r{r} {:08X}/{:08X}", cpu_ref.gpr[r], cpu_jit.gpr[r]));
                 }
+                if cpu_ref.ps0[r] != cpu_jit.ps0[r] || cpu_ref.ps1[r] != cpu_jit.ps1[r] {
+                    diff.push_str(&format!(" f{r} {:016X}:{:016X}/{:016X}:{:016X} (was {:016X}:{:016X})", cpu_ref.ps0[r], cpu_ref.ps1[r], cpu_jit.ps0[r], cpu_jit.ps1[r], start.ps0[r], start.ps1[r]));
+                }
+            }
+            if cpu_ref.fpscr != cpu_jit.fpscr {
+                diff.push_str(&format!(" fpscr {:08X}/{:08X} (was {:08X})", cpu_ref.fpscr, cpu_jit.fpscr, start.fpscr));
             }
             let regs: Vec<String> = start.gpr.iter().map(|g| format!("{g:08X}")).collect();
             eprintln!("start registers {regs:?} cr {:08X} xer {:08X}", start.cr, start.xer);

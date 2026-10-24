@@ -285,6 +285,8 @@ fn main() {
     for (k, c) in top(&kinds, 40) {
         println!("  {:6.2}%  {k}", pct(c));
     }
+    let fp: u64 = kinds.iter().filter(|(k, _)| k.starts_with("fp") || k.starts_with("ps") || k.starts_with("lf") || k.starts_with("stf") || k.starts_with("psq")).map(|(_, c)| *c).sum();
+    println!("  floating point and paired singles (all kinds, loads and stores included): {:.2}%", pct(fp));
     println!("\nneighbouring pairs (top 40):");
     for ((x, y), c) in top(&pairs, 40) {
         println!("  {:6.2}%  {x} + {y}", pct(c));

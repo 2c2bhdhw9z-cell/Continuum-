@@ -383,6 +383,78 @@ impl Asm {
         self.csel_kind(x, 0, 1, rd, ZR, ZR, c.invert());
     }
 
+    // ------------------------------------------------------------------ floating point (doubles)
+
+    /// FMOV Dd, Xn (bits from a general register).
+    pub fn fmov_d_x(&mut self, dd: R, xn: R) {
+        self.emit(0x9E67_0000 | (xn << 5) | dd);
+    }
+    /// FMOV Xd, Dn.
+    pub fn fmov_x_d(&mut self, xd: R, dn: R) {
+        self.emit(0x9E66_0000 | (dn << 5) | xd);
+    }
+    /// FADD/FSUB/FMUL/FDIV Dd, Dn, Dm (op: 0 mul, 1 div, 2 add, 3 sub).
+    fn fp2(&mut self, op: u32, dd: R, dn: R, dm: R) {
+        let opcode = match op {
+            0 => 0b0000,
+            1 => 0b0001,
+            2 => 0b0010,
+            _ => 0b0011,
+        };
+        self.emit(0x1E60_0800 | (dm << 16) | (opcode << 12) | (dn << 5) | dd);
+    }
+    pub fn fmul_d(&mut self, dd: R, dn: R, dm: R) {
+        self.fp2(0, dd, dn, dm);
+    }
+    pub fn fdiv_d(&mut self, dd: R, dn: R, dm: R) {
+        self.fp2(1, dd, dn, dm);
+    }
+    pub fn fadd_d(&mut self, dd: R, dn: R, dm: R) {
+        self.fp2(2, dd, dn, dm);
+    }
+    pub fn fsub_d(&mut self, dd: R, dn: R, dm: R) {
+        self.fp2(3, dd, dn, dm);
+    }
+    /// FMADD Dd, Dn, Dm, Da = Da + Dn * Dm (fused); FMSUB = Da - Dn * Dm;
+    /// FNMSUB = Dn * Dm - Da.
+    pub fn fmadd_d(&mut self, dd: R, dn: R, dm: R, da: R) {
+        self.emit(0x1F40_0000 | (dm << 16) | (da << 10) | (dn << 5) | dd);
+    }
+    pub fn fmsub_d(&mut self, dd: R, dn: R, dm: R, da: R) {
+        self.emit(0x1F40_8000 | (dm << 16) | (da << 10) | (dn << 5) | dd);
+    }
+    pub fn fnmsub_d(&mut self, dd: R, dn: R, dm: R, da: R) {
+        self.emit(0x1F60_8000 | (dm << 16) | (da << 10) | (dn << 5) | dd);
+    }
+    pub fn fneg_d(&mut self, dd: R, dn: R) {
+        self.emit(0x1E61_4000 | (dn << 5) | dd);
+    }
+    /// FCVT Sd, Dn (round to single) and FCVT Dd, Sn (exact).
+    pub fn fcvt_s_d(&mut self, sd: R, dn: R) {
+        self.emit(0x1E62_4000 | (dn << 5) | sd);
+    }
+    pub fn fcvt_d_s(&mut self, dd: R, sn: R) {
+        self.emit(0x1E22_C000 | (sn << 5) | dd);
+    }
+    /// LDR/STR Xt, [Xn, #off] for 64-bit fields with offsets beyond the scaled range: via a
+    /// register offset.
+    pub fn ldr_x_any(&mut self, rt: R, rn: R, off: u32, tmp: R) {
+        if off % 8 == 0 && off / 8 < 4096 {
+            self.ldr_x(rt, rn, off);
+        } else {
+            self.mov_imm(true, tmp, off as u64);
+            self.ldr_x_reg(rt, rn, tmp);
+        }
+    }
+    pub fn str_x_any(&mut self, rt: R, rn: R, off: u32, tmp: R) {
+        if off % 8 == 0 && off / 8 < 4096 {
+            self.str_x(rt, rn, off);
+        } else {
+            self.mov_imm(true, tmp, off as u64);
+            self.str_x_reg(rt, rn, tmp);
+        }
+    }
+
     // ------------------------------------------------------------------ branches
 
     /// B / BL to a target instruction index (patched later if needed).
@@ -525,6 +597,18 @@ mod tests {
         put(&mut a, &|a| a.ror_imm(false, 1, 2, 5), "ror w1, w2, #5");
         put(&mut a, &|a| a.csel(false, 1, 2, 3, Cond::Lt), "csel w1, w2, w3, lt");
         put(&mut a, &|a| a.cset(false, 1, Cond::Gt), "cset w1, gt");
+        put(&mut a, &|a| a.fmov_d_x(1, 9), "fmov d1, x9");
+        put(&mut a, &|a| a.fmov_x_d(9, 1), "fmov x9, d1");
+        put(&mut a, &|a| a.fadd_d(0, 1, 2), "fadd d0, d1, d2");
+        put(&mut a, &|a| a.fsub_d(0, 1, 2), "fsub d0, d1, d2");
+        put(&mut a, &|a| a.fmul_d(0, 1, 2), "fmul d0, d1, d2");
+        put(&mut a, &|a| a.fdiv_d(0, 1, 2), "fdiv d0, d1, d2");
+        put(&mut a, &|a| a.fmadd_d(0, 1, 2, 3), "fmadd d0, d1, d2, d3");
+        put(&mut a, &|a| a.fmsub_d(0, 1, 2, 3), "fmsub d0, d1, d2, d3");
+        put(&mut a, &|a| a.fnmsub_d(0, 1, 2, 3), "fnmsub d0, d1, d2, d3");
+        put(&mut a, &|a| a.fneg_d(0, 1), "fneg d0, d1");
+        put(&mut a, &|a| a.fcvt_s_d(0, 1), "fcvt s0, d1");
+        put(&mut a, &|a| a.fcvt_d_s(0, 1), "fcvt d0, s1");
         put(&mut a, &|a| a.blr(16), "blr x16");
         put(&mut a, &|a| a.br(16), "br x16");
         put(&mut a, &|a| a.ret(), "ret");
