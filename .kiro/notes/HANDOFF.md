@@ -5,7 +5,55 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (24 October 2026, about 1:45 PM Eastern): GameCube in the app (hidden), memory cards, controls fixed
+## START HERE (24 October 2026, about 4:30 PM Eastern): Animal Crossing boots on build 219, stuck in a sound timing loop
+
+The owner opened a new chat because this one got too long (his phone was heating up). He is tired of games not
+loading: fix this first, build once, give the link and steps. He sent two screenshots of the new status screen
+(build 219, Animal Crossing USA, GAFE01). Their contents, written down here because the pictures are not saved:
+
+    AFTER 70 / 140 SECONDS (the numbers changed too fast for him to read live; the two shots were enough)
+    GAFE01 ANIMALCROSSING
+    PC 8008C0C8 LR 8008C114 MSR 00001032
+    SRR0 80079BE8 DEC F33F8382 / D2DE49B6 TB 79C06A2BD7672F / 79C06A4C38A0FB
+    EXC 500:12 800:1 C00:9
+    HOT 8008C000:685 8008C100:684 8007E100:5 80003400:1   (140 s: 1288, 1287, 5, ...)
+    DISC 12:1 (only the inquiry, no reads yet)
+    DSP NONE 00000000 CSR 0844     AI 00000001 DI 0000002A SI 60010306
+    EXI 00000008 00000000 00000000  VI 0001 PI 00000FFC CAUSE 00010100
+    GX PRIM 0 EFB 0 XFB 0
+    LOADER: THIS APPLOADER BUILT APR 10 2002 02:35:29
+
+So the boot fix worked: the apploader ran and the game's own code is running. With Animal Crossing's symbol map
+(ac-decomp config/GAFE01_00/symbols.txt, reading only), 8008C04C-8008C1xx is `__AI_SRC_INIT` (dolphin/ai/ai.c),
+called by AISetStreamPlayState / AIInit. CAUSE: that function measures the time from a step of the audio
+interface's sample counter (AISCNT, AI register 0x08) at 32 kHz to the next step after switching AICR to 48 kHz,
+reading the time base. It accepts diff < 28.5 us (bound_32KHz 31.524 us minus 3 us) or 34.5-39 us, otherwise it
+tries again forever. Our AISCNT steps by 3 once per video line (Hw::ai_samples(3) from Machine::run_field, 63.5
+us apart), so every measurement is about 63.5 us and it never finishes.
+
+FIX PLAN (do this first in the new chat):
+1. AISCNT counted from CPU time, sample by sample: Hw learns the CPU's cycle count at each register access (the
+   slow memory paths that reach mmio_read/mmio_write: fast_ops load/store slow, the plain interpreter, and the
+   JIT, whose handlers go through the same fast_ops functions), and the count is anchor_count + (now -
+   anchor_cycle) * rate / cpu_hz at 32000 or 48000 Hz (AICR bit 1, AFR). Re-anchor on AICR writes (play/stop,
+   rate, SCRESET) and AISCNT writes. AIINT (count reaching AIIT, with AIINTMSK) checked per video line from the
+   computed count. Dolphin computes it from its cycle clock too, which gives diff about 20.8 us (one 48 kHz
+   step), inside the first window.
+2. The fast interpreter's idle-loop skip (fast.rs, `block.idle`, skips to the end of the line or the
+   decrementer) must not jump past the next counter step when the loop reads AISCNT (the inner loops are
+   `while (temp == AIRegs[2]) {}`): either treat a loop that reads a hardware register as not idle, or make
+   the skip stop at the next sample step.
+3. Test: a PowerPC test program that runs __AI_SRC_INIT's loop (set AICR 32 kHz + play, wait for AISCNT to
+   change, mftb, switch to 48 kHz, wait, mftb, check the window) must finish in the plain interpreter, the fast
+   interpreter and the JIT (tests/machine.rs style; the JIT under qemu with `.scratch/ca`).
+4. The status screen: refresh it only every few seconds so a screenshot is steady (owner: "the numbers changed
+   too fast to track").
+5. Then look at what comes next in Animal Crossing's boot (DVD reads, the Zelda-family sound program upload),
+   rebuild once (engine unchanged, so pushes to cores/continuum-gc alone do not start the iOS build: start it by
+   hand with `gh api -X POST repos/2c2bhdhw9z-cell/Continuum-/actions/workflows/ios.yml/dispatches -f
+   ref=master`), check the .ipa, give the owner the link and steps.
+
+## Earlier (24 October 2026, about 1:45 PM Eastern): GameCube in the app (hidden), memory cards, controls fixed
 
 - BUILD 216 DONE 2:13 PM Eastern (green; checked: 0.8.0 (216), Frameworks/continuum_gc_libretro_ios.dylib 1.4 MB,
   unlock code in): https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-216-af13640/Continuum-216.ipa
