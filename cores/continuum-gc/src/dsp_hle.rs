@@ -36,6 +36,8 @@ pub enum Kind {
     Aesnd,
     Ax,
     Card,
+    /// Nintendo's own (dsp_zelda.rs).
+    Zelda,
 }
 
 /// Frames in one AESND block (96 stereo frames at 48 kHz, 2 ms).
@@ -50,6 +52,8 @@ pub struct HleState {
     pub ector: u32,
     /// AX's own state.
     pub ax: Option<crate::dsp_ax::AxState>,
+    /// The Nintendo program's own state.
+    pub zelda: Option<Box<crate::dsp_zelda::ZeldaState>>,
     /// The program that switched to this one, to carry on when it comes back.
     pub previous: Option<Box<HleState>>,
     /// A switch to another program in progress: its transfer mails so far.
@@ -101,6 +105,9 @@ fn identify(code: &[u8], ector: u32) -> Kind {
     if ector == CARD_CRC {
         return Kind::Card;
     }
+    if crate::dsp_zelda::variant(ector).is_some() {
+        return Kind::Zelda;
+    }
     // AX by its checksum, or by its command-list mail (0xBABE) for versions not listed.
     if AX_CRCS.contains(&ector) || w.contains(&0xBABE) {
         return Kind::Ax;
@@ -129,10 +136,27 @@ impl Hw {
         let old = std::mem::take(&mut self.dsp.hle);
         self.dsp.hle = HleState { kind: kind.clone(), crc: crc32(code), ector, ..Default::default() };
         self.dsp.hle.previous = if old.kind != Kind::None { Some(Box::new(old)) } else { keep };
-        if kind == Kind::Ax {
-            self.ax_start(ector);
+        match kind {
+            Kind::Ax => {
+                self.ax_start(ector);
+                self.dsp_mail_irq(0xDCD1_0000);
+            }
+            // It says hello its own way.
+            Kind::Zelda => self.zelda_start(crate::dsp_zelda::variant(ector).expect("identified")),
+            _ => self.dsp_mail_irq(0xDCD1_0000),
         }
-        self.dsp_mail_irq(0xDCD1_0000);
+    }
+
+    /// The running program is about to be replaced: its ten transfer mails follow.
+    pub(crate) fn dsp_start_switch(&mut self) {
+        self.dsp.hle.switch = Some(Vec::new());
+    }
+
+    /// The running program hands back to the boot ROM, which says it is ready again.
+    pub(crate) fn dsp_reset_to_rom(&mut self) {
+        self.dsp.ucode = None;
+        self.dsp.hle = HleState::default();
+        self.dsp_post(0x8071_FEED);
     }
 
     /// A mail from the DSP to the CPU with the DSP interrupt, as a running program sends them.
@@ -179,6 +203,10 @@ impl Hw {
                 } else {
                     self.ax_mail(mail);
                 }
+                return;
+            }
+            Kind::Zelda => {
+                self.zelda_mail(mail);
                 return;
             }
             Kind::Card => {

@@ -1139,7 +1139,7 @@ impl Hw {
         self.dsp_deliver();
     }
 
-    fn dsp_deliver(&mut self) {
+    pub(crate) fn dsp_deliver(&mut self) {
         if !self.dsp.dsp_mbox_full {
             if let Some(m) = self.dsp.outbox.pop_front() {
                 self.dsp.dsp_mbox = m & 0x7FFF_FFFF;

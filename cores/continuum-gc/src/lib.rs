@@ -12,6 +12,7 @@ pub mod disc;
 pub mod dol;
 pub mod dsp_ax;
 pub mod dsp_hle;
+pub mod dsp_zelda;
 pub mod gx;
 pub mod jit;
 pub mod hw;
