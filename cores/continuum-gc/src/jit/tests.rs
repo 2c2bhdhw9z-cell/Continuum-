@@ -28,9 +28,18 @@ impl Rng {
 }
 
 fn instruction(rng: &mut Rng) -> u32 {
-    let ops = [14u32, 15, 24, 25, 26, 27, 28, 29, 10, 11, 20, 21, 32, 33, 34, 35, 40, 41, 42, 43, 36, 37, 38, 39, 44, 45, 31, 31, 31, 31, 31, 31, 7, 8, 12, 13, 23, 59, 59, 63, 63, 63, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 60, 61];
+    let ops = [14u32, 15, 24, 25, 26, 27, 28, 29, 10, 11, 20, 21, 32, 33, 34, 35, 40, 41, 42, 43, 36, 37, 38, 39, 44, 45, 31, 31, 31, 31, 31, 31, 7, 8, 12, 13, 23, 59, 59, 63, 63, 63, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 60, 61, 4, 4, 4];
     let op = ops[(rng.next() as usize) % ops.len()];
     let f = rng.next() & 0x03FF_FFFF;
+    if op == 4 {
+        let regs = f & 0x03FF_F7C0 | (rng.next() & 1);
+        if rng.next() % 3 == 0 {
+            let xo = [72u32, 40, 264, 136, 528, 560, 592, 624, 0, 32][(rng.next() % 10) as usize];
+            return (4 << 26) | (regs & 0x03FF_F801) | (xo << 1);
+        }
+        let xo5 = [10u32, 11, 12, 13, 14, 15, 18, 20, 21, 25, 28, 29, 30, 31, 23, 24, 26][(rng.next() % 17) as usize];
+        return (4 << 26) | regs | (xo5 << 1);
+    }
     if op == 59 || op == 63 {
         // Arithmetic (A-form), and for op 63 also moves, compares, rounding, conversion.
         let regs = f & 0x03FF_F7C0 | (rng.next() & 1);

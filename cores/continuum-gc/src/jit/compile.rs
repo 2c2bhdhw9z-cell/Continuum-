@@ -421,6 +421,7 @@ fn native(c: &mut Ctx, ins: &Inst, count: u32) -> bool {
         31 => return native31(c, ins, count),
         59 | 63 if fp_kind(i).is_some() => fp_native(c, ins, count),
         48..=55 | 56 | 57 | 60 | 61 if c.fast_mem => fp_mem(c, ins, count),
+        4 if ps_kind(i).is_some() => ps_native(c, ins, count),
         32 | 34 | 40 | 42 | 33 | 35 | 41 | 43 if c.fast_mem && !update_invalid(op) => {
             let n = match i >> 26 {
                 32 | 33 => 4,
@@ -666,6 +667,8 @@ enum Slow {
     Cond(Cond),
     /// TBZ (false) or TBNZ (true) on a bit of a register.
     Bit(bool, R, u32),
+    /// CBZ x9.
+    Zero9,
 }
 
 struct SlowSites(Vec<(usize, Slow)>);
@@ -684,6 +687,7 @@ impl SlowSites {
             let w = match k {
                 Slow::Cond(cond) => Asm::b_cond_to(at, slow, cond),
                 Slow::Bit(nz, r, bit) => Asm::tbz_to(nz, r, bit, at, slow),
+                Slow::Zero9 => Asm::cbz_to(true, false, 9, at, slow),
             };
             c.a.patch(at, w);
         }
@@ -871,6 +875,211 @@ fn fp_mem(c: &mut Ctx, ins: &Inst, count: u32) {
         c.store_gpr(0, a);
     }
     slow.finish(c, ins, count);
+}
+
+/// What one lane of a paired-single instruction computes, and from which halves (0 = ps0,
+/// 1 = ps1) of frA, frB and frC.
+#[derive(Clone, Copy)]
+enum Lane {
+    Arith(Fp, u8, u8, u8),
+    /// round_single of frC's half (ps_sum's other lane) or frA's (ps_merge00/01).
+    RoundC(u8),
+    RoundA(u8),
+    /// A half of frA or frB as it is (ps_merge).
+    A(u8),
+    B(u8),
+    /// frB's half with its sign changed: 0 as is, 1 negated, 2 cleared, 3 set.
+    Sign(u8, u8),
+}
+
+/// Paired-single instructions the JIT does natively: their two lanes, and whether FPRF is set.
+fn ps_kind(i: u32) -> Option<(Lane, Lane, bool)> {
+    use Fp::*;
+    let madd = |sub, neg| Madd { sub, neg };
+    let k = match (i >> 1) & 0x1F {
+        10 => (Lane::Arith(Add, 0, 1, 0), Lane::RoundC(1), true),
+        11 => (Lane::RoundC(0), Lane::Arith(Add, 0, 1, 0), true),
+        12 => (Lane::Arith(Mul, 0, 0, 0), Lane::Arith(Mul, 1, 0, 0), true),
+        13 => (Lane::Arith(Mul, 0, 0, 1), Lane::Arith(Mul, 1, 0, 1), true),
+        14 => (Lane::Arith(madd(false, false), 0, 0, 0), Lane::Arith(madd(false, false), 1, 1, 0), true),
+        15 => (Lane::Arith(madd(false, false), 0, 0, 1), Lane::Arith(madd(false, false), 1, 1, 1), true),
+        18 => (Lane::Arith(Div, 0, 0, 0), Lane::Arith(Div, 1, 1, 0), true),
+        20 => (Lane::Arith(Sub, 0, 0, 0), Lane::Arith(Sub, 1, 1, 0), true),
+        21 => (Lane::Arith(Add, 0, 0, 0), Lane::Arith(Add, 1, 1, 0), true),
+        25 => (Lane::Arith(Mul, 0, 0, 0), Lane::Arith(Mul, 1, 0, 1), true),
+        28 => (Lane::Arith(madd(true, false), 0, 0, 0), Lane::Arith(madd(true, false), 1, 1, 1), true),
+        29 => (Lane::Arith(madd(false, false), 0, 0, 0), Lane::Arith(madd(false, false), 1, 1, 1), true),
+        30 => (Lane::Arith(madd(true, true), 0, 0, 0), Lane::Arith(madd(true, true), 1, 1, 1), true),
+        31 => (Lane::Arith(madd(false, true), 0, 0, 0), Lane::Arith(madd(false, true), 1, 1, 1), true),
+        _ => match (i >> 1) & 0x3FF {
+            72 => (Lane::Sign(0, 0), Lane::Sign(1, 0), false),
+            40 => (Lane::Sign(0, 1), Lane::Sign(1, 1), false),
+            264 => (Lane::Sign(0, 2), Lane::Sign(1, 2), false),
+            136 => (Lane::Sign(0, 3), Lane::Sign(1, 3), false),
+            528 => (Lane::RoundA(0), Lane::B(0), false),
+            560 => (Lane::RoundA(0), Lane::B(1), false),
+            592 => (Lane::A(1), Lane::B(0), false),
+            624 => (Lane::A(1), Lane::B(1), false),
+            _ => return None,
+        },
+    };
+    Some(k)
+}
+
+/// One lane of single-precision arithmetic on halves of frA/frB/frC into x0, the
+/// interpreter's quick path exactly (as `fp_native` for op 59); w4 must hold FPSCR.
+#[allow(clippy::too_many_arguments)]
+fn fp_lane(c: &mut Ctx, kind: Fp, a: u32, b: u32, cc: u32, slow: &mut SlowSites) {
+    let uses_b = !matches!(kind, Fp::Mul);
+    let uses_c = matches!(kind, Fp::Mul | Fp::Madd { .. });
+    c.a.ldr_x_any(1, CPU, a, 16);
+    fin_check(c, 1, slow);
+    if uses_b {
+        c.a.ldr_x_any(2, CPU, b, 16);
+        fin_check(c, 2, slow);
+    }
+    if kind == Fp::Div {
+        c.a.lsl_imm(true, 9, 2, 1);
+        slow.add(c, Slow::Zero9);
+    }
+    if uses_c {
+        c.a.ldr_x_any(3, CPU, cc, 16);
+        fin_check(c, 3, slow);
+        c.a.mov_imm(true, 11, 0x0800_0000);
+        c.a.and(true, 12, 3, 11);
+        c.a.mov_imm(true, 11, 0xFFFF_FFFF_F800_0000);
+        c.a.and(true, 3, 3, 11);
+        c.a.add(true, 3, 3, 12);
+        fin_check(c, 3, slow);
+        c.a.fmov_d_x(3, 3);
+    }
+    c.a.fmov_d_x(1, 1);
+    if uses_b {
+        c.a.fmov_d_x(2, 2);
+    }
+    match kind {
+        Fp::Add => c.a.fadd_d(0, 1, 2),
+        Fp::Sub => c.a.fsub_d(0, 1, 2),
+        Fp::Mul => c.a.fmul_d(0, 1, 3),
+        Fp::Div => c.a.fdiv_d(0, 1, 2),
+        Fp::Madd { sub, neg } => {
+            if sub {
+                c.a.fnmsub_d(0, 1, 3, 2);
+            } else {
+                c.a.fmadd_d(0, 1, 3, 2);
+            }
+            if neg {
+                c.a.fneg_d(0, 0);
+            }
+        }
+        Fp::Move(_) => unreachable!(),
+    }
+    c.a.fcvt_s_d(0, 0);
+    c.a.fcvt_d_s(0, 0);
+    c.a.fmov_x_d(0, 0);
+    fin_check(c, 0, slow);
+    // NI: a denormal result becomes a signed zero (x9 holds the exponent).
+    let ni_at = c.a.here();
+    c.a.emit(0);
+    let exp_at = c.a.here();
+    c.a.emit(0);
+    c.a.mov_imm(true, 11, 1 << 63);
+    c.a.and(true, 0, 0, 11);
+    let after = c.a.here();
+    c.a.patch(ni_at, Asm::tbz_to(false, 4, 2, ni_at, after));
+    c.a.patch(exp_at, Asm::cbz_to(false, true, 9, exp_at, after));
+}
+
+/// The slow path when the double in `r` is infinite or NaN (x9 = its exponent after).
+fn fin_check(c: &mut Ctx, r: R, slow: &mut SlowSites) {
+    c.a.ubfx(true, 9, r, 52, 11);
+    c.a.cmp_imm(false, 9, 0x7FF);
+    slow.add(c, Slow::Cond(Cond::Eq));
+}
+
+/// round_single of the double at `off` into x0: the host's rounding, the slow path for a NaN.
+fn round_single(c: &mut Ctx, off: u32, slow: &mut SlowSites) {
+    c.a.ldr_x_any(0, CPU, off, 16);
+    // NaN: exponent all ones and a fraction.
+    c.a.lsl_imm(true, 9, 0, 1);
+    c.a.mov_imm(true, 11, 0xFFE0_0000_0000_0000);
+    c.a.cmp(true, 9, 11);
+    slow.add(c, Slow::Cond(Cond::Hi));
+    c.a.fmov_d_x(0, 0);
+    c.a.fcvt_s_d(0, 0);
+    c.a.fcvt_d_s(0, 0);
+    c.a.fmov_x_d(0, 0);
+}
+
+/// Paired-single arithmetic, ps_sum, ps_mr/neg/abs/nabs and ps_merge natively: each lane as
+/// the interpreter computes it (the arithmetic through the single-precision quick path), both
+/// written only when both took it, FPRF from the first lane, CR1.
+fn ps_native(c: &mut Ctx, ins: &Inst, count: u32) {
+    let op = ins.op;
+    let i = op.inst;
+    let (l0, l1, fprf) = ps_kind(i).expect("checked");
+    let (d, a, b, cc) = (op.d, op.a, op.b, ((i >> 6) & 31) as u8);
+    let rec = i & 1 != 0;
+    let mut slow = SlowSites(Vec::new());
+    c.ldr(0, off_msr());
+    slow.add(c, Slow::Bit(false, 0, 13));
+    c.ldr(0, off_hid2());
+    slow.add(c, Slow::Bit(false, 0, 29));
+    c.ldr(4, off_fpscr());
+    let half = |r: u8, h: u8| if h == 0 { ps0(r) } else { ps1(r) };
+    for (k, lane) in [l0, l1].into_iter().enumerate() {
+        match lane {
+            Lane::Arith(kind, ha, hb, hc) => fp_lane(c, kind, half(a, ha), half(b, hb), half(cc, hc), &mut slow),
+            Lane::RoundC(h) => {
+                // ps_sum's rounded lane can reach infinity, whose FPRF class the native
+                // classifier does not do: the handler's job.
+                round_single(c, half(cc, h), &mut slow);
+                fin_check(c, 0, &mut slow);
+            }
+            Lane::RoundA(h) => round_single(c, half(a, h), &mut slow),
+            Lane::A(h) => c.a.ldr_x_any(0, CPU, half(a, h), 16),
+            Lane::B(h) => c.a.ldr_x_any(0, CPU, half(b, h), 16),
+            Lane::Sign(h, m) => {
+                c.a.ldr_x_any(0, CPU, half(b, h), 16);
+                c.a.mov_imm(true, 11, 1 << 63);
+                match m {
+                    0 => {}
+                    1 => c.a.eor(true, 0, 0, 11),
+                    2 => c.a.bic(true, 0, 0, 11),
+                    _ => c.a.orr(true, 0, 0, 11),
+                }
+            }
+        }
+        c.a.mov(true, if k == 0 { 7 } else { 8 }, 0);
+    }
+    c.a.str_x_any(7, CPU, ps0(d), 16);
+    c.a.str_x_any(8, CPU, ps1(d), 16);
+    if fprf {
+        fprf_of(c, 7);
+        c.str(4, off_fpscr());
+    }
+    if rec {
+        fp_cr1(c);
+    }
+    slow.finish(c, ins, count);
+}
+
+/// FPSCR[FPRF] in w4 = the class of the finite double in x`r`.
+fn fprf_of(c: &mut Ctx, r: R) {
+    c.a.ubfx(true, 9, r, 52, 11);
+    c.a.lsr_imm(true, 10, r, 63);
+    c.a.lsl_imm(true, 11, r, 12);
+    c.a.mov_imm(false, 12, 4);
+    c.a.lslv(false, 12, 12, 10);
+    c.a.mov_imm(false, 13, 2);
+    c.a.logic_reg(false, 0b01, false, 13, 13, 10, Shift::Lsl, 4);
+    c.a.mov_imm(false, 14, 0x14);
+    c.a.addsub_reg(false, false, false, 14, 14, 10, Shift::Lsl, 2);
+    c.a.cmp_imm(true, 11, 0);
+    c.a.csel(false, 13, 13, 14, Cond::Eq);
+    c.a.cmp_imm(false, 9, 0);
+    c.a.csel(false, 12, 13, 12, Cond::Eq);
+    c.a.bfi(false, 4, 12, 12, 5);
 }
 
 /// CR1 = FPSCR[FX, FEX, VX, OX].
