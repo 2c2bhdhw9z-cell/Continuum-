@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "rea-agents": {
+      "command": "npx",
+      "args": ["-y", "rea-agents@6.7.0", "mcp"],
+      "env": {
+        "REA_MCP_INPUT_SCHEMA_PROFILE": "compact"
+      },
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
