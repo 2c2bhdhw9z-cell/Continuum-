@@ -5,7 +5,28 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (24 October 2026, morning Eastern): GameCube core — all three homebrew run, graphics, sound, fast interpreter
+## START HERE (24 October 2026, about 10:30 AM Eastern): GameCube core — our own JIT works, drawing on several cores
+
+- Our JIT (G8) is in `cores/continuum-gc/src/jit/` and turns on at load when the app allows JIT (code memory from
+  the app's `continuum_jit_region`, two addresses, as iOS 26 needs). Proved equal to the interpreter: 20,000 random
+  blocks, and whole programs (Swiss, FCE Ultra GX, Neverball) IDENTICAL to the plain interpreter with the JIT on,
+  run as real ARM64 code. Neverball runs 99.7% of its instructions in compiled code.
+- ARM64 on this x86 machine: `.scratch/ca` (cargo for aarch64-unknown-linux-musl, toolchain copy in .scratch/tc/r192
+  with the iOS, ARM64 Linux and musl standard libraries) runs tests and examples under `.scratch/tc/qemu/usr/bin/
+  qemu-aarch64-static` (Debian qemu-user-static 7.2). Or `--features unicorn` on x86 (Unicorn backend, slower).
+- Drawing now runs on helper threads (`src/gx/draw.rs`, exactly the same picture: each helper owns interleaved
+  8-row bands). `examples/drawcheck.rs` proves it: `drawcheck <dol> <fields> record|check <file>` with CGC_JIT=1 and
+  CGC_DRAW_THREADS=n; fingerprints of the original drawer are in `.scratch/golden/`. Neverball's SD image is WRITTEN
+  by the game: always run from a fresh copy of `.scratch/neverball-pristine.img` (see `.scratch/dc.sh`).
+- Owner, 24 October ~9 AM, sent five speed ideas from another AI (return stack, fused instruction pairs, tail calls,
+  memory shortcut, memcpy replacements). Measured with `examples/hot.rs` and the profiler; results in
+  tasks/gamecube.json G7: only the memory shortcut was worth doing (done; small gain). The real bottleneck was
+  drawing (55-89% of the time), hence the threads.
+- Next, in order: TEV per-stage operand plans (the CPU drawer is ~90 ns a pixel per thread), AX sound stand-in (real
+  games use AX and will likely wait for it), wire the core into the app as an opt-in experimental core (G2), then
+  offer the owner ONE experimental build (start only on his yes), then the GPU drawer, JIT register cache and FP.
+
+## Earlier (24 October 2026, morning Eastern): GameCube core — all three homebrew run, graphics, sound, fast interpreter
 
 - Owner, about 6:50 AM: wants the ABSOLUTE BEST fast interpreter and JIT, better than Dolphin, however long it
   takes (saved in tasks/gamecube.json owner_answers). He also said: REA is not optional; use it via its command
