@@ -185,7 +185,7 @@ pub struct Cpu {
     cur_pc: u32,
     /// Set when the current instruction raised an exception (so it does not complete).
     #[serde(skip)]
-    faulted: bool,
+    pub(crate) faulted: bool,
     /// The fast interpreter's "stop this block after this instruction" flag.
     #[serde(skip)]
     pub(crate) exit: bool,

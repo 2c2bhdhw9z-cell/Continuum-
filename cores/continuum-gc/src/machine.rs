@@ -253,11 +253,7 @@ impl Machine {
                     }
                 }
                 let budget = (per_line - self.line_cycles.min(per_line - 1)).min(max_cycles - ran).min(self.cpu.cycles_to_decrementer());
-                let (c, built) = fast.run(&mut self.cpu, &mut self.hw, budget);
-                if let Some(page) = built {
-                    self.hw.mark_code_page(page);
-                }
-                c
+                fast.run(&mut self.cpu, &mut self.hw, budget).max(1)
             } else {
                 self.cpu.step(&mut self.hw)
             };

@@ -53,13 +53,14 @@ struct Block {
     ops: Vec<Op>,
     /// Unique per built block, so links to a freed and reused slot are recognised as stale.
     version: u32,
-    /// The physical start address.
-    pa: u32,
     /// Links to the blocks that followed this one: (effective pc + 1, block index, version,
     /// translation generation).
     links: [(u32, u32, u32, u32); 2],
     /// A loop that only reads memory and branches back to itself: it can be fast-forwarded.
     idle: bool,
+    /// Ends with an instruction that touches the time base or the decrementer: the machine
+    /// must work out the next deadline again before anything else runs.
+    timed: bool,
 }
 
 pub struct FastCpu {
@@ -148,8 +149,9 @@ impl FastCpu {
             }
         }
         let idle = is_idle_loop(&ops);
+        let timed = ops.last().is_some_and(|o| is_timed(o.inst));
         let version = self.stats.blocks_built as u32 + 1;
-        let block = Block { ops, version, pa, links: [(0, 0, 0, 0); 2], idle };
+        let block = Block { ops, version, links: [(0, 0, 0, 0); 2], idle, timed };
         let idx = match self.free.pop() {
             Some(i) => {
                 self.blocks[i as usize] = Some(block);
@@ -166,16 +168,33 @@ impl FastCpu {
         idx
     }
 
-    /// Runs one block (or takes one interrupt), at most `budget` instructions. Returns the
-    /// cycles used and the physical page of a newly built block (for the code-page map).
-    pub fn run(&mut self, cpu: &mut Cpu, hw: &mut Hw, budget: u64) -> (u64, Option<u32>) {
-        if cpu.check_interrupts() {
-            self.last = None;
-            return (1, None);
+    /// Runs blocks, one after another, for at most `budget` cycles: until then, or until
+    /// something happens the machine must see first (an interrupt taken, a hardware register
+    /// touched, code invalidated, the decrementer passing zero, the CPU going to sleep).
+    /// Returns the cycles used.
+    pub fn run(&mut self, cpu: &mut Cpu, hw: &mut Hw, budget: u64) -> u64 {
+        let mut used = 0u64;
+        while used < budget {
+            if cpu.check_interrupts() {
+                // As in the plain interpreter: taking it counts one cycle for the machine's
+                // clock but none for the CPU's time base.
+                self.last = None;
+                return used + 1;
+            }
+            let (n, stop) = self.run_block(cpu, hw, budget - used);
+            used += n;
+            if stop || hw.irq_dirty || !hw.invalidated.is_empty() || cpu.dec_pending || cpu.msr & super::MSR_POW != 0 {
+                break;
+            }
         }
+        used
+    }
+
+    /// Runs one block, at most `budget` instructions. Returns the cycles used, and whether the
+    /// caller must stop chaining.
+    fn run_block(&mut self, cpu: &mut Cpu, hw: &mut Hw, budget: u64) -> (u64, bool) {
         let pc = cpu.pc;
         let gen = cpu.tlb.gen;
-        let mut built = None;
         // Follow the last block's link when it still holds.
         let linked = self.last.and_then(|l| {
             let b = self.blocks[l as usize].as_ref()?;
@@ -194,7 +213,7 @@ impl FastCpu {
                         None => {
                             // Let the plain path raise the ISI exactly as it would.
                             self.last = None;
-                            return (cpu.step(hw), None);
+                            return (cpu.step(hw), true);
                         }
                     }
                 };
@@ -205,8 +224,9 @@ impl FastCpu {
                     let idx = match self.index.get(&pa) {
                         Some(&i) => i,
                         None => {
-                            built = Some(pa >> 12);
-                            self.build(hw, pa)
+                            let i = self.build(hw, pa);
+                            hw.mark_code_page(pa >> 12);
+                            i
                         }
                     };
                     self.lookup[slot] = (pa + 1, idx);
@@ -231,6 +251,7 @@ impl FastCpu {
         let ops = &block.ops;
         let limit = (ops.len() as u64).min(budget.max(1)) as usize;
         cpu.exit = false;
+        cpu.faulted = false;
         let mut ea = pc;
         let mut n = 0usize;
         for op in &ops[..limit] {
@@ -255,9 +276,9 @@ impl FastCpu {
             self.stats.idle_skips += rounds;
         }
         self.last = Some(idx);
-        let _ = block.pa;
+        let stop = block.timed;
         cpu.advance_time(cycles);
-        (cycles, built)
+        (cycles, stop)
     }
 }
 
