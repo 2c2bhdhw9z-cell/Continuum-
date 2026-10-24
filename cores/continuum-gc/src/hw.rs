@@ -376,16 +376,19 @@ impl Hw {
         }
     }
 
-    /// Memory in a page changed: if it held cached code, that code is dropped.
+    /// Memory in a page changed: if it held cached code, that code is dropped (and true is
+    /// returned).
     #[inline]
-    fn touch_page(&mut self, page: u32) {
+    pub(crate) fn touch_page(&mut self, page: u32) -> bool {
         if let Some(b) = Self::code_bit(page) {
             let w = &mut self.code_pages[b / 64];
             if *w & (1 << (b % 64)) != 0 {
                 *w &= !(1 << (b % 64));
                 self.invalidate_code(page << 12, 0x1000);
+                return true;
             }
         }
+        false
     }
 
     pub fn dma_read(&mut self, pa: u32, len: usize) -> Vec<u8> {
@@ -447,7 +450,11 @@ impl Hw {
     }
 
     fn mmio_write(&mut self, pa: u32, n: u32, v: u32) {
-        self.irq_dirty = true;
+        // Bytes that only fill the write-gather pipe cannot change any interrupt; everything
+        // else might.
+        if pa & 0xFFFF_F000 != 0x0C00_8000 {
+            self.irq_dirty = true;
+        }
         let off = pa & 0xFFFF;
         if (0x0800_0000..0x0C00_0000).contains(&pa) {
             self.gx.efb_poke(pa, v);
@@ -500,6 +507,7 @@ impl Hw {
                     block.copy_from_slice(&self.gather[..32]);
                     self.gather.drain(..32);
                     self.pi_fifo_burst(&block);
+                    self.irq_dirty = true;
                 }
             }
             _ => {

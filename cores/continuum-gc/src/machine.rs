@@ -252,8 +252,8 @@ impl Machine {
                         fast.invalidate(pa, len);
                     }
                 }
-                let budget = (per_line - self.line_cycles.min(per_line - 1)).min(max_cycles - ran);
-                let (c, built) = fast.run(&mut self.cpu, &mut self.hw, budget, &|h: &mut Hw| h.irq_dirty || !h.invalidated.is_empty());
+                let budget = (per_line - self.line_cycles.min(per_line - 1)).min(max_cycles - ran).min(self.cpu.cycles_to_decrementer());
+                let (c, built) = fast.run(&mut self.cpu, &mut self.hw, budget);
                 if let Some(page) = built {
                     self.hw.mark_code_page(page);
                 }

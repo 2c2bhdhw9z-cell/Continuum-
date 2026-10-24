@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 mod fpu;
 pub use fpu::{double_to_single, round_single, single_to_double};
 pub mod fast;
+mod fast_ops;
 mod interp;
 pub mod mmu;
 
@@ -185,6 +186,9 @@ pub struct Cpu {
     /// Set when the current instruction raised an exception (so it does not complete).
     #[serde(skip)]
     faulted: bool,
+    /// The fast interpreter's "stop this block after this instruction" flag.
+    #[serde(skip)]
+    pub(crate) exit: bool,
     /// How many times each exception vector was taken (development aid; not in states).
     #[serde(skip)]
     pub exceptions: [u64; 16],
@@ -275,6 +279,7 @@ impl Cpu {
             tb_rem: 0,
             cur_pc: 0,
             faulted: false,
+            exit: false,
             exceptions: [0; 16],
             fault_log: Vec::new(),
             tlb: mmu::Tlb::default(),
@@ -681,19 +686,6 @@ impl Cpu {
     }
 
     // ------------------------------------------------------------------ running
-
-    /// Starts executing the instruction at `pc` (for the fast interpreter's blocks).
-    #[inline]
-    pub(crate) fn begin(&mut self, pc: u32) {
-        self.faulted = false;
-        self.cur_pc = pc;
-    }
-
-    /// Whether the last instruction raised an exception.
-    #[inline]
-    pub(crate) fn faulted(&self) -> bool {
-        self.faulted
-    }
 
     /// Runs one instruction (or takes one interrupt). Returns the cycles it took.
     pub fn step<B: Bus>(&mut self, bus: &mut B) -> u64 {
