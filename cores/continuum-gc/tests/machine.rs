@@ -525,3 +525,81 @@ fn a_disc_read_completes_a_moment_after_it_starts() {
     assert_ne!(m.hw.cause() & continuum_gc::hw::INT_DI, 0, "the interrupt is asked for");
     assert_eq!(&m.hw.mem1[0x4000..0x4020], &[0x5A; 32]);
 }
+
+/// The sound chip's start-up exactly as Nintendo's OS runs it (OSInit's __OSInitAudioSystem,
+/// as decompiled by the Animal Crossing project), register by register: every wait it makes
+/// must end.
+#[test]
+fn the_os_audio_start_up_sequence_never_waits_forever() {
+    use continuum_gc::bus::Bus;
+    let mut m = booted(&dol(&[(0x8000_3100, vec![HANG])], 0x8000_3100));
+    let r16 = |m: &mut Machine, i: u32| m.hw.read16(0x0C00_5000 + 2 * i);
+    let w16 = |m: &mut Machine, i: u32, v: u16| m.hw.write16(0x0C00_5000 + 2 * i, v);
+    let w32 = |m: &mut Machine, i: u32, v: u32| m.hw.write32(0x0C00_5000 + 2 * i, v);
+    let wait = |m: &mut Machine, what: &str, done: &dyn Fn(&mut Machine) -> bool| {
+        for _ in 0..10_000 {
+            if done(m) {
+                return;
+            }
+            m.hw.vi_line();
+        }
+        panic!("waits forever: {what}");
+    };
+    w16(&mut m, 9, 0x43);
+    w16(&mut m, 5, 0x8AC);
+    let v = r16(&mut m, 5);
+    w16(&mut m, 5, v | 1);
+    wait(&mut m, "reset", &|m| r16(m, 5) & 1 == 0);
+    w16(&mut m, 0, 0);
+    wait(&mut m, "mailbox from the DSP empty", &|m| ((r16(m, 2) as u32) << 16 | r16(m, 3) as u32) & 0x8000_0000 == 0);
+    for _ in 0..2 {
+        w32(&mut m, 16, 0x0100_0000);
+        w32(&mut m, 18, 0);
+        w32(&mut m, 20, 0x20);
+        wait(&mut m, "ARAM DMA interrupt", &|m| r16(m, 5) & 0x20 != 0);
+        let v = r16(&mut m, 5);
+        w16(&mut m, 5, v);
+    }
+    let v = r16(&mut m, 5);
+    w16(&mut m, 5, v & !0x800);
+    wait(&mut m, "DSP DMA idle", &|m| r16(m, 5) & 0x400 == 0);
+    let v = r16(&mut m, 5);
+    w16(&mut m, 5, v & !4);
+    wait(&mut m, "the init program's mail", &|m| r16(m, 2) & 0x8000 != 0);
+    let v = r16(&mut m, 5);
+    w16(&mut m, 5, v | 4);
+    w16(&mut m, 5, 0x8AC);
+    let v = r16(&mut m, 5);
+    w16(&mut m, 5, v | 1);
+    wait(&mut m, "second reset", &|m| r16(m, 5) & 1 == 0);
+}
+
+/// The OS's ARAM size check (ARInit's __ARChecksize, as decompiled by the Animal Crossing
+/// project): a retail console has 16 MB and no expansion, so nothing it writes past 16 MB
+/// reads back.
+#[test]
+fn aram_sizing_finds_16_mb_and_no_expansion() {
+    use continuum_gc::bus::Bus;
+    let mut m = booted(&dol(&[(0x8000_3100, vec![HANG])], 0x8000_3100));
+    let (test, dummy, buffer) = (0x0010_0000u32, 0x0010_0020u32, 0x0010_0040u32);
+    m.hw.dma_write(test, &[0xDE, 0xAD, 0xBE, 0xEF].repeat(8));
+    m.hw.dma_write(dummy, &[0xBA, 0xD0, 0xBA, 0xD0].repeat(8));
+    let dma = |m: &mut Machine, mm: u32, aram: u32, to_main: bool| {
+        m.hw.write32(0x0C00_5020, mm);
+        m.hw.write32(0x0C00_5024, aram);
+        m.hw.write32(0x0C00_5028, if to_main { 0x8000_0000 } else { 0 } | 0x20);
+    };
+    let size = 0x0100_0000;
+    for off in [0, 0x20_0000, 0x100_0000, 0x200, 0x40_0000] {
+        dma(&mut m, dummy, size + off, false);
+    }
+    dma(&mut m, test, size, false);
+    m.hw.dma_write(buffer, &[0; 32]);
+    dma(&mut m, buffer, size, true);
+    assert_ne!(m.hw.read32(buffer), 0xDEAD_BEEF, "nothing past 16 MB reads back");
+    // ARAM itself is untouched by writes past its end, and reads back what it holds.
+    dma(&mut m, test, 0x1000, false);
+    dma(&mut m, buffer, 0x1000, true);
+    assert_eq!(m.hw.read32(buffer), 0xDEAD_BEEF);
+    assert_eq!(&m.hw.aram[0..4], &[0, 0, 0, 0], "a write past the end did not wrap to the start");
+}

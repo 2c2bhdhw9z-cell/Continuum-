@@ -1462,18 +1462,24 @@ impl Hw {
     }
 
     /// ARAM DMA: main memory and the 16 MB of audio RAM, done at once.
+    /// An ARAM DMA. Past the console's 16 MB of ARAM is the expansion port, and a retail
+    /// console has nothing there: reads give zeros, writes go nowhere. (The OS sizes ARAM by
+    /// writing past the end and reading back; wrapping round to the start made it find 4 MB
+    /// of expansion that was really the start of ARAM again.)
     fn aram_dma(&mut self) {
         let len = (self.dsp.ar_cnt & 0x03FF_FFE0) as usize;
         let to_main = self.dsp.ar_cnt & 0x8000_0000 != 0;
-        let aram = (self.dsp.ar_addr & 0x00FF_FFE0) as usize;
+        let aram = (self.dsp.ar_addr & 0x03FF_FFE0) as usize;
         let mm = self.dsp.ar_mm & 0x03FF_FFE0;
         if to_main {
-            let data: Vec<u8> = (0..len).map(|k| self.aram[(aram + k) % ARAM_SIZE]).collect();
+            let data: Vec<u8> = (0..len).map(|k| self.aram.get(aram + k).copied().unwrap_or(0)).collect();
             self.dma_write(mm, &data);
         } else {
             let data = self.dma_read(mm, len);
             for (k, b) in data.into_iter().enumerate() {
-                self.aram[(aram + k) % ARAM_SIZE] = b;
+                if let Some(a) = self.aram.get_mut(aram + k) {
+                    *a = b;
+                }
             }
         }
         self.dsp.ar_cnt &= 0x8000_0000;
