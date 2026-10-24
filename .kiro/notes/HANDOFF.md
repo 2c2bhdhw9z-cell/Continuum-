@@ -5,7 +5,39 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (24 October 2026, about 10:30 AM Eastern): GameCube core — our own JIT, drawing on several cores, RVZ, AX
+## START HERE (24 October 2026, about 1:45 PM Eastern): GameCube in the app (hidden), memory cards, controls fixed
+
+- BUILD 215 (run 40117347132, started by hand 1:42 PM Eastern from 3394ad4) is the one experimental GameCube build
+  the owner agreed to. Build 214 (ac4deec, the wiring) built and verified its .ipa (continuum_gc dylib inside) but
+  FAILED at "Upload the .ipa": GitHub's own network (ENOTFOUND creating the artifact), not our code. Its cores were
+  cached first ("Cache saved", key ios-cores-macOS-7781a752f3acd0d7-40110264031-1), so 215 only rebuilds the GC
+  core. 215 also carries everything below. When it is green: download Continuum-215.ipa from the Release
+  build-215-<sha>, check version 0.8.0 (215) and Frameworks/continuum_gc_libretro_ios.dylib, give the owner the
+  link and the steps (Settings, ABOUT, tap Version 7 times, cube drops in, "GameCube (experimental)" switch on;
+  import a .iso/.rvz/.gcz; try Ikaruga first; slow; saves on the memory card; report what he sees). If it fails,
+  read the log (gh api repos/.../actions/jobs/<id>/logs) and fix.
+- The owner chose "B" (secret unlock): all of it is `native/ios/GameCubeUnlock.swift`, hooks marked
+  `// GameCube unlock`, so it comes out in one go when GameCube is ready for everyone.
+- Memory card (G9, `cores/continuum-gc/src/memcard.rs`): a 251-block Nintendo card in slot A, the game's libretro
+  SAVE_RAM (the app's .srm, one card per game, its 20-second flush and on leaving). Blank cards are formatted the
+  library's way. SRAM is given the flash ID of whatever card is in the slot, so card images from consoles or other
+  emulators mount. SRAM fix: language and flags were swapped (games saw language 0x2C and mono), flash ID checksums
+  were missing. Proved with GCMM (homebrew card manager, `.scratch/homebrew/gcmm`, test only): restore a save,
+  list it after a restart, format; `.scratch/gcmmtest/checkcard.py` checks a card like the library does.
+- CONTROLS WERE BROKEN for every game until 3394ad4: SI polling never set RDST, and Nintendo's PADRead and libogc
+  only take input RDST marks as new. Now polled per SIPOLL with RDST/NOREP/RDSTINT (tests/machine.rs).
+- EXI: immediate transfers take their wire time (Hw::stall, counted by Machine::run_field); registers mirror every
+  64 bytes (libogc2's EXI_Sync uses it). Clock: the RTC starts from the phone's local time (libc localtime_r) and
+  ticks with video lines; the time base starts from it (Animal Crossing's clock). Japanese discs: VI DTV bit 1.
+- Zelda-family sound (`src/dsp_zelda.rs`, Luigi's Mansion, Animal Crossing, Pikmin, Sunshine, Wind Waker...): full
+  stand-in, unit-tested only. JIT re-proved after paired singles: Swiss, FCE, Neverball IDENTICAL as ARM64 code.
+- Test tools: `examples/boot.rs` takes CGC_PAD="from-to:A+B,...", CGC_SHOTS/CGC_SHOT_DIR, CGC_CARD_IN/OUT,
+  CGC_EXI_TRACE. Fingerprints in `.scratch/golden/` re-recorded with the card in (older ones in golden/pre-card).
+  Background jobs: use run_in_background (a plain `&` dies with the command's sandbox).
+- Next: DTK disc-streamed music (DI 0xE1/0xE2 are only accepted now), a replacement IPL font, PAL timing (0xCC),
+  then speed (GPU drawer, JIT register cache), then whatever the owner reports from build 215.
+
+## Earlier (24 October 2026, about 10:30 AM Eastern): GameCube core — our own JIT, drawing on several cores, RVZ, AX
 
 - Our JIT (G8) is in `cores/continuum-gc/src/jit/` and turns on at load when the app allows JIT (code memory from
   the app's `continuum_jit_region`, two addresses, as iOS 26 needs). Proved equal to the interpreter: 20,000 random
