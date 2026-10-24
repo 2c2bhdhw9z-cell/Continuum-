@@ -33,6 +33,10 @@ fn main() {
         let entry = m.cpu.pc;
         m.set_args(entry, &args.split(' ').collect::<Vec<_>>(), &env.split(' ').filter(|s| !s.is_empty()).collect::<Vec<_>>());
     }
+    // CGC_JIT=1: our JIT on (ARM64, or x86 with --features unicorn); same picture again.
+    if std::env::var("CGC_JIT").is_ok() {
+        assert!(m.enable_jit(), "no JIT code memory here");
+    }
     // CGC_DRAW_THREADS=n: draw on n helper threads (must give exactly the same picture).
     if let Some(n) = std::env::var("CGC_DRAW_THREADS").ok().and_then(|s| s.parse().ok()) {
         m.hw.gx.set_draw_threads(n);
