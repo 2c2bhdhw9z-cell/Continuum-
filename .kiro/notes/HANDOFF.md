@@ -9,7 +9,10 @@ Paste this to start a new chat:
 
 - BUILD 216 DONE 2:13 PM Eastern (green; checked: 0.8.0 (216), Frameworks/continuum_gc_libretro_ios.dylib 1.4 MB,
   unlock code in): https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-216-af13640/Continuum-216.ipa
-  Link and test steps given to the owner at 2:15 PM; waiting for his report. (Run 40118325908, started by hand
+  Link and test steps given to the owner at 2:15 PM; waiting for his report. At about 2:35 PM, while testing, he
+  sent only "Nope." (no details). Not clear what failed, so the GPU drawer work was paused before any code was
+  written (only reading and fetching wgpu 30.0.1 into .scratch/vkprobe) and he was asked what it refers to.
+  Owner rule: fix nothing until he says he is done testing; record what he reports here. (Run 40118325908, started by hand
   1:55 PM from af13640, which adds the drive's streamed music that Ikaruga uses; 215 was cancelled for it.) It is
   the one experimental GameCube build the owner agreed to. Build 214 (ac4deec, the wiring) built and verified its .ipa (continuum_gc dylib inside) but
   FAILED at "Upload the .ipa": GitHub's own network (ENOTFOUND creating the artifact), not our code. Its cores were
