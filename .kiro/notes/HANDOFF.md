@@ -7,8 +7,11 @@ Paste this to start a new chat:
 
 ## START HERE (24 October 2026, about 1:45 PM Eastern): GameCube in the app (hidden), memory cards, controls fixed
 
-- BUILD 216 (run 40118325908, started by hand 1:55 PM Eastern from af13640, which adds the drive's streamed music
-  that Ikaruga uses; 215 was cancelled for it) is the one experimental GameCube build the owner agreed to. Build 214 (ac4deec, the wiring) built and verified its .ipa (continuum_gc dylib inside) but
+- BUILD 216 DONE 2:13 PM Eastern (green; checked: 0.8.0 (216), Frameworks/continuum_gc_libretro_ios.dylib 1.4 MB,
+  unlock code in): https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-216-af13640/Continuum-216.ipa
+  Link and test steps given to the owner at 2:15 PM; waiting for his report. (Run 40118325908, started by hand
+  1:55 PM from af13640, which adds the drive's streamed music that Ikaruga uses; 215 was cancelled for it.) It is
+  the one experimental GameCube build the owner agreed to. Build 214 (ac4deec, the wiring) built and verified its .ipa (continuum_gc dylib inside) but
   FAILED at "Upload the .ipa": GitHub's own network (ENOTFOUND creating the artifact), not our code. Its cores were
   cached first ("Cache saved", key ios-cores-macOS-7781a752f3acd0d7-40110264031-1), so 216 only rebuilds the GC
   core. 216 also carries everything below. When it is green: download Continuum-216.ipa from the Release
@@ -34,8 +37,13 @@ Paste this to start a new chat:
 - Test tools: `examples/boot.rs` takes CGC_PAD="from-to:A+B,...", CGC_SHOTS/CGC_SHOT_DIR, CGC_CARD_IN/OUT,
   CGC_EXI_TRACE. Fingerprints in `.scratch/golden/` re-recorded with the card in (older ones in golden/pre-card).
   Background jobs: use run_in_background (a plain `&` dies with the command's sandbox).
-- Next: DTK disc-streamed music (DI 0xE1/0xE2 are only accepted now), a replacement IPL font, PAL timing (0xCC),
-  then speed (GPU drawer, JIT register cache), then whatever the owner reports from build 216.
+- Done after 216's code: TEV operands resolved per primitive (5e8fe44, ~2%). The CPU drawer costs ~21 ns a pixel
+  for one untextured stage, ~43 with a bilinear texture (bench in tev.rs): the GPU drawer is the real fix.
+- VULKAN ON THE TEST MACHINE: `. .scratch/lvp/env.sh` (lavapipe from Amazon Linux 2023 RPMs in .scratch/lvp/al,
+  libwayland 1.22, libffi.so.6 -> system .so.8); `.scratch/vkprobe` lists 'llvmpipe (LLVM 15.0.7)', Vulkan 1.3.
+  So a GPU drawer (the app's Vulkan path, SET_HW_RENDER via MoltenVK) can be built and compared with the CPU
+  drawer here.
+- Next: whatever the owner reports from build 216; then the GPU drawer (G6); a replacement IPL font; PAL (0xCC).
 
 ## Earlier (24 October 2026, about 10:30 AM Eastern): GameCube core — our own JIT, drawing on several cores, RVZ, AX
 
