@@ -232,8 +232,20 @@ impl Machine {
         let per_line = self.cycles_per_line();
         let mut ran = 0;
         while !self.hw.vi.field_done && ran < max_cycles {
-            self.cpu.external_line = self.hw.irq();
-            let c = self.cpu.step(&mut self.hw);
+            if self.hw.irq_dirty {
+                self.cpu.external_line = self.hw.irq();
+                self.hw.irq_dirty = false;
+            }
+            let wake = self.cpu.msr & cpu::MSR_EE != 0 && (self.cpu.external_line || self.cpu.dec_pending);
+            let c = if self.cpu.msr & cpu::MSR_POW != 0 && !wake {
+                // Power-save: the CPU sleeps until an interrupt, so time jumps to the next
+                // event (the end of this video line, or the decrementer).
+                let skip = (per_line - self.line_cycles.min(per_line - 1)).min(self.cpu.cycles_to_decrementer()).max(1);
+                self.cpu.advance_time(skip);
+                skip
+            } else {
+                self.cpu.step(&mut self.hw)
+            };
             ran += c;
             self.line_cycles += c;
             if self.line_cycles >= per_line {

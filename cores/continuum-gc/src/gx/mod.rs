@@ -157,6 +157,8 @@ pub struct Stats {
     pub display_lists: u64,
     pub unknown_opcodes: u64,
     pub last_unknown: u8,
+    /// Time spent drawing (development read-out).
+    pub draw_time: std::time::Duration,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -204,6 +206,9 @@ pub struct Gx {
 
     /// FIFO bytes read but not yet a whole command.
     queue: Vec<u8>,
+    /// Decoded textures (rebuilt on demand; never in a save state).
+    #[serde(skip)]
+    pub(crate) tex_cache: std::collections::HashMap<texture::TexKey, std::sync::Arc<texture::Decoded>>,
     #[serde(skip)]
     pub stats: Stats,
 }
@@ -271,6 +276,7 @@ impl Gx {
             efb_color: vec![0; efb::EFB_WIDTH * efb::EFB_HEIGHT],
             efb_depth: vec![0x00FF_FFFF; efb::EFB_WIDTH * efb::EFB_HEIGHT],
             queue: Vec::new(),
+            tex_cache: Default::default(),
             stats: Stats::default(),
         }
     }
@@ -531,7 +537,9 @@ impl Gx {
                 let fmt = (c[0] & 7) as usize;
                 let count = u16::from_be_bytes([c[1], c[2]]) as usize;
                 self.stats.primitives += 1;
+                let t = std::time::Instant::now();
                 self.draw(ram, prim, fmt, count, &c[3..]);
+                self.stats.draw_time += t.elapsed();
             }
             op => {
                 self.stats.unknown_opcodes += 1;
@@ -598,9 +606,21 @@ impl Gx {
                 self.pe_regs[7] = v as u16;
                 self.pe_regs[5] |= PE_TOKEN_INT;
             }
-            0x52 => self.efb_copy(ram, v),
-            0x63 => self.preload_texture(ram, v),
-            0x65 => self.load_tlut(ram, v),
+            0x52 => {
+                self.efb_copy(ram, v);
+                if v & (1 << 14) == 0 {
+                    self.tex_cache.clear();
+                }
+            }
+            0x63 => {
+                self.preload_texture(ram, v);
+                self.tex_cache.clear();
+            }
+            0x65 => {
+                self.load_tlut(ram, v);
+                self.tex_cache.clear();
+            }
+            0x66 => self.tex_cache.clear(),
             0xE0..=0xE7 => {
                 // Pairs: even = red (0-10) and alpha (12-22); odd = blue (0-10) and green (12-22).
                 // Bit 23 says whether this is a konstant colour or a TEV register.

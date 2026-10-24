@@ -5,8 +5,9 @@
 //! `shade`. Colour values are integers: 0..255 for inputs, signed 11-bit in the registers,
 //! like the hardware.
 
-use super::texture::TexMap;
+use super::texture::{sample_decoded, Decoded, TexMap};
 use super::{Gx, Ram};
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Default)]
 pub struct Stage {
@@ -48,6 +49,8 @@ pub struct Pipeline {
     pub konst: [[i32; 4]; 4],
     pub regs: [[i32; 4]; 4],
     pub maps: [TexMap; 8],
+    /// The decoded texture for each map a stage or indirect stage uses.
+    pub tex: [Option<Arc<Decoded>>; 8],
     pub alpha_ref: [i32; 2],
     pub alpha_comp: [u32; 2],
     pub alpha_logic: u32,
@@ -84,7 +87,7 @@ fn frac_konst(sel: u8) -> i32 {
 }
 
 impl Gx {
-    pub(super) fn pipeline(&self) -> Pipeline {
+    pub(super) fn pipeline(&mut self, ram: &Ram) -> Pipeline {
         let gen = self.bp[0];
         let nstages = (((gen >> 10) & 15) + 1) as usize;
         let mut stages = Vec::with_capacity(nstages);
@@ -163,7 +166,21 @@ impl Gx {
         for (t, sc) in tc_scale.iter_mut().enumerate() {
             *sc = (((self.bp[0x30 + 2 * t] & 0xFFFF) + 1) as f32, ((self.bp[0x31 + 2 * t] & 0xFFFF) + 1) as f32);
         }
+        let mut tex: [Option<Arc<Decoded>>; 8] = Default::default();
+        let num_ind = ((gen >> 16) & 7) as usize;
+        for st in &stages {
+            if st.tex_on && tex[st.texmap as usize].is_none() {
+                tex[st.texmap as usize] = Some(self.decoded(ram, &maps[st.texmap as usize]));
+            }
+        }
+        for i in 0..num_ind {
+            let m = ind_map[i] as usize;
+            if tex[m].is_none() {
+                tex[m] = Some(self.decoded(ram, &maps[m]));
+            }
+        }
         Pipeline {
+            tex,
             stages,
             swap,
             konst,
@@ -192,7 +209,7 @@ impl Gx {
 
     /// Runs the TEV, the alpha test and fog for one pixel. Returns the colour and depth, or
     /// None when the alpha test throws the pixel away.
-    pub(super) fn shade(&self, ram: &Ram, p: &Pipeline, px: &PixelIn, lods: &[f32; 8]) -> Option<([i32; 4], u32)> {
+    pub(super) fn shade(&self, p: &Pipeline, px: &PixelIn, lods: &[f32; 8]) -> Option<([i32; 4], u32)> {
         let mut regs = p.regs;
         // Indirect texture lookups, one per indirect stage.
         let mut ind = [[0i32; 3]; 4];
@@ -200,7 +217,11 @@ impl Gx {
             let tc = p.ind_coord[i] as usize;
             let (ss, ts) = p.ind_scale[i];
             let t = &px.tex[tc];
-            let s = self.sample(ram, &p.maps[p.ind_map[i] as usize], t[0] / (1u32 << ss) as f32, t[1] / (1u32 << ts) as f32, lods[tc] - ss.max(ts) as f32);
+            let m = p.ind_map[i] as usize;
+            let s = match &p.tex[m] {
+                Some(d) => sample_decoded(d, &p.maps[m], t[0] / (1u32 << ss) as f32, t[1] / (1u32 << ts) as f32, lods[tc] - ss.max(ts) as f32),
+                None => [0; 4],
+            };
             *out = [s[3] as i32, s[2] as i32, s[1] as i32];
         }
         let mut last_tex = [0i32; 4];
@@ -277,7 +298,11 @@ impl Gx {
                 prev_off = total;
             }
             let tex = if st.tex_on {
-                let s = self.sample(ram, &p.maps[st.texmap as usize], uv[0], uv[1], lods[tc]);
+                let m = st.texmap as usize;
+                let s = match &p.tex[m] {
+                    Some(d) => sample_decoded(d, &p.maps[m], uv[0], uv[1], lods[tc]),
+                    None => [0; 4],
+                };
                 let sw = &p.swap[st.tex_swap as usize];
                 [s[sw[0]] as i32, s[sw[1]] as i32, s[sw[2]] as i32, s[sw[3]] as i32]
             } else {

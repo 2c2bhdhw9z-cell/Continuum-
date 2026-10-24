@@ -231,6 +231,8 @@ pub struct Hw {
     pub di_commands: std::collections::BTreeMap<u8, u32>,
     /// The first disc drive register writes (offset, value), for development.
     pub di_trace: Vec<(u32, u32)>,
+    /// Something that can change the interrupt line happened since the CPU last looked.
+    pub irq_dirty: bool,
     /// Sound for the frontend: interleaved left/right 16-bit samples at 48 kHz.
     pub audio_out: Vec<i16>,
     /// Audio clock: DMA samples owed, in hundredths of a video line.
@@ -267,6 +269,7 @@ impl Hw {
             di_trace: Vec::new(),
             sd: None,
             sd_channel: 2,
+            irq_dirty: true,
             audio_out: Vec::with_capacity(4096),
             audio_phase: 0,
             audio_prev: (0, 0),
@@ -351,6 +354,7 @@ impl Hw {
     // ------------------------------------------------------------------ registers
 
     fn mmio_read(&mut self, pa: u32, n: u32) -> u32 {
+        self.irq_dirty = true;
         let off = pa & 0xFFFF;
         if (0x0800_0000..0x0C00_0000).contains(&pa) {
             return self.gx.efb_peek(pa);
@@ -402,6 +406,7 @@ impl Hw {
     }
 
     fn mmio_write(&mut self, pa: u32, n: u32, v: u32) {
+        self.irq_dirty = true;
         let off = pa & 0xFFFF;
         if (0x0800_0000..0x0C00_0000).contains(&pa) {
             self.gx.efb_poke(pa, v);
@@ -547,6 +552,7 @@ impl Hw {
 
     /// One video line passed. Raises display interrupts and marks the end of each field.
     pub fn vi_line(&mut self) {
+        self.irq_dirty = true;
         let total = self.vi_lines_per_frame();
         self.vi.line += 1;
         if self.vi.line > total {
@@ -1216,6 +1222,7 @@ impl Hw {
 
     /// One video line of sound: the DMA plays at 32 or 48 kHz; the output is always 48 kHz.
     pub fn audio_line(&mut self) {
+        self.irq_dirty = true;
         let lines_x100: u64 = if self.vi_lines_per_frame() == 625 { 1_562_500 } else { 1_573_426 };
         let rate: u64 = if self.ai.cr & 0x40 != 0 { 32_000 } else { 48_000 };
         self.audio_phase += rate * 100;

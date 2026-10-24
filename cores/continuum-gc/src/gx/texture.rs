@@ -5,6 +5,25 @@
 //! so there is no texture cache to get out of date.
 
 use super::{Gx, Ram};
+use std::sync::Arc;
+
+/// A texture decoded to RGBA once (every level), reused until the program invalidates the
+/// texture cache (BP 0x66), loads a palette or preloads TMEM, or an EFB copy writes a texture.
+pub struct Decoded {
+    pub levels: Vec<(u32, u32, Vec<[u8; 4]>)>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TexKey {
+    addr: u32,
+    fmt: u32,
+    w: u32,
+    h: u32,
+    tlut: u32,
+    preloaded: bool,
+    odd: u32,
+    levels: u32,
+}
 
 /// One texture map's settings, unpacked from its BP registers once per primitive.
 #[derive(Clone, Copy, Default, Debug)]
@@ -241,70 +260,36 @@ impl Gx {
         }
     }
 
-    /// Samples texture `t` at texel coordinates (u, v) of level 0, with `lod` (log2 of texels
-    /// per pixel, before bias). Returns RGBA.
-    pub(super) fn sample(&self, ram: &Ram, t: &TexMap, u: f32, v: f32, lod: f32) -> [u8; 4] {
-        let lod = (lod + t.lod_bias).clamp(t.min_lod, t.max_lod.max(t.min_lod));
-        let magnify = lod <= 0.0;
-        let linear = if magnify { t.mag_linear } else { t.min_linear };
-        if magnify || t.mip == 0 {
-            return self.sample_level(ram, t, 0, u, v, linear);
+    /// The decoded texture for map `t`, from the cache or decoded now.
+    pub(super) fn decoded(&mut self, ram: &Ram, t: &TexMap) -> Arc<Decoded> {
+        let nlev = if t.mip != 0 { levels(t).min(((t.max_lod.ceil() as u32) + 1).max(1)) } else { 1 };
+        let tlut = if matches!(t.fmt, 8..=10) { t.tlut_base | (t.tlut_fmt << 30) } else { 0 };
+        let key = TexKey { addr: if t.preloaded { t.tmem_even } else { t.addr }, fmt: t.fmt, w: t.width, h: t.height, tlut, preloaded: t.preloaded, odd: t.tmem_odd, levels: nlev };
+        if let Some(d) = self.tex_cache.get(&key) {
+            return d.clone();
         }
-        let max_level = levels(t) - 1;
-        if t.mip == 1 {
-            let l = (lod + 0.5).floor().min(max_level as f32) as u32;
-            return self.sample_level(ram, t, l, u, v, linear);
+        if self.tex_cache.len() > 1024 {
+            self.tex_cache.clear();
         }
-        let l0 = (lod.floor() as u32).min(max_level);
-        let l1 = (l0 + 1).min(max_level);
-        let f = ((lod - lod.floor()) * 256.0) as u32;
-        let a = self.sample_level(ram, t, l0, u, v, linear);
-        if l1 == l0 || f == 0 {
-            return a;
-        }
-        let b = self.sample_level(ram, t, l1, u, v, linear);
-        let mut o = [0u8; 4];
-        for c in 0..4 {
-            o[c] = ((a[c] as u32 * (256 - f) + b[c] as u32 * f) >> 8) as u8;
-        }
-        o
-    }
-
-    fn sample_level(&self, ram: &Ram, t: &TexMap, level: u32, u: f32, v: f32, linear: bool) -> [u8; 4] {
-        let (mut base, mut w, mut h) = (if t.preloaded { t.tmem_even } else { t.addr }, t.width, t.height);
-        for _ in 0..level {
+        let mut levels = Vec::with_capacity(nlev as usize);
+        let (mut base, mut w, mut h) = (key.addr, t.width, t.height);
+        for _ in 0..nlev {
+            let mut px = Vec::with_capacity((w * h) as usize);
+            for y in 0..h {
+                for x in 0..w {
+                    px.push(self.texel(ram, t, base, w, x, y));
+                }
+            }
+            levels.push((w, h, px));
             base += level_bytes(t.fmt, w, h);
             w = (w / 2).max(1);
             h = (h / 2).max(1);
         }
-        let scale = (1u32 << level) as f32;
-        let (u, v) = (u / scale, v / scale);
-        if !linear {
-            let x = wrap(u.floor() as i32, w, t.wrap_s);
-            let y = wrap(v.floor() as i32, h, t.wrap_t);
-            return self.texel(ram, t, base, w, x, y);
-        }
-        let (uu, vv) = (u - 0.5, v - 0.5);
-        let (fx, fy) = (uu.floor(), vv.floor());
-        let ax = ((uu - fx) * 128.0) as u32;
-        let ay = ((vv - fy) * 128.0) as u32;
-        let (x0, y0) = (fx as i32, fy as i32);
-        let xa = wrap(x0, w, t.wrap_s);
-        let xb = wrap(x0 + 1, w, t.wrap_s);
-        let ya = wrap(y0, h, t.wrap_t);
-        let yb = wrap(y0 + 1, h, t.wrap_t);
-        let p00 = self.texel(ram, t, base, w, xa, ya);
-        let p10 = self.texel(ram, t, base, w, xb, ya);
-        let p01 = self.texel(ram, t, base, w, xa, yb);
-        let p11 = self.texel(ram, t, base, w, xb, yb);
-        let mut o = [0u8; 4];
-        for c in 0..4 {
-            let top = p00[c] as u32 * (128 - ax) + p10[c] as u32 * ax;
-            let bot = p01[c] as u32 * (128 - ax) + p11[c] as u32 * ax;
-            o[c] = ((top * (128 - ay) + bot * ay + 8192) >> 14) as u8;
-        }
-        o
+        let d = Arc::new(Decoded { levels });
+        self.tex_cache.insert(key, d.clone());
+        d
     }
+
 }
 
 /// How many levels a texture has (down to 1x1).
@@ -324,4 +309,62 @@ fn wrap(c: i32, size: u32, mode: u32) -> u32 {
         }
         _ => c.clamp(0, s - 1) as u32,
     }
+}
+
+/// Samples a decoded texture: the same filtering as `Gx::sample`, without decoding texels.
+#[inline]
+pub fn sample_decoded(d: &Decoded, t: &TexMap, u: f32, v: f32, lod: f32) -> [u8; 4] {
+    let lod = (lod + t.lod_bias).clamp(t.min_lod, t.max_lod.max(t.min_lod));
+    let magnify = lod <= 0.0;
+    let linear = if magnify { t.mag_linear } else { t.min_linear };
+    let max_level = d.levels.len() as u32 - 1;
+    if magnify || t.mip == 0 || max_level == 0 {
+        return level_sample(d, 0, t, u, v, linear);
+    }
+    if t.mip == 1 {
+        let l = (lod + 0.5).floor().min(max_level as f32) as u32;
+        return level_sample(d, l, t, u, v, linear);
+    }
+    let l0 = (lod.floor() as u32).min(max_level);
+    let l1 = (l0 + 1).min(max_level);
+    let f = ((lod - lod.floor()) * 256.0) as u32;
+    let a = level_sample(d, l0, t, u, v, linear);
+    if l1 == l0 || f == 0 {
+        return a;
+    }
+    let b = level_sample(d, l1, t, u, v, linear);
+    let mut o = [0u8; 4];
+    for c in 0..4 {
+        o[c] = ((a[c] as u32 * (256 - f) + b[c] as u32 * f) >> 8) as u8;
+    }
+    o
+}
+
+#[inline]
+fn level_sample(d: &Decoded, level: u32, t: &TexMap, u: f32, v: f32, linear: bool) -> [u8; 4] {
+    let (w, h, px) = &d.levels[level as usize];
+    let (w, h) = (*w, *h);
+    let scale = (1u32 << level) as f32;
+    let (u, v) = (u / scale, v / scale);
+    let at = |x: u32, y: u32| px[(y * w + x) as usize];
+    if !linear {
+        return at(wrap(u.floor() as i32, w, t.wrap_s), wrap(v.floor() as i32, h, t.wrap_t));
+    }
+    let (uu, vv) = (u - 0.5, v - 0.5);
+    let (fx, fy) = (uu.floor(), vv.floor());
+    let ax = ((uu - fx) * 128.0) as u32;
+    let ay = ((vv - fy) * 128.0) as u32;
+    let (x0, y0) = (fx as i32, fy as i32);
+    let xa = wrap(x0, w, t.wrap_s);
+    let xb = wrap(x0 + 1, w, t.wrap_s);
+    let ya = wrap(y0, h, t.wrap_t);
+    let yb = wrap(y0 + 1, h, t.wrap_t);
+    let (p00, p10, p01, p11) = (at(xa, ya), at(xb, ya), at(xa, yb), at(xb, yb));
+    let mut o = [0u8; 4];
+    for c in 0..4 {
+        let top = p00[c] as u32 * (128 - ax) + p10[c] as u32 * ax;
+        let bot = p01[c] as u32 * (128 - ax) + p11[c] as u32 * ax;
+        o[c] = ((top * (128 - ay) + bot * ay + 8192) >> 14) as u8;
+    }
+    o
 }

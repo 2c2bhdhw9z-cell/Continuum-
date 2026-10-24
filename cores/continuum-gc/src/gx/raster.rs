@@ -37,7 +37,7 @@ struct Setup {
 
 impl Gx {
     pub(super) fn rasterize_primitive(&mut self, ram: &mut Ram, prim: u8, v: &[OutVertex]) {
-        let s = self.setup();
+        let s = self.setup(ram);
         match prim {
             0 | 1 => {
                 for q in v.chunks_exact(4) {
@@ -82,8 +82,8 @@ impl Gx {
         }
     }
 
-    fn setup(&self) -> Setup {
-        let pipe = self.pipeline();
+    fn setup(&mut self, ram: &Ram) -> Setup {
+        let pipe = self.pipeline(ram);
         let gen = self.bp[0];
         let tl = self.bp[0x20];
         let br = self.bp[0x21];
@@ -201,7 +201,7 @@ impl Gx {
         self.raster_triangle(ram, s, &q[0], &q[2], &q[3]);
     }
 
-    fn raster_triangle(&mut self, ram: &mut Ram, s: &Setup, v0: &Screen, v1: &Screen, v2: &Screen) {
+    fn raster_triangle(&mut self, _ram: &mut Ram, s: &Setup, v0: &Screen, v1: &Screen, v2: &Screen) {
         let fx = |v: f32| (v * 16.0).round() as i64;
         let (p0, mut p1, mut p2) = (v0, v1, v2);
         let mut x = [fx(p0.x), fx(p1.x), fx(p2.x)];
@@ -266,27 +266,48 @@ impl Gx {
         let mut tex = [[0f32; 3]; 8];
         let mut lods = [0f32; 8];
         let mut vals = [0f32; 34];
+        // Edge values step by -dy*16 per pixel and dx*16 per row.
+        let step_x: [i64; 3] = std::array::from_fn(|i| -edges[i].1 * 16);
+        let num_chans = s.num_chans.max(1);
+        let fx0 = (px0 as f32 + 0.5) - x0;
         for py in py0..=py1 {
             let cy = (py * 16 + 8) as i64;
             let fy = (py as f32 + 0.5) - y0;
+            let cx0 = (px0 * 16 + 8) as i64;
+            let mut e = [eval(0, cx0, cy), eval(1, cx0, cy), eval(2, cx0, cy)];
+            let mut z = z0 + dzx * fx0 + dzy * fy;
+            let mut iw = p0.inv_w + dwx * fx0 + dwy * fy;
+            for k in 0..nattr {
+                vals[k] = base[k] + ddx[k] * fx0 + ddy[k] * fy;
+            }
+            let mut inside_seen = false;
             for px in px0..=px1 {
-                let cx = (px * 16 + 8) as i64;
-                if eval(0, cx, cy) < 0 || eval(1, cx, cy) < 0 || eval(2, cx, cy) < 0 {
+                if px > px0 {
+                    e[0] += step_x[0];
+                    e[1] += step_x[1];
+                    e[2] += step_x[2];
+                    z += dzx;
+                    iw += dwx;
+                    for k in 0..nattr {
+                        vals[k] += ddx[k];
+                    }
+                }
+                if e[0] < 0 || e[1] < 0 || e[2] < 0 {
+                    if inside_seen {
+                        // Triangles are convex: once out on this row, the rest is out too.
+                        break;
+                    }
                     continue;
                 }
-                let fxp = (px as f32 + 0.5) - x0;
+                inside_seen = true;
                 let idx = py as usize * EFB_WIDTH + px as usize;
-                let z = (z0 + dzx * fxp + dzy * fy).clamp(0.0, 16_777_215.0) as u32;
-                if s.pe.z_early && s.pe.z_enable && !self.depth_test(&s.pe, idx, z) {
+                let zi = z.clamp(0.0, 16_777_215.0) as u32;
+                if s.pe.z_early && s.pe.z_enable && !self.depth_test(&s.pe, idx, zi) {
                     continue;
                 }
-                let iw = p0.inv_w + dwx * fxp + dwy * fy;
                 let w = if iw != 0.0 { 1.0 / iw } else { 0.0 };
-                for k in 0..nattr {
-                    vals[k] = base[k] + ddx[k] * fxp + ddy[k] * fy;
-                }
                 let mut color = [[0i32; 4]; 2];
-                for c in 0..s.num_chans.max(1) {
+                for c in 0..num_chans {
                     for ch in 0..4 {
                         color[c][ch] = (vals[c * 4 + ch] * w).clamp(0.0, 255.0) as i32;
                     }
@@ -298,20 +319,21 @@ impl Gx {
                         qw = 1e-20;
                     }
                     let (ss, ts) = s.pipe.tc_scale[t];
-                    tex[t] = [sw / qw * ss, tw / qw * ts, 1.0];
+                    let iq = 1.0 / qw;
+                    tex[t] = [sw * iq * ss, tw * iq * ts, 1.0];
                     if s.need_lod[t] {
                         let (sx, sy, tx, ty, qx, qy) = (ddx[k], ddy[k], ddx[k + 1], ddy[k + 1], ddx[k + 2], ddy[k + 2]);
-                        let q2 = qw * qw;
-                        let dudx = (sx * qw - sw * qx) / q2 * ss;
-                        let dudy = (sy * qw - sw * qy) / q2 * ss;
-                        let dvdx = (tx * qw - tw * qx) / q2 * ts;
-                        let dvdy = (ty * qw - tw * qy) / q2 * ts;
+                        let iq2 = iq * iq;
+                        let dudx = (sx * qw - sw * qx) * iq2 * ss;
+                        let dudy = (sy * qw - sw * qy) * iq2 * ss;
+                        let dvdx = (tx * qw - tw * qx) * iq2 * ts;
+                        let dvdy = (ty * qw - tw * qy) * iq2 * ts;
                         let rho = (dudx * dudx + dvdx * dvdx).max(dudy * dudy + dvdy * dvdy);
                         lods[t] = if rho > 0.0 { 0.5 * rho.log2() } else { -10.0 };
                     }
                 }
-                let pin = PixelIn { z, color, tex: &tex };
-                let Some((out, z2)) = self.shade(ram, &s.pipe, &pin, &lods) else {
+                let pin = PixelIn { z: zi, color, tex: &tex };
+                let Some((out, z2)) = self.shade(&s.pipe, &pin, &lods) else {
                     continue;
                 };
                 self.stats.pixels += 1;
