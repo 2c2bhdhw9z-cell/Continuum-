@@ -5,7 +5,33 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (23 October 2026, about 10:30 PM Eastern): GameCube and Wii, our own
+## START HERE (24 October 2026, about 9:15 AM Eastern): GameCube core, booting real homebrew
+
+- Owner rules added overnight: never stop early (keep working through the plan in one turn);
+  never ask small questions while he sleeps. REA (reverse-engineer-anything) skill and the
+  rea-agents MCP server are installed (`.kiro/skills/`, `.kiro/settings/mcp.json`); usable from
+  this new session.
+- `cores/continuum-gc` boots three free homebrew programs on the test machine (test only, never
+  committed, kept in `/projects/sandbox/.scratch/homebrew/`, re-download from GitHub releases):
+  FCE Ultra GX 4.0.3 (`dborth/fceugx`), Neverball (`emukidid/swiss-gc` release asset), Swiss
+  r2119. Fixed this morning: a DSP boot-ROM stand-in (reset mail 0x8071FEED, the init-code mail,
+  the ucode upload protocol 0x80F3xxxx, then 0xDCD10000) and the DI interrupt check.
+- Dev tools in `cores/continuum-gc/examples/`: `boot` (runs N fields, prints exceptions, faults,
+  unknown registers, pending interrupts, writes the picture as PPM, dumps code at PC/LR to
+  /tmp/gc-dump.txt), `trace`, `dis_at`, `speed`. Disassemble with llvm-mc
+  (`--disassemble -triple=powerpc -mcpu=750`). clang can build PowerPC code for our own tests.
+- Where each one stands: FCE Ultra GX shows a 640x480 picture (not checked what is in it yet),
+  sends 270 KB to the graphics FIFO (no graphics engine yet), takes DSI faults at 801A0E78 with
+  addresses like 7FFFBFF8 (looks like a memory-size or heap mistake: check lowmem 0x80000028 /
+  0x800000F0 / arena and the BATs). Neverball faults on a null pointer at 80019DA4 and sits at
+  800E8790. Swiss r2119 is linked to run from 0x00397B5C (a physical-address loader) and spins:
+  probably expects translation off and a different entry; check its DOL header.
+- `dis_at` stopping on the first fault is too slow at 4 billion steps: give it a smaller limit.
+- Do NOT use `pkill -f examples/` in a command: it kills the command's own shell.
+- Next after these boot: graphics G6 (CP FIFO, XF, BP/TEV, CPU drawer first), then sound, the
+  fast interpreter (G7), the JIT (G8). Plan and per-step progress: `tasks/gamecube.json`.
+
+## Earlier (23 October 2026, about 10:30 PM Eastern): GameCube and Wii, our own
 
 - The plan and the owner's answers are in `.kiro/notes/tasks/gamecube.json` (steps G1 to G12).
   Wii is in from the start. Anything may be read (Dolphin's source too) but nothing copied, and

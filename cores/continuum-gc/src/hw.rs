@@ -180,6 +180,12 @@ pub struct Dsp {
     pub dma_addr: u32,
     pub dma_ctl: u16,
     pub dma_left: u16,
+    /// Mails the CPU sent to the boot ROM's upload protocol so far (pairs of command, value).
+    pub rom_mails: Vec<u32>,
+    /// A sound program the CPU uploaded: (main-memory address, length), once started.
+    pub ucode: Option<(u32, u32)>,
+    /// Mails our DSP stand-in has queued for the CPU, oldest first.
+    pub outbox: std::collections::VecDeque<u32>,
 }
 
 #[derive(Default, Clone, Serialize, Deserialize)]
@@ -209,6 +215,8 @@ pub struct Hw {
     pub invalidated: Vec<(u32, u32)>,
     /// Lines the program printed through the debug UART (EXI channel 0, device 1).
     pub uart: Vec<u8>,
+    /// Register addresses nothing answers yet, with how often they were touched (development aid).
+    pub unknown: std::collections::BTreeMap<u32, u32>,
 }
 
 impl Hw {
@@ -229,6 +237,7 @@ impl Hw {
             disc: None,
             invalidated: Vec::new(),
             uart: Vec::new(),
+            unknown: Default::default(),
         }
     }
 
@@ -249,7 +258,9 @@ impl Hw {
         }) {
             c |= INT_EXI;
         }
-        if self.di.sr & 0x14 == 0x14 || self.di.sr & 0x0A == 0x0A {
+        // DISR pairs (interrupt, mask): DEINT 2 / 1, TCINT 4 / 3, BRKINT 6 / 5; DICVR CVRINT 2 / 1.
+        let sr = self.di.sr;
+        if sr & 0x06 == 0x06 || sr & 0x18 == 0x18 || sr & 0x60 == 0x60 || self.di.cvr & 0x6 == 0x6 {
             c |= INT_DI;
         }
         let csr = self.dsp.csr;
@@ -326,7 +337,10 @@ impl Hw {
                 0x800..=0xBFF => self.exi_read(off & 0x3FF),
                 _ => self.ai_read(off & 0x3FF),
             },
-            _ => 0,
+            _ => {
+                *self.unknown.entry(pa).or_default() += 1;
+                0
+            }
         }
     }
 
@@ -360,7 +374,7 @@ impl Hw {
                     self.gx_fifo.clear();
                 }
             }
-            _ => {}
+            _ => *self.unknown.entry(pa | 0x8000_0000).or_default() += 1,
         }
     }
 
@@ -821,6 +835,7 @@ impl Hw {
                     // Reading the low half takes the mail.
                     let v = hw.dsp.dsp_mbox & 0xFFFF;
                     hw.dsp.dsp_mbox_full = false;
+                    hw.dsp_deliver();
                     v
                 }
                 0x0A => hw.dsp.csr as u32,
@@ -868,14 +883,23 @@ impl Hw {
             0x0A => {
                 // Interrupt bits (3, 5, 7) clear on 1; RES (0) resets; HALT (2) and masks are stored.
                 let clear = v & 0xA8;
-                let mut csr = (self.dsp.csr & 0xA8 & !clear) | (v & !0xA8 & 0x0F57);
+                let was_halted = self.dsp.csr & 4 != 0;
+                let mut csr = (self.dsp.csr & 0xA8 & !clear) | (v & !0xA8 & 0x0B57);
                 if v & 1 != 0 {
-                    // Reset: the DSP's boot ROM tells the CPU it is ready.
+                    // Reset: the boot ROM starts again, says it is ready, and waits for an upload.
                     csr &= !1;
-                    self.dsp.dsp_mbox = 0x8071_FEED;
-                    self.dsp.dsp_mbox_full = true;
+                    self.dsp.rom_mails.clear();
+                    self.dsp.ucode = None;
+                    self.dsp.outbox.clear();
+                    self.dsp.dsp_mbox_full = false;
+                    self.dsp_post(0x8071_FEED);
                 }
                 self.dsp.csr = csr;
+                if was_halted && v & 4 == 0 && v & 0x800 == 0 && self.dsp.ucode.is_none() {
+                    // Released from halt after the "init code" reset (DSPRESET cleared): the small
+                    // program the OS put at 0x81000000 runs and sends one mail back.
+                    self.dsp_post(0x8071_FEED);
+                }
             }
             0x12 => self.dsp.ar_size = v,
             0x16 => self.dsp.ar_mode = v,
@@ -899,10 +923,40 @@ impl Hw {
         }
     }
 
-    /// Mail to the DSP. Until our own sound-program stand-ins exist (step G5, sound), every mail
-    /// is acknowledged so programs waiting for the DSP carry on.
+    /// Queues a mail from the DSP to the CPU (delivered when the mailbox is free).
+    fn dsp_post(&mut self, mail: u32) {
+        self.dsp.outbox.push_back(mail);
+        self.dsp_deliver();
+    }
+
+    fn dsp_deliver(&mut self) {
+        if !self.dsp.dsp_mbox_full {
+            if let Some(m) = self.dsp.outbox.pop_front() {
+                self.dsp.dsp_mbox = m & 0x7FFF_FFFF;
+                self.dsp.dsp_mbox_full = true;
+            }
+        }
+    }
+
+    /// A mail from the CPU to the DSP. The boot ROM's upload protocol is answered here: pairs of
+    /// 0x80F3A001 (main-memory address of the code), 0x80F3C002 (IRAM address), 0x80F3A002
+    /// (length), 0x80F3B002 (DRAM address), 0x80F3D001 (start vector), after which the
+    /// uploaded sound program runs. A started program says it is ready (0xDCD10000, the mail
+    /// Nintendo's sound programs send first). Until our own stand-ins for the common sound
+    /// programs exist (step G5, sound), every other mail is just taken.
     fn dsp_hle_mail(&mut self) {
+        let mail = self.dsp.cpu_mbox | 0x8000_0000;
         self.dsp.cpu_mbox_full = false;
+        if self.dsp.ucode.is_none() {
+            self.dsp.rom_mails.push(mail);
+            let m = &self.dsp.rom_mails;
+            if m.len() % 2 == 0 && m[m.len() - 2] == 0x80F3_D001 {
+                let find = |cmd: u32| m.chunks(2).find(|p| p[0] == cmd).map(|p| p[1]).unwrap_or(0);
+                self.dsp.ucode = Some((find(0x80F3_A001), find(0x80F3_A002)));
+                self.dsp.rom_mails.clear();
+                self.dsp_post(0xDCD1_0000);
+            }
+        }
     }
 
     /// ARAM DMA: main memory and the 16 MB of audio RAM, done at once.

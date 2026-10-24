@@ -179,6 +179,12 @@ pub struct Cpu {
     /// Set when the current instruction raised an exception (so it does not complete).
     #[serde(skip)]
     faulted: bool,
+    /// How many times each exception vector was taken (development aid; not in states).
+    #[serde(skip)]
+    pub exceptions: [u64; 16],
+    /// The first faults taken (vector, SRR0, DAR), for development.
+    #[serde(skip)]
+    pub fault_log: Vec<(u32, u32, u32)>,
     /// The page-table translation cache. Rebuilt on demand; never in a save state.
     #[serde(skip)]
     pub(crate) tlb: mmu::Tlb,
@@ -263,6 +269,8 @@ impl Cpu {
             tb_rem: 0,
             cur_pc: 0,
             faulted: false,
+            exceptions: [0; 16],
+            fault_log: Vec::new(),
             tlb: mmu::Tlb::default(),
         }
     }
@@ -334,6 +342,7 @@ impl Cpu {
     /// Takes an exception: SRR0/SRR1 saved, MSR set for the handler, PC to the vector.
     /// `srr0` is the address the handler returns to.
     pub fn raise(&mut self, ex: Exception, srr0: u32, srr1_bits: u32) {
+        self.exceptions[(ex as usize >> 8) & 15] += 1;
         self.srr0 = srr0;
         self.srr1 = (self.msr & MSR_SAVED) | srr1_bits;
         let keep = self.msr & (MSR_ME | MSR_IP | MSR_ILE);
@@ -348,6 +357,9 @@ impl Cpu {
     /// The current instruction's fault (DSI, ISI, program ...): SRR0 points at it.
     pub(crate) fn fault(&mut self, ex: Exception, srr1_bits: u32) {
         let pc = self.cur_pc;
+        if matches!(ex, Exception::Dsi | Exception::Isi | Exception::Program | Exception::Alignment) && self.fault_log.len() < 16 {
+            self.fault_log.push((ex as u32, pc, self.dar));
+        }
         self.raise(ex, pc, srr1_bits);
     }
 
