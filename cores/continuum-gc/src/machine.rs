@@ -52,7 +52,9 @@ struct State {
     line_cycles: u64,
 }
 
-pub const STATE_MAGIC: &[u8; 4] = b"CGC2";
+/// "CGC" and the state's layout version (3: the memory card's command state and the ticking
+/// clock in Exi).
+pub const STATE_MAGIC: &[u8; 4] = b"CGC3";
 
 impl Machine {
     pub fn new(console: Console) -> Self {
@@ -171,6 +173,13 @@ impl Machine {
         if header.console == Console::Wii {
             return Err("Wii discs aren't supported yet".into());
         }
+        // A Japanese disc plays on a Japanese console: the DTV status says so (bit 1), which is
+        // what makes the library pick Shift-JIS for fonts and memory cards, so the blank card is
+        // formatted for it.
+        if header.region == 0 {
+            self.hw.vi.regs[crate::hw::VI_DTV / 2] |= 2;
+            self.hw.insert_blank_card(self.cpu.tb);
+        }
         let mut boot = vec![0u8; 0x440];
         disc.read(0, &mut boot).map_err(|e| e.to_string())?;
         let mut bi2 = vec![0u8; 0x2000];
@@ -229,6 +238,22 @@ impl Machine {
             self.cpu.step(&mut self.hw);
         }
         Err(format!("the disc's loader never finished (stuck at {:08X})", self.cpu.pc))
+    }
+
+    /// Sets the console's clock to `seconds` since 1 January 2000 (the phone's own local time:
+    /// the console's clock has no time zone, it reads what it was set to) and starts the time
+    /// base from it, as the boot ROM does (clock plus SRAM's counter bias, in time-base ticks),
+    /// which is the date and time games see. The blank memory card is formatted at that moment.
+    /// Called when a game is loaded, before it runs; the test tools leave the clock at 0.
+    pub fn set_clock(&mut self, seconds: u32) {
+        self.hw.exi.rtc = seconds;
+        self.hw.exi.rtc_frac = 0;
+        let s = &self.hw.exi.sram;
+        let at = crate::hw::SRAM_COUNTER_BIAS;
+        let bias = u32::from_be_bytes([s[at], s[at + 1], s[at + 2], s[at + 3]]);
+        let ticks_per_second = self.cpu_hz / cpu::CYCLES_PER_TIMEBASE_TICK;
+        self.cpu.tb = seconds.wrapping_add(bias) as u64 * ticks_per_second;
+        self.hw.insert_blank_card(self.cpu.tb);
     }
 
     /// Turns our JIT on (gamecube.json G8) when this process can run generated code: on the
@@ -316,6 +341,9 @@ impl Machine {
 
     pub fn load_state(&mut self, data: &[u8]) -> Result<(), String> {
         if !data.starts_with(STATE_MAGIC) {
+            if data.starts_with(b"CGC") {
+                return Err("a save state from an older version of this emulator".into());
+            }
             return Err("not a save state from this emulator".into());
         }
         let s: State = bincode::deserialize(&data[4..]).map_err(|e| e.to_string())?;

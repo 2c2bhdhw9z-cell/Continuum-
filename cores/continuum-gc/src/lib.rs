@@ -18,4 +18,5 @@ pub mod jit;
 pub mod hw;
 pub mod libretro;
 pub mod machine;
+pub mod memcard;
 pub mod sd;

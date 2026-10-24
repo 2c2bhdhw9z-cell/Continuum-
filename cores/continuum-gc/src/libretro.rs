@@ -212,6 +212,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     JIT_ALLOWED.store(asked && jit, Ordering::SeqCst);
     match open(&path) {
         Ok(mut machine) => {
+            machine.set_clock(local_seconds_since_2000());
             if JIT_ALLOWED.load(Ordering::SeqCst) {
                 machine.enable_jit();
             }
@@ -364,11 +365,46 @@ pub extern "C" fn retro_cheat_set(_index: u32, _enabled: bool, _code: *const c_c
 pub extern "C" fn retro_get_region() -> u32 {
     0
 }
+/// `RETRO_MEMORY_SAVE_RAM`: the memory card in slot A (memcard.rs), which the frontend keeps as
+/// the game's .srm file, one card per game.
+const MEMORY_SAVE_RAM: u32 = 0;
+
+/// The memory card's bytes. Valid until the game is unloaded: the card is never reallocated
+/// while a game runs.
 #[no_mangle]
-pub extern "C" fn retro_get_memory_data(_id: u32) -> *mut c_void {
-    std::ptr::null_mut()
+pub extern "C" fn retro_get_memory_data(id: u32) -> *mut c_void {
+    match core().as_mut() {
+        Some(c) if id == MEMORY_SAVE_RAM && !c.machine.hw.card.is_empty() => c.machine.hw.card.as_mut_ptr() as *mut c_void,
+        _ => std::ptr::null_mut(),
+    }
 }
 #[no_mangle]
-pub extern "C" fn retro_get_memory_size(_id: u32) -> usize {
-    0
+pub extern "C" fn retro_get_memory_size(id: u32) -> usize {
+    match core().as_ref() {
+        Some(c) if id == MEMORY_SAVE_RAM => c.machine.hw.card.len(),
+        _ => 0,
+    }
+}
+
+/// Now, as seconds since 1 January 2000 on the phone's clock in its own time zone (what a
+/// console's clock reads when it was set by hand).
+fn local_seconds_since_2000() -> u32 {
+    const UNIX_2000: i64 = 946_684_800;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+    (now + utc_offset_seconds(now) - UNIX_2000).clamp(0, u32::MAX as i64) as u32
+}
+
+/// The phone's time zone offset from UTC at `unix` seconds (daylight saving included).
+// tm_gmtoff is a C long: 64 bits on the phone, 32 on some other systems.
+#[allow(clippy::unnecessary_cast)]
+fn utc_offset_seconds(unix: i64) -> i64 {
+    let t = unix as libc::time_t;
+    // SAFETY: localtime_r only writes the tm it is given.
+    unsafe {
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&t, &mut tm).is_null() {
+            return 0;
+        }
+        tm.tm_gmtoff as i64
+    }
 }

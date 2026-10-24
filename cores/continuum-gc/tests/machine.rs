@@ -231,3 +231,40 @@ fn fast_interpreter_fast_forwards_waiting_exactly() {
     assert_eq!((plain.cpu.pc, plain.cpu.cycles, plain.cpu.tb, plain.cpu.dec), (fast.cpu.pc, fast.cpu.cycles, fast.cpu.tb, fast.cpu.dec));
     assert!(fast.fast.as_ref().unwrap().stats.idle_skips > 1000, "waiting was not fast-forwarded");
 }
+
+#[test]
+fn the_clock_starts_from_the_phone_and_counts_on() {
+    let mut m = booted(&dol(&[(0x8000_3100, vec![HANG])], 0x8000_3100));
+    // 24 October 2026, 12:00 local: seconds since 2000.
+    let now = 846_244_800;
+    m.set_clock(now);
+    // The time base is what games read the date from: 40.5 million ticks a second.
+    assert_eq!(m.cpu.tb, now as u64 * 40_500_000);
+    assert_eq!(m.hw.exi.rtc, now);
+    // A second of video lines (NTSC: 525 lines, 29.97 frames) moves the clock on by one.
+    for _ in 0..15_734 {
+        m.hw.vi_line();
+    }
+    assert_eq!(m.hw.exi.rtc, now);
+    m.hw.vi_line();
+    assert_eq!(m.hw.exi.rtc, now + 1);
+}
+
+#[test]
+fn a_memory_card_is_in_slot_a_and_survives_save_states() {
+    let mut m = booted(&vi_program());
+    assert_eq!(m.hw.card.len(), 2 << 20);
+    let blank = m.hw.card.clone();
+    m.run_field(20_000_000);
+    let state = m.save_state();
+    // A game saves after the state was made: loading the state keeps the save (the card is the
+    // game's save file, not part of the state).
+    m.hw.card[0x6000] = 0x42;
+    m.load_state(&state).unwrap();
+    assert_eq!(m.hw.card[0x6000], 0x42);
+    assert_eq!(&m.hw.card[..0x6000], &blank[..0x6000]);
+    // A state from an older layout is refused with a reason.
+    let mut old = state.clone();
+    old[3] = b'2';
+    assert!(m.load_state(&old).unwrap_err().contains("older version"));
+}

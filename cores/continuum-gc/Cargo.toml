@@ -18,6 +18,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 bincode = "1.3"
+# The phone's time zone, for the console's clock (localtime_r).
+libc = "0.2"
 # Compressed disc images (RVZ, WIA, GCZ, CISO, TGC): encounter's nod, a disc-image library (not
 # an emulator), MIT OR Apache-2.0. Zstandard, LZMA and bzip2 are built from their C sources and
 # linked in; zlib is the system's (every iPhone has it, and a second copy clashes with the one
