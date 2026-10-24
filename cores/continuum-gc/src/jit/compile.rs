@@ -229,6 +229,10 @@ impl Ctx {
     fn fallback(&mut self, ins: &Inst, count: u32) {
         self.a.mov_imm(false, 0, ins.ea as u64);
         self.str(0, off_cur_pc());
+        // The budget left at this instruction (the budget register holds what was left at
+        // the block's start), so a hardware access in the handler sees the time (`Cpu::now`).
+        self.a.sub_imm(true, 0, BUDGET, count - 1);
+        self.a.str_x_any(0, CPU, offset_of!(Cpu, jit_left) as u32, 1);
         self.a.mov(true, 0, CPU);
         self.a.mov(true, 1, HW);
         self.a.mov_imm(true, 2, ins.op as *const Op as u64);

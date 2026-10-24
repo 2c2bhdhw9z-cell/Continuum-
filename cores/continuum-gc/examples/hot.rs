@@ -274,8 +274,9 @@ fn main() {
         }
         if line_cycles >= per_line {
             line_cycles -= per_line;
+            m.hw.now = m.cpu.cycles;
             m.hw.vi_line();
-            m.hw.ai_samples(3);
+            m.hw.ai_line();
             m.hw.audio_line();
         }
     }

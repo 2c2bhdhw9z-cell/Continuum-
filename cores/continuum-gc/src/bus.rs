@@ -30,6 +30,11 @@ pub trait Bus {
 
     /// The CPU executed `icbi` or flushed its instruction cache: code at `pa` may have changed.
     fn invalidate_code(&mut self, _pa: u32, _len: u32) {}
+
+    /// The CPU's clock (in CPU cycles) at the access that follows, for devices whose
+    /// registers count time (the audio interface's sample counter).
+    #[inline]
+    fn clock(&mut self, _cycles: u64) {}
 }
 
 /// Plain flat memory for tests: `size` bytes from physical 0, everything else reads 0.

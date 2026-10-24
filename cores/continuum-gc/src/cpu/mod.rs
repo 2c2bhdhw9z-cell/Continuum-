@@ -188,6 +188,18 @@ pub struct Cpu {
     /// The instruction being executed, for exceptions that point at it.
     #[serde(skip)]
     pub(crate) cur_pc: u32,
+    /// Where the running block started (the fast interpreter adds a block's time when it
+    /// ends, so the instructions from here to `cur_pc` have run but are not in `cycles` yet).
+    /// The plain interpreter keeps it equal to `cur_pc`.
+    #[serde(skip)]
+    pub(crate) block_ea: u32,
+    /// While compiled code runs: the budget it was given, and the budget left at the
+    /// instruction now calling back into the interpreter (generated code stores it), so the
+    /// difference is the chain's instructions not in `cycles` yet. Both 0 otherwise.
+    #[serde(skip)]
+    pub(crate) jit_budget: u64,
+    #[serde(skip)]
+    pub(crate) jit_left: u64,
     /// Set when the current instruction raised an exception (so it does not complete).
     #[serde(skip)]
     pub(crate) faulted: bool,
@@ -283,6 +295,9 @@ impl Cpu {
             cycles: 0,
             tb_rem: 0,
             cur_pc: 0,
+            block_ea: 0,
+            jit_budget: 0,
+            jit_left: 0,
             faulted: false,
             exit: false,
             exceptions: [0; 16],
@@ -425,6 +440,27 @@ impl Cpu {
         if (old as i32) >= 0 && (ticks > old as u64) {
             self.dec_pending = true;
         }
+    }
+
+    /// The CPU's clock at the instruction running now, in cycles: `cycles` plus the
+    /// instructions of the running block (or chain of compiled blocks) before this one, whose
+    /// time is only added when the block ends. What a hardware register access sees as "now"
+    /// (the audio interface's sample counter is worked out from it).
+    #[inline]
+    pub fn now(&self) -> u64 {
+        let in_flight = if self.jit_budget != 0 {
+            self.jit_budget.saturating_sub(self.jit_left)
+        } else {
+            // A block holds at most 128 instructions; anything else is a block start not
+            // recorded (a path that runs no block), so nothing is in flight.
+            let k = self.cur_pc.wrapping_sub(self.block_ea) >> 2;
+            if k < 128 {
+                k as u64
+            } else {
+                0
+            }
+        };
+        self.cycles + in_flight
     }
 
     /// CPU cycles until the decrementer next passes zero (for the scheduler).
@@ -607,6 +643,7 @@ impl Cpu {
     /// Reads `n` (1, 2, 4, 8) big-endian bytes at `ea`. Accesses that cross a 4 KB page are
     /// translated byte by byte, so a split access sees both pages correctly.
     pub fn read<B: Bus>(&mut self, ea: u32, n: u32, bus: &mut B) -> Option<u64> {
+        bus.clock(self.now());
         if (ea & 0xFFF) + n > 0x1000 {
             let mut v = 0u64;
             for i in 0..n {
@@ -632,6 +669,7 @@ impl Cpu {
     }
 
     pub fn write<B: Bus>(&mut self, ea: u32, n: u32, v: u64, bus: &mut B) -> Option<()> {
+        bus.clock(self.now());
         if (ea & 0xFFF) + n > 0x1000 {
             // Translate every byte first so a fault leaves memory untouched.
             let mut pas = [0u32; 8];
@@ -702,6 +740,7 @@ impl Cpu {
         }
         self.faulted = false;
         self.cur_pc = self.pc;
+        self.block_ea = self.pc;
         let Some(inst) = self.fetch(bus) else {
             return 1;
         };

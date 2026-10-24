@@ -603,3 +603,229 @@ fn aram_sizing_finds_16_mb_and_no_expansion() {
     assert_eq!(m.hw.read32(buffer), 0xDEAD_BEEF);
     assert_eq!(&m.hw.aram[0..4], &[0, 0, 0, 0], "a write past the end did not wrap to the start");
 }
+
+// ---------------------------------------------------------------------- the audio interface's clock
+
+/// A small assembler for the test programs below: instruction words, and labels for branches.
+struct Prog {
+    code: Vec<u32>,
+    labels: Vec<(&'static str, usize)>,
+    fixups: Vec<(usize, &'static str)>,
+}
+
+impl Prog {
+    fn new() -> Self {
+        Prog { code: Vec::new(), labels: Vec::new(), fixups: Vec::new() }
+    }
+    fn op(&mut self, w: u32) -> &mut Self {
+        self.code.push(w);
+        self
+    }
+    fn label(&mut self, name: &'static str) -> &mut Self {
+        self.labels.push((name, self.code.len()));
+        self
+    }
+    /// bc BO,BI,label.
+    fn bc(&mut self, bo: u32, bi: u32, to: &'static str) -> &mut Self {
+        self.fixups.push((self.code.len(), to));
+        self.op((16 << 26) | (bo << 21) | (bi << 16))
+    }
+    fn b(&mut self, to: &'static str) -> &mut Self {
+        self.fixups.push((self.code.len(), to));
+        self.op(18 << 26)
+    }
+    fn words(&self) -> Vec<u32> {
+        let mut code = self.code.clone();
+        for &(at, to) in &self.fixups {
+            let target = self.labels.iter().find(|l| l.0 == to).expect("label").1;
+            let off = ((target as i64 - at as i64) * 4) as u32;
+            code[at] |= if code[at] >> 26 == 16 { off & 0xFFFC } else { off & 0x03FF_FFFC };
+        }
+        code
+    }
+}
+
+fn mftb(t: u32) -> u32 {
+    (31 << 26) | (t << 21) | (392 << 11) | (371 << 1)
+}
+fn cmplw(a: u32, b: u32) -> u32 {
+    x(0, a, b, 32)
+}
+fn cmplwi(a: u32, v: u32) -> u32 {
+    d(10, 0, a, v as i32)
+}
+fn rlwinm(a: u32, s: u32, sh: u32, mb: u32, me: u32) -> u32 {
+    (21 << 26) | (s << 21) | (a << 16) | (sh << 11) | (mb << 6) | (me << 1)
+}
+/// beq, blt, bdnz.
+const EQ: (u32, u32) = (12, 2);
+const LT: (u32, u32) = (12, 0);
+const AI: u32 = 0xCC00_6C00;
+const RESULTS: u32 = 0x8000_2000;
+
+/// AICR |= bits, read-modify-write as Nintendo's library does (r3 = the AI registers).
+fn ai_set(p: &mut Prog, bits: u32) {
+    p.op(lwz(0, 3, 0)).op(ori(0, 0, bits)).op(stw(0, 3, 0));
+}
+/// AICR &= !bit (bit 0 or 1).
+fn ai_clear(p: &mut Prog, bit: u32) {
+    let (mb, me) = if bit == 1 { (0, 30) } else { (31, 29) };
+    p.op(lwz(0, 3, 0)).op(rlwinm(0, 0, 0, mb, me)).op(stw(0, 3, 0));
+}
+
+/// The audio interface's start-up timing check exactly as Nintendo's library runs it
+/// (__AI_SRC_INIT, as decompiled by the Animal Crossing project; AIInit and the first
+/// AISetStreamPlayState call it). Animal Crossing sat in it forever on build 219: the sample
+/// counter stepped once a video line, so every step measured 63.5 microseconds and none
+/// passed. It starts the stream at 32 kHz, waits for the counter to step, switches to 48 kHz,
+/// waits for the next step and times it with the time base, and tries again until the time is
+/// under 28.5 microseconds or between 34.5 and 39 (in time-base ticks at 40.5 MHz: under 1155,
+/// or 1397 to 1579). Done four times; each round's time and attempts go to RESULTS.
+fn ai_src_init_program() -> Vec<u8> {
+    let mut p = Prog::new();
+    p.op(lis(3, AI >> 16)).op(ori(3, 3, AI & 0xFFFF));
+    p.op(lis(8, RESULTS >> 16)).op(ori(8, 8, RESULTS & 0xFFFF));
+    p.op(li(30, 0));
+    p.label("round").op(li(31, 0));
+    p.label("attempt").op(addi(31, 31, 1));
+    ai_set(&mut p, 0x20); // SCRESET
+    ai_clear(&mut p, 1); // 32 kHz
+    ai_set(&mut p, 1); // play
+    p.op(lwz(4, 3, 8));
+    p.label("w1").op(lwz(0, 3, 8)).op(cmplw(0, 4)).bc(EQ.0, EQ.1, "w1");
+    p.op(mftb(5));
+    ai_set(&mut p, 2); // 48 kHz
+    ai_set(&mut p, 1);
+    p.op(lwz(4, 3, 8));
+    p.label("w2").op(lwz(0, 3, 8)).op(cmplw(0, 4)).bc(EQ.0, EQ.1, "w2");
+    p.op(mftb(6));
+    p.op(x(7, 5, 6, 40)); // subf r7, r5, r6: the time between the steps
+    ai_clear(&mut p, 1);
+    ai_clear(&mut p, 0); // stop
+    p.op(rlwinm(9, 30, 3, 0, 28)).op(x(9, 9, 8, 266)); // r9 = RESULTS + 8 * round
+    p.op(stw(7, 9, 0)).op(stw(31, 9, 4));
+    p.op(cmplwi(7, 1155)).bc(LT.0, LT.1, "accepted");
+    p.op(cmplwi(7, 1397)).bc(LT.0, LT.1, "attempt");
+    p.op(cmplwi(7, 1580)).bc(LT.0, LT.1, "accepted");
+    p.b("attempt");
+    p.label("accepted").op(addi(30, 30, 1)).op(stw(30, 8, 0x100));
+    p.op(cmplwi(30, 4)).bc(LT.0, LT.1, "round");
+    p.op(HANG);
+    dol(&[(0x8000_3100, p.words())], 0x8000_3100)
+}
+
+/// The same program on the plain interpreter, the fast interpreter and (where this machine can
+/// run it) our JIT, for `fields` fields; their results.
+fn on_every_cpu(program: &[u8], fields: usize, results: u32) -> Vec<(&'static str, Vec<u32>)> {
+    use continuum_gc::bus::Bus;
+    let mut out = Vec::new();
+    for mode in ["plain", "fast", "jit"] {
+        let mut m = booted(program);
+        match mode {
+            "plain" => m.fast = None,
+            "jit" if !m.enable_jit() => {
+                eprintln!("(no JIT code memory on this machine: build with --features unicorn to check the JIT too)");
+                continue;
+            }
+            _ => {}
+        }
+        for _ in 0..fields {
+            m.run_field(20_000_000);
+        }
+        let words = (0..results).map(|k| m.hw.read32((RESULTS & 0x01FF_FFFF) + 4 * k)).collect();
+        if mode == "jit" {
+            let f = m.fast.as_ref().unwrap();
+            assert!(f.stats.jit_instructions > 0, "the JIT ran nothing");
+        }
+        out.push((mode, words));
+    }
+    out
+}
+
+#[test]
+fn the_audio_start_up_timing_check_finishes_on_every_cpu() {
+    use continuum_gc::bus::Bus;
+    for (mode, r) in on_every_cpu(&ai_src_init_program(), 2, 4 * 2) {
+        for round in 0..4 {
+            let (ticks, attempts) = (r[2 * round], r[2 * round + 1]);
+            // One 48 kHz step (10,116 CPU cycles, 843 ticks) and the few instructions around it.
+            assert!((843..900).contains(&ticks), "{mode}: round {round} measured {ticks} ticks");
+            assert_eq!(attempts, 1, "{mode}: round {round} needed {attempts} attempts");
+        }
+    }
+    let mut m = booted(&ai_src_init_program());
+    m.run_field(20_000_000);
+    assert_eq!(m.hw.read32((RESULTS & 0x01FF_FFFF) + 0x100), 4, "all four rounds done within a field");
+}
+
+/// Restarts the 48 kHz stream, waits a different number of instructions each time (a loop the
+/// JIT runs as one chain of compiled blocks), then reads the sample counter: 24 readings.
+fn ai_counter_program() -> Vec<u8> {
+    let mut p = Prog::new();
+    p.op(lis(3, AI >> 16)).op(ori(3, 3, AI & 0xFFFF));
+    p.op(lis(8, RESULTS >> 16)).op(ori(8, 8, RESULTS & 0xFFFF));
+    p.op(li(30, 0));
+    p.label("next").op(li(0, 0x23)).op(stw(0, 3, 0)); // SCRESET, 48 kHz, play
+    p.op(d(7, 10, 30, 517)).op(addi(10, 10, 3000)).op(mtctr(10)); // ctr = 3000 + 517 * k
+    p.label("delay").op(addi(11, 11, 1)).bc(16, 0, "delay");
+    p.op(lwz(4, 3, 8));
+    p.op(rlwinm(9, 30, 2, 0, 29)).op(x(9, 9, 8, 266)).op(stw(4, 9, 0));
+    p.op(addi(30, 30, 1)).op(cmplwi(30, 24)).bc(LT.0, LT.1, "next");
+    p.op(HANG);
+    dol(&[(0x8000_3100, p.words())], 0x8000_3100)
+}
+
+#[test]
+fn the_sample_counter_reads_the_same_on_every_cpu() {
+    let runs = on_every_cpu(&ai_counter_program(), 1, 24);
+    let (_, plain) = &runs[0];
+    // From the restart: the store itself, three instructions setting up the loop, two cycles a
+    // round of it; 10,116 cycles a sample.
+    for (k, &n) in plain.iter().enumerate() {
+        let elapsed = 4 + 2 * (3000 + 517 * k as u64);
+        assert_eq!(n as u64, elapsed / 10_116, "reading {k}");
+    }
+    assert!(plain.contains(&2), "{plain:?}");
+    for (mode, r) in &runs[1..] {
+        assert_eq!(r, plain, "{mode} reads the counter differently");
+    }
+}
+
+#[test]
+fn the_sample_counter_counts_at_the_streams_rate_and_interrupts_at_aiit() {
+    use continuum_gc::bus::Bus;
+    use continuum_gc::hw::{AI_AIINT, INT_AI};
+    let mut m = booted(&dol(&[(0x8000_3100, vec![HANG])], 0x8000_3100));
+    let at = |m: &mut Machine, cycles: u64| m.hw.now = cycles;
+    // 48 kHz for one second of CPU time: 54 MHz / 1124 samples.
+    m.hw.write32(0x0C00_6C00, 0x23);
+    at(&mut m, 486_000_000);
+    assert_eq!(m.hw.read32(0x0C00_6C08), 48_042);
+    // Stopped, it holds; 32 kHz for one more second: 54 MHz / 1686.
+    m.hw.write32(0x0C00_6C00, 0);
+    at(&mut m, 2 * 486_000_000);
+    assert_eq!(m.hw.read32(0x0C00_6C08), 48_042);
+    m.hw.write32(0x0C00_6C00, 0x21);
+    assert_eq!(m.hw.read32(0x0C00_6C08), 0, "SCRESET");
+    at(&mut m, 3 * 486_000_000);
+    assert_eq!(m.hw.read32(0x0C00_6C08), 32_028);
+    // AIINT when the counter reaches AIIT, asked for when unmasked; writing 1 clears it.
+    m.hw.write32(0x0C00_6C0C, 32_100);
+    m.hw.write32(0x0C00_6C00, 0x01 | 0x04);
+    at(&mut m, 3 * 486_000_000 + 71 * 15_174);
+    m.hw.ai_line();
+    assert_eq!(m.hw.read32(0x0C00_6C00) & AI_AIINT, 0, "one sample short");
+    at(&mut m, 3 * 486_000_000 + 72 * 15_174);
+    m.hw.ai_line();
+    assert_ne!(m.hw.read32(0x0C00_6C00) & AI_AIINT, 0, "reached AIIT");
+    assert_ne!(m.hw.cause() & INT_AI, 0);
+    m.hw.write32(0x0C00_6C00, 0x01 | 0x04 | AI_AIINT);
+    assert_eq!(m.hw.cause() & INT_AI, 0, "cleared");
+    // Save states keep the counter's place.
+    let state = m.save_state();
+    let mut again = Machine::new(Console::GameCube);
+    again.load_state(&state).unwrap();
+    again.hw.now = m.hw.now + 10 * 15_174;
+    m.hw.now += 10 * 15_174;
+    assert_eq!(again.hw.read32(0x0C00_6C08), m.hw.read32(0x0C00_6C08));
+}

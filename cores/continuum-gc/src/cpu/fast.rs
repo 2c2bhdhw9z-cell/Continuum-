@@ -299,6 +299,7 @@ impl FastCpu {
         let limit = (ops.len() as u64).min(budget.max(1)) as usize;
         cpu.exit = false;
         cpu.faulted = false;
+        cpu.block_ea = pc;
         let mut ea = pc;
         let mut n = 0usize;
         for op in &ops[..limit] {
@@ -382,7 +383,13 @@ impl FastCpu {
         cpu.exit = false;
         cpu.faulted = false;
         let stop_after_one = hw.irq_dirty || !hw.invalidated.is_empty() || cpu.dec_pending || cpu.msr & super::MSR_POW != 0;
-        let cycles = jit.run(n, cpu, hw, if stop_after_one { len } else { budget });
+        let given = if stop_after_one { len } else { budget };
+        // The chain's own clock, for hardware accesses inside it (`Cpu::now`).
+        cpu.jit_budget = given;
+        cpu.jit_left = given;
+        let cycles = jit.run(n, cpu, hw, given);
+        cpu.jit_budget = 0;
+        cpu.jit_left = 0;
         stats.jit_instructions += cycles;
         self.last = None;
         cpu.advance_time(cycles);

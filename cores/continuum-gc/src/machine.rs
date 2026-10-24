@@ -60,8 +60,9 @@ struct State {
 }
 
 /// "CGC" and the state's layout version (3: the memory card's command state and the ticking
-/// clock in Exi; 4: SI polling, the drive's streamed music; 5: drive commands take time).
-pub const STATE_MAGIC: &[u8; 4] = b"CGC5";
+/// clock in Exi; 4: SI polling, the drive's streamed music; 5: drive commands take time;
+/// 6: the audio interface's sample counter counts from the CPU's clock).
+pub const STATE_MAGIC: &[u8; 4] = b"CGC6";
 
 impl Machine {
     pub fn new(console: Console) -> Self {
@@ -475,11 +476,14 @@ impl Machine {
             let c = c + stall;
             ran += c;
             self.line_cycles += c;
+            if self.line_cycles >= per_line {
+                // Every instruction so far is counted in the CPU's clock now.
+                self.hw.now = self.cpu.cycles;
+            }
             while self.line_cycles >= per_line {
                 self.line_cycles -= per_line;
                 self.hw.vi_line();
-                // 48 kHz streaming audio: about 3 samples a line.
-                self.hw.ai_samples(3);
+                self.hw.ai_line();
                 self.hw.audio_line();
             }
         }

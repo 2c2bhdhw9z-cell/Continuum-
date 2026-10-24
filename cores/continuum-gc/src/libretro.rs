@@ -96,14 +96,29 @@ struct Core {
     pictured: bool,
     /// Where the CPU was at the end of each field (by 256-byte block), while there is no picture.
     hot: std::collections::HashMap<u32, u32>,
+    /// The status screen as last drawn, and when: it is redrawn every `NOTICE_EVERY`, so the
+    /// numbers hold still long enough to read and screenshot (owner: they changed too fast).
+    notice_frame: Vec<u32>,
+    notice_at: Option<std::time::Instant>,
 }
 
 /// How long a game may show nothing before the status screen replaces the black picture.
 const NOTICE_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
+/// How often the status screen's numbers are brought up to date.
+const NOTICE_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 
 impl Core {
     fn new(machine: Machine) -> Core {
-        Core { machine, frame: vec![0; 640 * 480], size: (640, 480), started: std::time::Instant::now(), pictured: false, hot: Default::default() }
+        Core {
+            machine,
+            frame: vec![0; 640 * 480],
+            size: (640, 480),
+            started: std::time::Instant::now(),
+            pictured: false,
+            hot: Default::default(),
+            notice_frame: Vec::new(),
+            notice_at: None,
+        }
     }
 
     /// After a field: the status screen while the game has shown nothing for a while.
@@ -123,11 +138,17 @@ impl Core {
         if waited < NOTICE_AFTER {
             return;
         }
-        let mut hot: Vec<(u32, u32)> = self.hot.iter().map(|(a, n)| (*a, *n)).collect();
-        hot.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
-        let lines = self.machine.status_lines(waited.as_secs(), &hot);
-        self.frame.resize(640 * 480, 0);
-        crate::notice::draw(&mut self.frame, 640, 480, &lines);
+        if self.notice_at.is_none_or(|t| t.elapsed() >= NOTICE_EVERY) {
+            let mut hot: Vec<(u32, u32)> = self.hot.iter().map(|(a, n)| (*a, *n)).collect();
+            hot.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+            let lines = self.machine.status_lines(waited.as_secs(), &hot);
+            self.notice_frame.resize(640 * 480, 0);
+            crate::notice::draw(&mut self.notice_frame, 640, 480, &lines);
+            self.notice_at = Some(std::time::Instant::now());
+        }
+        // The game's own (black) picture is replaced every field; the screen stays as drawn.
+        self.frame.clear();
+        self.frame.extend_from_slice(&self.notice_frame);
         self.size = (640, 480);
     }
 }

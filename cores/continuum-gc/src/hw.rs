@@ -262,9 +262,24 @@ pub struct Dsp {
 pub struct Ai {
     pub cr: u32,
     pub vr: u32,
+    /// The stream sample counter (AISCNT) as of the CPU cycle `at`. While the stream plays,
+    /// it counts on by itself, one sample every `Hw::ai_cycles_per_sample` cycles from `at`:
+    /// reading it works the count out from the CPU's time then (Nintendo's library times how
+    /// long one step takes, to the microsecond).
     pub scnt: u32,
     pub it: u32,
+    pub at: u64,
 }
+
+/// AICR bits: the stream plays (PSTAT); its rate is 48 kHz (AFR; else 32 kHz); the sample
+/// interrupt is unmasked (AIINTMSK); the counter reached AIIT (AIINT, cleared by writing 1);
+/// zero the counter (SCRESET); the DSP's own output is 32 kHz (AIDFR; else 48 kHz).
+pub const AI_PSTAT: u32 = 0x01;
+pub const AI_AFR: u32 = 0x02;
+pub const AI_AIINTMSK: u32 = 0x04;
+pub const AI_AIINT: u32 = 0x08;
+pub const AI_SCRESET: u32 = 0x20;
+pub const AI_AIDFR: u32 = 0x40;
 
 pub struct Hw {
     pub mem1: Vec<u8>,
@@ -305,6 +320,9 @@ pub struct Hw {
     pub stall: u64,
     /// Something that can change the interrupt line happened since the CPU last looked.
     pub irq_dirty: bool,
+    /// The CPU's clock, in CPU cycles, at the register access being handled (the CPU tells
+    /// the bus before each access; the machine before each video line).
+    pub now: u64,
     /// Sound for the frontend: interleaved left/right 16-bit samples at 48 kHz.
     pub audio_out: Vec<i16>,
     /// Audio clock: DMA samples owed, in hundredths of a video line.
@@ -349,6 +367,7 @@ impl Hw {
             sd_channel: 2,
             card: if wii { Vec::new() } else { crate::memcard::blank(&Self::card_format(0, &default_sram(), 0)) },
             irq_dirty: true,
+            now: 0,
             audio_out: Vec::with_capacity(4096),
             audio_phase: 0,
             audio_prev: (0, 0),
@@ -1493,39 +1512,90 @@ impl Hw {
         match off {
             0x00 => self.ai.cr,
             0x04 => self.ai.vr,
-            0x08 => self.ai.scnt,
+            0x08 => {
+                self.ai_sync();
+                self.ai.scnt
+            }
             0x0C => self.ai.it,
             _ => 0,
         }
     }
 
     fn ai_write(&mut self, off: u32, v: u32) {
+        // Everything up to this moment counts at the old settings.
+        self.ai_sync();
+        let now = self.now.max(self.ai.at);
         match off {
             0x00 => {
-                // AIINT (3) clears on 1; SCRESET (5) zeroes the sample counter.
-                let clear = v & 0x8;
-                self.ai.cr = (self.ai.cr & 0x8 & !clear) | (v & 0x57);
-                if v & 0x20 != 0 {
+                let old = self.ai.cr;
+                // AIINT clears on 1; SCRESET zeroes the sample counter.
+                let clear = v & AI_AIINT;
+                self.ai.cr = (self.ai.cr & AI_AIINT & !clear) | (v & 0x57);
+                if v & AI_SCRESET != 0 {
                     self.ai.scnt = 0;
+                }
+                // A start, a stop, a new rate or a reset: the next sample is a whole sample
+                // period from now.
+                if (old ^ self.ai.cr) & (AI_PSTAT | AI_AFR) != 0 || v & AI_SCRESET != 0 {
+                    self.ai.at = now;
                 }
             }
             0x04 => self.ai.vr = v,
-            0x08 => self.ai.scnt = v,
+            0x08 => {
+                self.ai.scnt = v;
+                self.ai.at = now;
+            }
             0x0C => self.ai.it = v,
             _ => {}
         }
     }
 
-    /// Streaming-audio samples passed (the sample counter runs while AI is playing).
-    pub fn ai_samples(&mut self, n: u32) {
-        if self.ai.cr & 1 == 0 {
+    /// The CPU clock.
+    pub fn cpu_hz(&self) -> u64 {
+        if self.wii {
+            WII_CPU_HZ
+        } else {
+            GC_CPU_HZ
+        }
+    }
+
+    /// CPU cycles per stream sample. The sample clock is 54 MHz / 1124 at "48 kHz" (48,043
+    /// Hz) and 54 MHz / 1686 at "32 kHz" (32,028 Hz); a whole number of CPU cycles on both
+    /// consoles (GameCube 10,116 and 15,174, Wii 15,174 and 22,761).
+    pub fn ai_cycles_per_sample(&self) -> u64 {
+        let div = if self.ai.cr & AI_AFR != 0 { 1124 } else { 1686 };
+        self.cpu_hz() * div / 54_000_000
+    }
+
+    /// Brings the stream sample counter up to the CPU's time now (`now`): while the stream
+    /// plays, one sample every sample period since `at`, and AIINT when the counter reaches
+    /// AIIT on the way.
+    fn ai_sync(&mut self) {
+        let now = self.now.max(self.ai.at);
+        if self.ai.cr & AI_PSTAT == 0 {
+            self.ai.at = now;
             return;
         }
-        let before = self.ai.scnt;
-        self.ai.scnt = self.ai.scnt.wrapping_add(n);
-        if self.ai.it != 0 && before < self.ai.it && self.ai.scnt >= self.ai.it {
-            self.ai.cr |= 0x8;
+        let per = self.ai_cycles_per_sample();
+        let n = (now - self.ai.at) / per;
+        if n == 0 {
+            return;
         }
+        self.ai.at += n * per;
+        let n = n.min(u32::MAX as u64) as u32;
+        let before = self.ai.scnt;
+        self.ai.scnt = before.wrapping_add(n);
+        // AIIT is one of the values the counter took: before + 1 ..= before + n.
+        if self.ai.it.wrapping_sub(before.wrapping_add(1)) < n && self.ai.cr & AI_AIINT == 0 {
+            self.ai.cr |= AI_AIINT;
+            self.irq_dirty = true;
+        }
+    }
+
+    /// Once a video line (the machine has set `now`): the sample counter moves on, so its
+    /// interrupt comes even while nothing reads it.
+    pub fn ai_line(&mut self) {
+        self.ai_sync();
     }
 
     /// The audio DMA takes the buffer the registers describe and raises AIDINT, so the program
@@ -1679,6 +1749,10 @@ impl Bus for Hw {
             return;
         }
         self.mmio_write(pa, 4, v);
+    }
+    #[inline]
+    fn clock(&mut self, cycles: u64) {
+        self.now = cycles;
     }
     fn invalidate_code(&mut self, pa: u32, len: u32) {
         if self.invalidated.len() < 4096 {
