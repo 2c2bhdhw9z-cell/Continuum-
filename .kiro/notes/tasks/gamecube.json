@@ -31,7 +31,7 @@
    "id": "G2",
    "done": false,
    "title": "Empty core crate, wired into build-core.sh as optional; GameCube/Wii games keep their can't-play line",
-   "progress": "Crate cores/continuum-gc exists with the libretro entry points (src/libretro.rs: load by path, asks GET_JIT_CAPABLE (74) and keeps the answer in JIT_ALLOWED, XRGB8888 frames, silent audio, save states, RetroPad -> GameCube pad). NOT wired into build-core.sh / project.yml / ContinuumApp.swift yet, on purpose (no build until games play). Core id for jit.rs: continuum_gc."
+   "progress": "Crate cores/continuum-gc exists with the libretro entry points (src/libretro.rs: load by path, asks GET_JIT_CAPABLE (74) and keeps the answer in JIT_ALLOWED, XRGB8888 frames, silent audio, save states, RetroPad -> GameCube pad). NOT wired into build-core.sh / project.yml / ContinuumApp.swift yet, on purpose (no build until games play). Core id for jit.rs: continuum_gc. Homebrew status 24 October: FCE Ultra GX, Swiss r2119 and Neverball all boot to their menus (Neverball needs its data on an SD image; built with pyfatfs on the test machine)."
   },
   {
    "id": "G3",
@@ -49,12 +49,13 @@
    "id": "G5",
    "done": false,
    "title": "Rest of the console: memory map, interrupts, VI, PI, DI, EXI (memory cards, RTC), SI (pads, rumble), AI, ARAM, DSP (our own HLE of the common sound microcodes)",
-   "progress": "Started (src/hw.rs): PI interrupts, VI registers/display interrupts/timing and the YUV framebuffer picture, SI controllers (status, origin, polling), EXI clock/SRAM/UART chip, DI read/inquiry, DSP mailbox (reset mail 0x8071FEED, mails acknowledged) and ARAM DMA, AI registers. Left: real DSP sound (our own stand-ins for the sound programs), audio DMA output, memory cards, CP/PE (with G6), exact timing, Wii Hollywood/IOS."
+   "progress": "Started (src/hw.rs): PI interrupts, VI registers/display interrupts/timing and the YUV framebuffer picture, SI controllers (status, origin, polling), EXI clock/SRAM/UART chip, DI read/inquiry, DSP mailbox (reset mail 0x8071FEED, mails acknowledged) and ARAM DMA, AI registers. Left: real DSP sound (our own stand-ins for the sound programs), audio DMA output, memory cards, CP/PE (with G6), exact timing, Wii Hollywood/IOS. 24 October: PI bus-error bit (programs use it to tell GameCube from Wii), the CPU's thermal unit, UART fixed (whole lines), VI line stride fixed (32-byte units), SD card adapter on serial port 2 (src/sd.rs, SPI protocol, SDHC, read/write; dev runner CGC_SD=image), loader-style argv/envp (Machine::set_args; dev CGC_ARGV/CGC_ENV)."
   },
   {
    "id": "G6",
    "done": false,
-   "title": "Graphics: exact CPU drawer as yardstick, then a GPU drawer through the engine's Vulkan path"
+   "title": "Graphics: exact CPU drawer as yardstick, then a GPU drawer through the engine's Vulkan path",
+   "progress": "24 October, first pass done (src/gx/): CP FIFO (PI write-gather bursts, linked FIFO, watermarks, breakpoints, display lists), CP/XF/BP registers, vertex loader (all formats, direct/indexed, NBT), XF transform with projection, lighting (diffuse, spot, specular attenuation), texgen (2x4/3x4, emboss, colour, dual-tex post matrices), clipping, culling, exact edge-function rasteriser (1/16 px, top-left rule), perspective-correct attributes and LOD, TEV (16 stages, konst, swap tables, compare modes, indirect texturing), alpha test, fog, z textures, textures (I4/I8/IA4/IA8/565/5A3/RGBA8/C4/C8/C14X2/CMPR, TLUT, preload, mipmaps, bilinear), PE (z, blend, logic op, formats), EFB copies to XFB (YUV, gamma, y-scale, copy filter, interlace) and to textures (all formats, box filter), EFB peek/poke, PE token/finish and CP interrupts. Checked on the test machine: FCE Ultra GX menu, Swiss home screen and Neverball's 3D title all draw correctly (pictures in .kiro/notes/docs/gamecube/). Left: exact TEV rounding vs hardware, line/point texture offsets, bounding box, Z16 formats, AA, speed (CPU drawer ~6 fields/s with the plain interpreter), then the GPU drawer."
   },
   {
    "id": "G7",
