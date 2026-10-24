@@ -17,7 +17,12 @@ use serde::{Deserialize, Serialize};
 mod fpu;
 pub use fpu::{double_to_single, round_single, single_to_double};
 pub mod fast;
-mod fast_ops;
+pub mod fast_ops;
+
+/// Decodes one instruction for the fast interpreter (development tools).
+pub fn decode_for_tools(i: u32) -> fast_ops::Op {
+    fast_ops::decode(i)
+}
 mod interp;
 pub mod mmu;
 
@@ -182,7 +187,7 @@ pub struct Cpu {
     tb_rem: u64,
     /// The instruction being executed, for exceptions that point at it.
     #[serde(skip)]
-    cur_pc: u32,
+    pub(crate) cur_pc: u32,
     /// Set when the current instruction raised an exception (so it does not complete).
     #[serde(skip)]
     pub(crate) faulted: bool,

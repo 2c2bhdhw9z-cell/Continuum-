@@ -175,6 +175,10 @@ impl Asm {
     pub fn str_x_reg(&mut self, rt: R, rn: R, rm: R) {
         self.ldst_reg(3, false, rt, rn, rm);
     }
+    /// LDR Xt, [Xn, Xm, LSL #3].
+    pub fn ldr_x_reg_lsl3(&mut self, rt: R, rn: R, rm: R) {
+        self.emit((3 << 30) | (0b111000 << 24) | (0b01 << 22) | (1 << 21) | (rm << 16) | (0b011 << 13) | (1 << 12) | (0b10 << 10) | (rn << 5) | rt);
+    }
 
     /// STP/LDP x registers, pre-indexed (push) or post-indexed (pop), offset in bytes.
     pub fn stp_pre(&mut self, rt: R, rt2: R, rn: R, off: i32) {
@@ -469,6 +473,7 @@ mod tests {
         put(&mut a, &|a| a.ldrh_reg(1, 20, 2), "ldrh w1, [x20, x2]");
         put(&mut a, &|a| a.strb_reg(1, 20, 2), "strb w1, [x20, x2]");
         put(&mut a, &|a| a.str_x_reg(1, 20, 2), "str x1, [x20, x2]");
+        put(&mut a, &|a| a.ldr_x_reg_lsl3(5, 23, 4), "ldr x5, [x23, x4, lsl #3]");
         put(&mut a, &|a| a.stp_pre(29, 30, SP, -16), "stp x29, x30, [sp, #-16]!");
         put(&mut a, &|a| a.ldp_post(29, 30, SP, 16), "ldp x29, x30, [sp], #16");
         put(&mut a, &|a| a.add_imm(false, 1, 2, 4095), "add w1, w2, #4095");
