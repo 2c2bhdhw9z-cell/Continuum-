@@ -19,6 +19,14 @@ menus. Fix in 223 (222 was cancelled: started before the copy speed-up was saved
 and resumes on close (pausedForCoreSettings). Also 223: the EFB->XFB copy line by line and threaded (same
 pictures; FCE 11.2 -> 10.0 s for 400 fields). Note: the Metal HUD's fps is presented frames; with up to 4
 core frames per tick, game speed can differ from it. The read-out's SPEED line is the real speed.
+BUILD 223 DONE ~7:25 PM Eastern (b25550a, green). Checked: 0.8.0 (223), 38 emulator files, continuum_gc
+dylib 1,482,512 bytes with cgc_speed_readout, the app binary has the Core settings pause. Link and steps
+given: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-223-b25550a/Continuum-223.ipa
+Tried and dropped: indexing the interpreter loop by position instead of a running address (300 -> 280 M/s on
+.scratch/abench). NEXT: his read-out screenshot decides the big job: DRAW/WAIT high -> the GPU drawer (Vulkan
+through the app's HW render path; SwiftShader's Vulkan is on this machine at
+/inner_container/opt/playwright/chromium-1232/chrome-linux64); CPU high with LOAD near 100% -> interpreter
+redesign (superinstructions / fewer per-op stores) and the hot functions from the HOT lines.
 
 ## Earlier (24 October 2026, about 6:25 PM Eastern): Animal Crossing plays but is slow; build 221 measures why
 
