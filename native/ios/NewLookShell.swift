@@ -621,6 +621,7 @@ enum NewLook {
         case .flash: return "Flash"
         case .j2me: return "J2ME"
         case .symbian: return "N-Gage"
+        case .gamecube: return "GameCube"
         }
     }
 
@@ -684,6 +685,7 @@ enum NewLook {
         case .amiga, .c64, .dos, .doom: return c(0.70, 0.70, 0.75)
         case .flash: return c(0.95, 0.30, 0.30)
         case .j2me, .symbian: return c(0.45, 0.85, 0.65)
+        case .gamecube: return c(0.55, 0.45, 1.0)
         case nil: return c(0.98, 0.77, 0.26)
         }
     }

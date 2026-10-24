@@ -445,7 +445,9 @@ struct SettingsScreen: View {
     /// The version a tester quotes, and the plain facts about what the app is.
     private var aboutSection: some View {
         SettingsSection(title: "ABOUT") {
-            SettingsReadout(label: "Version", value: EngineHost.versionLabel)
+            // GameCube unlock: the Version line, which unlocks GameCube when tapped seven times
+            // in a row (was `SettingsReadout(label: "Version", value: EngineHost.versionLabel)`).
+            GameCubeVersionReadout(host: host, value: EngineHost.versionLabel)
             SettingsNote(
                 "Continuum is still in beta, and games and BIOS files aren't included. If "
                 + "something breaks, Send feedback at the top of Settings goes straight to me."

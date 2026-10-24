@@ -1022,7 +1022,8 @@ struct ControllersScreen: View {
     @State private var editing: RemapProfileRecord?
     @State private var line: String = ""
 
-    private var systems: [String] { GameSystem.allCases.map { $0.rawValue } }
+    // GameCube unlock: GameCube is offered only once unlocked.
+    private var systems: [String] { GameSystem.allCases.filter(GameCubeUnlock.allows).map { $0.rawValue } }
 
     var body: some View {
         NavigationView {

@@ -502,6 +502,10 @@ targets:
       # Settings: the artwork controls and their disclosure, the layout controls, the permanent home
       # of the diagnostics, the BIOS row and the core options.
       - path: SettingsScreen.swift
+      # The secret way in to the experimental GameCube core (seven taps on Settings, ABOUT,
+      # Version) and its celebration. Remove it, and follow the compiler, when GameCube is ready
+      # for everyone; the file's header says how.
+      - path: GameCubeUnlock.swift
       # Home screen icon switcher. Without this line the Settings section is never compiled.
       - path: AppIcons.swift
       # The five emulation preferences (fit, filter, fast-forward multiplier, volume, rewind
@@ -777,6 +781,11 @@ targets:
         codeSign: false
       # Arcade, cArcade (this project's own Rust core, cores/continuum-arcade).
       - framework: build/lib/continuum_arcade_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
+      # GameCube, this project's own Rust core (cores/continuum-gc), experimental and hidden.
+      - framework: build/lib/continuum_gc_libretro_ios.dylib
         embed: true
         link: false
         codeSign: false

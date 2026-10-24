@@ -719,6 +719,17 @@ enum CoreCatalog {
         priority: 0, biosNames: []
     )
 
+    /// GameCube. Continuum's own GameCube emulator, written from scratch in Rust
+    /// (cores/continuum-gc). EXPERIMENTAL: hidden until unlocked (GameCubeUnlock.swift), and
+    /// OPTIONAL in the .ipa. Uses JIT when the phone has it, its fast interpreter otherwise.
+    static let continuumGc = CoreSpec(
+        coreId: "continuum_gc", displayName: "Continuum GC (GameCube)",
+        systems: ["gamecube"], library: "continuum_gc_libretro_ios.dylib",
+        width: 640, height: 480, maxWidth: 720, maxHeight: 576,
+        aspectRatio: 4.0 / 3.0, fps: 59.94, sampleRate: 48000, pixelFormat: 1,
+        priority: 0, biosNames: []
+    )
+
     /// Every core, in the order the HUD reports them.
     static let all: [CoreSpec] = [
         mesen2, fceumm, bsnes, mgba, gearsystem, blastem, pcsxReARMed, mednafenPsxHw, melonDS,
@@ -726,7 +737,7 @@ enum CoreCatalog {
         mednafenWswan, mednafenNgp, mednafenPce, mednafenSupergrafx, puae, viceX64sc,
         dosboxPure, prboom, virtualJaguar, handy, prosystem, a5200,
         pokemini, mednafenVb, yabause, mednafenSaturn, flycast, continuumSymbian,
-        continuumGb, continuumArcade,
+        continuumGb, continuumArcade, continuumGc,
     ]
 
     /// The fourteen cores every build must carry, by id: IOS_CORES in scripts/build-core.sh, and the
@@ -1060,6 +1071,9 @@ enum CoreCatalog {
         .saturn: yabause.coreId,
         .dreamcast: flycast.coreId,
         .symbian: continuumSymbian.coreId,
+        // Continuum's own, experimental; nothing routes here until it is unlocked
+        // (GameCubeUnlock.swift).
+        .gamecube: continuumGc.coreId,
         // Player ids, not core ids (see `player(forPath:)`).
         .flash: WebPlayerKind.flash.engineId,
         .j2me: WebPlayerKind.j2me.engineId,
@@ -1095,10 +1109,17 @@ enum CoreCatalog {
     /// Arcade is one only when this build has no cArcade: it is optional, so a build where it
     /// did not compile ships without it. A zip cArcade can't play gets cArcade's own line.
     static var unplayableSystems: [GameSystem: String] {
-        if bundledLibraries.contains(continuumArcade.library) { return [:] }
-        return [
-            .arcade: "Arcade games aren\u{2019}t playable right now. We\u{2019}re building our own arcade emulator.",
-        ]
+        var lines: [GameSystem: String] = [:]
+        if !bundledLibraries.contains(continuumArcade.library) {
+            lines[.arcade] = "Arcade games aren\u{2019}t playable right now. We\u{2019}re building our own arcade emulator."
+        }
+        // GameCube unlock: until it is unlocked GameCube is in no picker and nothing routes to it.
+        if !GameCubeUnlock.isOn {
+            lines[.gamecube] = "GameCube games aren\u{2019}t playable yet."
+        } else if !bundledLibraries.contains(continuumGc.library) {
+            lines[.gamecube] = "This build doesn\u{2019}t have the GameCube emulator. The next one should."
+        }
+        return lines
     }
 
     /// The systems with more than one core, in GameSystem order.
@@ -1355,11 +1376,16 @@ enum CoreCatalog {
         if let resolver = systemResolver,
            let answer = resolver(url),
            let system = GameSystem(rawValue: answer),
+           GameCubeUnlock.allows(system), // GameCube unlock
            let coreId = defaultCoreBySystem[system] {
             if ext == trackExtension && discSystems.contains(system) {
                 return nil
             }
             return Route(coreId: coreId, system: system)
+        }
+        // GameCube unlock: its own file types, only once unlocked.
+        if let gamecube = GameCubeUnlock.route(forExtension: ext) {
+            return gamecube
         }
         return routeTable[ext]
     }
@@ -4576,7 +4602,8 @@ final class EngineHost: ObservableObject {
             // (see `pickerContentTypes`). A rejected file is named on the HUD together with
             // its extension, so "I picked the wrong thing" never looks like "the import broke".
             guard CoreCatalog.importableExtensions.contains(ext)
-                    || ImportCenter.extraContentExtensions.contains(ext) else {
+                    || ImportCenter.extraContentExtensions.contains(ext)
+                    || GameCubeUnlock.importable(ext) else { // GameCube unlock
                 let extLabel = ext.isEmpty ? "no extension" : ".\(ext)"
                 rejected.append("\(name) [\(extLabel)]")
                 if NotGames.gameTypesThisBuildCantRun.contains(ext) { rejectedGame = true }

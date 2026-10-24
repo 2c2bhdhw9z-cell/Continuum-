@@ -788,7 +788,9 @@ struct CoreSettingsSettingsSection<Leading: View>: View {
             leading
             SettingsLabel("Each emulator's own settings")
             Menu {
-                ForEach(CoreCatalog.all, id: \.coreId) { spec in
+                // GameCube unlock: the GameCube core is listed only once unlocked.
+                ForEach(CoreCatalog.all.filter { GameCubeUnlock.lists(coreId: $0.coreId) },
+                        id: \.coreId) { spec in
                     Button(spec.displayName + (host.engine.coreOptionsKnown(coreId: spec.coreId)
                                                ? "" : " (start a game first)")) {
                         openCore = spec.coreId

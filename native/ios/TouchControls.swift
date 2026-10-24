@@ -361,6 +361,9 @@ enum GameSystem: String, Sendable, CaseIterable {
     case j2me
     /// Symbian / N-Gage, on Continuum Symbian (EKA2L1's iOS port behind a libretro plug).
     case symbian
+    /// Nintendo GameCube, on Continuum's own emulator (cores/continuum-gc). Experimental: hidden
+    /// until unlocked (GameCubeUnlock.swift).
+    case gamecube
 
     /// The short code a library card badges itself with.
     var badge: String {
@@ -404,6 +407,7 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .flash: return "FLASH"
         case .j2me: return "J2ME"
         case .symbian: return "SYM"
+        case .gamecube: return "GC"
         }
     }
 
@@ -450,6 +454,10 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .flash, .j2me, .symbian:
             // Keys, not sticks: the bundled players read key presses.
             return false
+        case .gamecube:
+            // The GameCube core reads the main stick from the left analog (and the C-stick from
+            // the right), and 3D games read only the stick. The digital D-pad bits go too.
+            return true
         }
     }
 
@@ -474,7 +482,7 @@ enum GameSystem: String, Sendable, CaseIterable {
             return nil
         case .wswan, .ngp, .pcecd, .sgx, .amiga, .c64, .dos, .doom, .jaguar, .lynx,
              .atari7800, .atari5200, .arcade, .pokemini, .vb, .saturn, .segacd, .sega32x,
-             .dreamcast, .symbian:
+             .dreamcast, .symbian, .gamecube:
             return nil
         case .flash, .j2me:
             // The whole picture takes taps, but as the web view's own touches (mouse clicks for
@@ -532,6 +540,7 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .flash: return "Flash"
         case .j2me: return "J2ME"
         case .symbian: return "Symbian / N-Gage"
+        case .gamecube: return "GameCube"
         }
     }
 
@@ -549,7 +558,7 @@ enum GameSystem: String, Sendable, CaseIterable {
         case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .ds, .fds, .sg1000,
              .tg16, .atari2600, .n64, .n3ds, .psp, .wswan, .ngp, .pcecd, .sgx, .doom, .jaguar,
              .lynx, .atari7800, .atari5200, .arcade, .pokemini, .vb, .saturn, .segacd,
-             .sega32x, .dreamcast, .flash, .j2me, .symbian:
+             .sega32x, .dreamcast, .flash, .j2me, .symbian, .gamecube:
             return false
         }
     }
@@ -922,6 +931,21 @@ enum GameSystem: String, Sendable, CaseIterable {
             ])
                 + Self.shoulders(left: [(.l, "*")], right: [(.r, "#")])
                 + Self.systemPair(select: "LSK", start: "RSK")
+
+        case .gamecube:
+            // cores/continuum-gc/src/libretro.rs, read_pad: retro A, B, X and Y are the GameCube's
+            // A, B, X and Y; L and R its triggers (pressed all the way); L2 and R2 are both Z;
+            // Start. The main stick is the left analog, which the D-pad surface drives
+            // (`dpadDrivesAnalogStick`); the C-stick is the right analog, from a controller. The
+            // face buttons sit as on the real pad: the big A in the middle, B below left, X to the
+            // right, Y above. Every centre is more than 1.6 units from its neighbours.
+            return Self.place([
+                (.a, "A", 0.2, 0.25), (.b, "B", -1.25, 1.2),
+                (.x, "X", 1.55, -0.75), (.y, "Y", -0.65, -1.35),
+            ])
+                + Self.shoulders(left: [(.l, "L")], right: [(.r, "R"), (.r2, "Z")])
+                + [PadControl(slot: .start, label: "START", cluster: .system,
+                              shape: .pill, offset: CGPoint(x: 0, y: 0))]
         }
     }
 

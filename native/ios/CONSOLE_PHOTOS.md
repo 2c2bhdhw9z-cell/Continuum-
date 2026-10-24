@@ -15,6 +15,7 @@ versions in this repository are under the same licence as the original.
 | fds | [Nintendo-Famicom-Disk-System.png](https://commons.wikimedia.org/wiki/File:Nintendo-Famicom-Disk-System.png) | Evan-Amos | Public domain |
 | snes | [SNES-Mod1-Console-Set.png](https://commons.wikimedia.org/wiki/File:SNES-Mod1-Console-Set.png) | Evan-Amos | CC BY-SA 3.0 |
 | n64 | [N64-Console-Set.png](https://commons.wikimedia.org/wiki/File:N64-Console-Set.png) | Evan-Amos | Public domain |
+| gamecube | [GameCube-Console-Set.png](https://commons.wikimedia.org/wiki/File:GameCube-Console-Set.png) | Evan-Amos | Public domain |
 | gb | [Game-Boy-FL.png](https://commons.wikimedia.org/wiki/File:Game-Boy-FL.png) | Evan-Amos (background removed by a Commons editor) | Public domain |
 | gbc | [Nintendo-Game-Boy-Color-FL.png](https://commons.wikimedia.org/wiki/File:Nintendo-Game-Boy-Color-FL.png) | Evan-Amos, modified by Gunnar.offel | Public domain |
 | gba | [Nintendo-Game-Boy-Advance-Purple-FL.png](https://commons.wikimedia.org/wiki/File:Nintendo-Game-Boy-Advance-Purple-FL.png) | Evan-Amos | Public domain |

@@ -330,7 +330,7 @@ pub fn device_has_txm(machine: &str, os_major: u32) -> bool {
 /// second address, and not all of them can:
 ///
 /// - PCSX ReARMed, flycast, PPSSPP, Azahar and parallel-n64 can, and are all patched to ask the
-///   host for the pair.
+///   host for the pair. Continuum's own GameCube core (cores/continuum-gc) asks for it itself.
 ///
 /// parallel-n64 was held back here until build 138, on the grounds that its jump trampolines are
 /// written through the same pointer they are run from. That was wrong twice over. Its trampoline
@@ -348,7 +348,7 @@ pub fn core_may_use_jit(core_id: &str, region_in_use: bool) -> bool {
     }
     matches!(
         core_id,
-        "pcsx_rearmed" | "flycast" | "ppsspp" | "azahar" | "parallel_n64"
+        "pcsx_rearmed" | "flycast" | "ppsspp" | "azahar" | "parallel_n64" | "continuum_gc"
     )
 }
 
@@ -583,6 +583,9 @@ mod tests {
         for core in ["pcsx_rearmed", "flycast", "ppsspp", "azahar", "parallel_n64"] {
             assert!(core_may_use_jit(core, true), "{core} inside the region");
         }
+        // Continuum's own GameCube core asks for the pair itself (continuum_jit_region, in
+        // cores/continuum-gc/src/jit/native.rs) and writes its code through the second address.
+        assert!(core_may_use_jit("continuum_gc", true));
         // melonDS has no iOS JIT build at all: its Apple path is macOS-only.
         assert!(!core_may_use_jit("melonds", true));
     }

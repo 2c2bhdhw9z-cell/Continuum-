@@ -113,6 +113,7 @@ enum SystemArtwork {
         case .dreamcast: return "Sega - Dreamcast"
         // libretro has no thumbnail folders for these, so they keep their generated plate.
         case .flash, .j2me, .symbian: return nil
+        case .gamecube: return "Nintendo - GameCube"
         }
     }
 
@@ -184,6 +185,8 @@ enum SystemArtwork {
         case .flash: return 322
         case .j2me: return 175
         case .symbian: return 228
+        // The middle of the widest gap left (5 to 18), so its placeholders stand apart too.
+        case .gamecube: return 11
         }
     }
 
