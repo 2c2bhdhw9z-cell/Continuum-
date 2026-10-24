@@ -5,7 +5,28 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (24 October 2026, about 9:15 AM Eastern): GameCube core, booting real homebrew
+## START HERE (24 October 2026, morning Eastern): GameCube core — all three homebrew run, graphics, sound, fast interpreter
+
+- Owner, about 6:50 AM: wants the ABSOLUTE BEST fast interpreter and JIT, better than Dolphin, however long it
+  takes (saved in tasks/gamecube.json owner_answers). He also said: REA is not optional; use it via its command
+  line (`/projects/sandbox/.scratch/rea` wrapper: npx rea-agents@6.7.0 with Ghidra 12.1.4 in .scratch/tools)
+  where it clearly helps (it decompiled Neverball's start-up and showed it needs a writable data folder).
+- Working now on the test machine (pictures in .kiro/notes/docs/gamecube/): FCE Ultra GX menu, Swiss home screen,
+  Neverball 3D title with menu music (AESND stand-in). Neverball needs its data on an SD image (CGC_SD=img,
+  CGC_ARGV="sd:/default.dol" CGC_ENV="PWD=sd:/ HOME=sd:/"; image built with .scratch/mkfat.py + pyfatfs).
+- Done today in cores/continuum-gc: src/gx/ (our own graphics engine, G6 first pass), src/sd.rs (SD card
+  adapter), src/dsp_hle.rs (ASND and AESND sound stand-ins), audio DMA output, PI bus-error bit, thermal unit,
+  argv/envp, src/cpu/fast.rs + fast_ops.rs (decoded fast interpreter, proved identical: fuzz test of 3 million
+  random instructions + examples/compare.rs on all three programs). Speed on the x86 test machine: Neverball CPU
+  ~2.4x the plain interpreter; drawing (software) ~53 ms a field is now the bigger cost.
+- Dev tools: examples/boot (CGC_WAV=out.wav saves sound), probe, compare (plain vs fast), profile
+  (`cargo +1.92.0 run --profile profiling --example profile`), speed. Scratch tools in /projects/sandbox/.scratch:
+  `c` (cargo wrapper with writable CARGO_HOME), ppcdis.py, dol2elf.py, sym.py, mkfat.py, venv (Pillow, numpy).
+- Next: interpreter speed (block linking, idle-loop skipping, faster TLB, more handlers), then the ARM64 JIT
+  (G8), the GPU/threaded drawer for speed, AX sound HLE for real games, memory cards (G9). No build until real
+  games play.
+
+## Earlier (24 October 2026, about 9:15 AM Eastern): GameCube core, booting real homebrew
 
 - Owner rules added overnight: never stop early (keep working through the plan in one turn);
   never ask small questions while he sleeps. REA (reverse-engineer-anything) skill and the
