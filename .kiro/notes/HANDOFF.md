@@ -15,8 +15,11 @@ Paste this to start a new chat:
 - The two looks are NOT separate code: Settings, the Library, the Game Hub and more are one
   implementation styled by `LookStore.isNewLook` (New-look pieces in 21 shared files). Removing a
   look later needs care. The owner asked about this on 23 October.
-- NEXT (owner): start on the GameCube emulator, "our own" (see the hand-off he was given;
-  `tasks/gamecube.json` is the older Dolphin plan). Ask him which he means before starting.
+- NEXT (owner): start on the GameCube emulator, OUR OWN, written from scratch like cBoy
+  (`cores/continuum-gb`) and the arcade core (`cores/continuum-arcade`). NOT Dolphin, not a
+  wrapper of anyone's emulator: the point of our own cores is to get rid of credits and outside
+  licences (owner-rules, "Licences"). `tasks/gamecube.json` (Dolphin plus our interpreter) is
+  replaced by this.
 
 ## Earlier (23 October 2026, about 7 PM Eastern): box side fixed (not built), bugs to verify
 
