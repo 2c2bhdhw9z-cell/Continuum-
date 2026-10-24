@@ -38,6 +38,7 @@ struct GameDetailSheet: View {
     @State private var chtLine = ""
     /// Asks before "Delete every state for this game", like the delete buttons in Settings.
     @State private var confirmDeleteAllStates = false
+    @State private var confirmDeleteGame = false
     /// The state whose trash button was tapped, waiting for its confirmation.
     @State private var pendingStateDelete: SaveStateRecord?
     /// The cheat whose trash button was tapped, waiting for its confirmation.
@@ -636,13 +637,23 @@ struct GameDetailSheet: View {
 
     private var dangerZone: some View {
         VStack(alignment: .leading, spacing: 10) {
+            // Asks first, like every other delete in the app: one stray tap here used to remove the
+            // game, its save states and its cheats at once.
             SettingsButton(title: "Delete this game", role: .destructive) {
-                // Routed through the one delete implementation, by resolving this entry's id back
-                // to its index in the live library array rather than passing an index the sheet
-                // made up.
-                let indices = host.indices(matching: [entry.id])
-                host.detailEntry = nil
-                host.deleteEntries(at: indices)
+                confirmDeleteGame = true
+            }
+            .alert("Delete \(GameMetadata.displayTitle(for: entry))?", isPresented: $confirmDeleteGame) {
+                Button("Delete", role: .destructive) {
+                    // Routed through the one delete implementation, by resolving this entry's id
+                    // back to its index in the live library array rather than passing an index
+                    // the sheet made up.
+                    let indices = host.indices(matching: [entry.id])
+                    host.detailEntry = nil
+                    host.deleteEntries(at: indices)
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(deleteNote + " This can't be undone.")
             }
             SettingsNote(deleteNote)
         }

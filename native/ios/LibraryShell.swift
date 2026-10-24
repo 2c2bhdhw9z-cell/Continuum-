@@ -1105,27 +1105,38 @@ struct LibraryShell: View {
         .padding(.top, topBarHeight + max(metrics.insets.top, 8) + 6)
         .overlay(alignment: .bottom) {
             if selection.active {
-                selectionBar(shown)
+                selectionBar(selectableEntries(shown))
                     .padding(.bottom, bottomBarHeight + 8)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .confirmationDialog(
-            selection.picked(in: shown).count == 1
-                ? "Delete 1 game?" : "Delete \(selection.picked(in: shown).count) games?",
+            selection.picked(in: selectableEntries(shown)).count == 1
+                ? "Delete 1 game?" : "Delete \(selection.picked(in: selectableEntries(shown)).count) games?",
             isPresented: $confirmingDelete,
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) {
                 // Only the ticked games on screen: a search typed after ticking hides some, and
                 // those must never go with them.
-                let ids = selection.picked(in: shown)
+                let ids = selection.picked(in: selectableEntries(shown))
                 selection.active = false
                 host.deleteEntries(at: host.indices(matching: ids))
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Their save states and cheats go too. In-game saves are kept.")
+        }
+    }
+
+    /// The games select mode can act on: what the page shows, less the games of a console folded
+    /// shut in the By console layout. All used to tick those too, out of sight, and Delete took
+    /// them with the rest.
+    private func selectableEntries(_ shown: [LibraryEntry]) -> [LibraryEntry] {
+        guard host.libraryLayout == .consoles, !prefs.folded.isEmpty,
+              !(isNew && looks.librarySystem != nil) else { return shown }
+        return shown.filter {
+            !prefs.folded.contains(CoreCatalog.system(for: $0)?.rawValue ?? "other")
         }
     }
 
@@ -1190,14 +1201,13 @@ struct LibraryShell: View {
         .padding(.horizontal, 14)
     }
 
-    /// Stars every picked game on screen, or, when they are all starred already, unstars them.
+    /// Stars every picked game on screen, or, when they are all starred already, unstars them,
+    /// as one change (one game at a time redrew the Library once per game).
     private func favouritePicked(_ shown: [LibraryEntry]) {
         let ids = selection.picked(in: shown)
         let picked = shown.filter { ids.contains($0.id) }
         let allStarred = picked.allSatisfy { host.favourites.contains($0.name) }
-        for entry in picked where host.favourites.contains(entry.name) == allStarred {
-            host.toggleFavourite(entry)
-        }
+        host.setFavourite(!allStarred, for: picked)
         selection.active = false
     }
 
@@ -1232,8 +1242,9 @@ struct LibraryShell: View {
                     title: "No favorites yet",
                     guidance: isNew
                         ? "Press and hold a game to open its Game Hub, then tap the heart."
-                        : "Press and hold a game and tap its star, or swipe a game right in "
-                            + "the All Games list."
+                        // The swipe is only in the List layout (not By console or Grid).
+                        : "Press and hold a game and tap its star, or, in the All Games list "
+                            + "layout, swipe a game right."
                 )
                 Spacer(minLength: 0)
             } else if shown.isEmpty {

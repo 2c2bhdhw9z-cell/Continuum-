@@ -391,7 +391,8 @@ struct NewLookColorPanels: View {
     }
 
     private func speedText(_ value: Double) -> String {
-        value == 1 ? "Normal" : String(format: "%.2gx", value)
+        // "%g": 1.25 reads 1.25x (it read 1.2x with "%.2g"), 1.2 reads 1.2x, 0.3 reads 0.3x.
+        value == 1 ? "Normal" : String(format: "%gx", (value * 100).rounded() / 100)
     }
 
     private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>,

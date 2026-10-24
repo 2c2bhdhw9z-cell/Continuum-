@@ -135,7 +135,10 @@ final class NewLookColors: ObservableObject {
     /// The swirl's own colours, two or three joined by dashes (used when the source is My own).
     @Published var swirlHex: String? { didSet { save("swirl", swirlHex) } }
     @Published var swirlSource: SwirlSource {
-        didSet { save("swirlSource", swirlSource == .accent ? nil : swirlSource.rawValue) }
+        // Saved even when it is Accent: with no saved choice, the start-up reads any own colours
+        // left over as My own (build 206's way of keeping it), so picking Accent after My own
+        // came back as My own after the app was closed.
+        didSet { save("swirlSource", swirlSource.rawValue) }
     }
 
     /// The light running round the main buttons, the picked chips and the picked console.

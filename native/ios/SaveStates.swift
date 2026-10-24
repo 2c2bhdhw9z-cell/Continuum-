@@ -1394,9 +1394,15 @@ final class SaveStates: ObservableObject {
     /// Returns whether the game was resumed. Every outcome that is not "there was nothing to
     /// resume" writes a line, because a game that silently starts from the beginning when the user
     /// expected their auto-save is indistinguishable from lost progress.
+    /// `evenIfResumeIsOff`: the restart after a core setting ("Restart the game now"), which
+    /// resumes from the auto-save it has just written whatever "Pick up where you left off" says,
+    /// or the restart would throw the player's progress away.
     @discardableResult
-    func resumeIfPossible(entry: LibraryEntry) -> Bool {
-        guard resumesAutomatically else { return false }
+    func resumeIfPossible(entry: LibraryEntry, evenIfResumeIsOff: Bool = false) -> Bool {
+        // Auto-save off: "Pick up where you left off" is greyed out in Settings, and nothing new is
+        // being written, so resuming would load an old auto-save left from before it was switched
+        // off, sending the player back to an old spot every time.
+        guard autoSavesEnabled, resumesAutomatically || evenIfResumeIsOff else { return false }
         guard let record = autoState(forGameId: Self.gameId(for: entry)) else { return false }
 
         if let refusal = refusal(for: record) {

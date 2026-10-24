@@ -40,6 +40,7 @@ final class CoreActionsModel: ObservableObject {
 enum CoreActionPrefs {
     private static let filterPrefix = "continuum.filter."
     private static let brightnessPrefix = "continuum.brightness."
+    private static let adjustPrefix = "continuum.filterAdjust."
     private static let tvScaleKey = "continuum.tv.scale"
     private static let tvLayoutKey = "continuum.tv.layout"
 
@@ -76,6 +77,27 @@ enum CoreActionPrefs {
 
     static func setBrightness(_ value: Float, for system: GameSystem) {
         UserDefaults.standard.set(Double(value), forKey: brightnessPrefix + system.rawValue)
+    }
+
+    /// The filter's own sliders (scanlines or grid, curvature, mask, vignette), per system and per
+    /// filter. Only brightness used to be kept, so the Filters screen's "Remembered for every
+    /// game" was true of one slider: the rest were back to the filter's defaults the next time a
+    /// game opened.
+    static func applyAdjustments(to settings: inout PostEffectSettings, for system: GameSystem) {
+        let key = adjustPrefix + system.rawValue + "." + effectName(settings.effect)
+        guard let stored = UserDefaults.standard.dictionary(forKey: key) as? [String: Double] else { return }
+        if let v = stored["line"] { settings.lineStrength = Float(v) }
+        if let v = stored["curvature"] { settings.curvature = Float(v) }
+        if let v = stored["mask"] { settings.maskStrength = Float(v) }
+        if let v = stored["vignette"] { settings.vignette = Float(v) }
+    }
+
+    static func setAdjustments(_ settings: PostEffectSettings, for system: GameSystem) {
+        let key = adjustPrefix + system.rawValue + "." + effectName(settings.effect)
+        UserDefaults.standard.set(["line": Double(settings.lineStrength),
+                                   "curvature": Double(settings.curvature),
+                                   "mask": Double(settings.maskStrength),
+                                   "vignette": Double(settings.vignette)], forKey: key)
     }
 
     static func scaleName(_ mode: ScaleModeOption) -> String {
@@ -145,6 +167,7 @@ extension EngineHost {
         guard let system = activeSystem else { return }
         var settings = engine.postEffectDefaults(effect: CoreActionPrefs.effect(for: system))
         settings.brightness = CoreActionPrefs.brightness(for: system)
+        CoreActionPrefs.applyAdjustments(to: &settings, for: system)
         engine.setPostEffect(settings: settings)
     }
 
@@ -302,7 +325,11 @@ extension EngineHost {
         // it was switched off: the player sent back to an old point with no warning. So the game
         // starts fresh instead, and the line says so.
         let resume = saveStates.autoSavesEnabled
+        // With "Pick up where you left off" off a launch never resumes, so the restart threw away
+        // everything since the game was opened. It resumes from the auto-save it just wrote.
+        restartResumesAnyway = resume
         launch(entry: entry, resumingAuto: resume)
+        restartResumesAnyway = false
         if !resume, running {
             status = "restarted \(entry.name) from the beginning, because auto-save is off in "
                 + "Settings"
@@ -585,6 +612,8 @@ struct FiltersScreen: View {
     private func choose(_ effect: PostEffectOption) {
         var next = host.engine.postEffectDefaults(effect: effect)
         next.brightness = settings?.brightness ?? 1.0
+        // Back to this filter's own sliders as last left, for this system.
+        if let system { CoreActionPrefs.applyAdjustments(to: &next, for: system) }
         push(next)
         if let system { CoreActionPrefs.setEffect(effect, for: system) }
         host.status = "filter: " + (host.engine.postEffects().first { $0.effect == effect }?.label ?? "set")
@@ -593,7 +622,10 @@ struct FiltersScreen: View {
     private func push(_ next: PostEffectSettings) {
         host.engine.setPostEffect(settings: next)
         settings = host.engine.postEffect()
-        if let system, let settings { CoreActionPrefs.setBrightness(settings.brightness, for: system) }
+        if let system, let settings {
+            CoreActionPrefs.setBrightness(settings.brightness, for: system)
+            CoreActionPrefs.setAdjustments(settings, for: system)
+        }
     }
 
     private func slider(_ title: String, value: Float, range: ClosedRange<Float>,

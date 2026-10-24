@@ -637,6 +637,8 @@ enum MultiDisc {
         if host.favourites.contains(disc.name) {
             host.setFavourite(true, for: [game])
         }
+        // The play time and last play, so the joined game stays in Jump Back In.
+        PlayHistory.shared.carry(from: disc.name, to: game.name)
         if !copySettings(from: disc, to: game, host: host) {
             left.append("settings")
         }

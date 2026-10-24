@@ -4405,6 +4405,17 @@ final class EngineHost: ObservableObject {
         let names = entries.map(\.name)
         artwork.forgetArtwork(for: entries)
         forgetArrivals(names)
+        forgetGameChoices(entries)
+        NotGames.remember(names)
+    }
+
+    /// What the app keeps about a game that is gone: its star, its own core and skin, and what
+    /// it was taken for. For a game deleted (`deleteEntries`) as for one moved to Not games.
+    /// Deleting used to leave them, so a game imported again came back already starred, on the
+    /// core and skin picked for the old one.
+    private func forgetGameChoices(_ entries: [LibraryEntry]) {
+        guard !entries.isEmpty else { return }
+        let names = entries.map(\.name)
         if !favourites.isDisjoint(with: names) {
             favourites.subtract(names)
             UserDefaults.standard.set(Array(favourites), forKey: Self.favouritesKey)
@@ -4424,7 +4435,6 @@ final class EngineHost: ObservableObject {
             persistTouchSkins()
             touchSkinsVersion &+= 1
         }
-        NotGames.remember(names)
     }
 
     /// Deletes the tapped-away rows from Documents, then rescans.
@@ -4482,6 +4492,9 @@ final class EngineHost: ObservableObject {
 
         // A deleted game's arrival stamp goes with it. See `forgetArrivals`.
         forgetArrivals(removed)
+        // And its star, its own core and skin, and its play history.
+        forgetGameChoices(deleted)
+        PlayHistory.shared.forget(removed)
         // And a patched copy's patch name, so a later file of that name isn't called patched.
         PatchedGames.forget(removed)
         var trackNote = leftTracksBehind
@@ -4796,6 +4809,9 @@ final class EngineHost: ObservableObject {
     /// `forcedCoreId` is set by exactly one caller: the safety net in the `catch` below, when the
     /// system's default core refused the game and the engine named another core to try once
     /// (launch_retry.rs). A forced launch never retries again.
+    /// Set only for the length of `restartForCoreSettings`' call to `launch`.
+    var restartResumesAnyway = false
+
     func launch(entry: LibraryEntry, resumingAuto: Bool = true, forcedCoreId: String? = nil) {
         // Breadcrumb, written before the re-entrancy stop and before ANY guard below can
         // return. A tap that reaches this method therefore always changes the HUD. If the HUD
@@ -5108,6 +5124,9 @@ final class EngineHost: ObservableObject {
             // free slot first, so this session can never write over it.
             saveStates.protectAutoSaveFromAnotherCore(entry: entry)
             if resumingAuto {
+                // "Restart the game now" (Core settings) resumes from the auto-save it just wrote,
+                // even with "Pick up where you left off" off: it is the same session, restarted.
+                let resumeEvenIfOff = restartResumesAnyway
                 if spec.coreId == CoreCatalog.ppsspp.coreId {
                     // PPSSPP builds its GPU only once frames have run with the Vulkan context
                     // (`retro_unserialize` before that restores a machine with no GPU state,
@@ -5128,7 +5147,8 @@ final class EngineHost: ObservableObject {
                                 if self.saveStates.autoSaveHeldFor == gameId {
                                     self.saveStates.autoSaveHeldFor = nil
                                 }
-                                self.saveStates.resumeIfPossible(entry: entry)
+                                self.saveStates.resumeIfPossible(entry: entry,
+                                                                 evenIfResumeIsOff: resumeEvenIfOff)
                                 return
                             }
                         }
@@ -5139,7 +5159,7 @@ final class EngineHost: ObservableObject {
                         }
                     }
                 } else {
-                    saveStates.resumeIfPossible(entry: entry)
+                    saveStates.resumeIfPossible(entry: entry, evenIfResumeIsOff: resumeEvenIfOff)
                 }
             }
             showCoreUpdateHeadsUp(entry: entry, coreId: spec.coreId)

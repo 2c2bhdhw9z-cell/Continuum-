@@ -230,6 +230,25 @@ final class PlayHistory: ObservableObject {
 
     func record(for name: String) -> Record? { records[name] }
 
+    /// Deleted games: their play history goes with them, so a game imported again later starts
+    /// with none (it came back with "Last played" and a play time).
+    func forget(_ names: [String]) {
+        let gone = names.filter { records[$0] != nil && $0 != current }
+        guard !gone.isEmpty else { return }
+        for name in gone { records[name] = nil }
+        save()
+    }
+
+    /// Discs joined into one game: the disc's play time and last play come along to the game.
+    func carry(from disc: String, to game: String) {
+        guard let old = records[disc] else { return }
+        var record = records[game] ?? Record(lastPlayed: old.lastPlayed, seconds: 0)
+        record.lastPlayed = max(record.lastPlayed, old.lastPlayed)
+        record.seconds += old.seconds
+        records[game] = record
+        save()
+    }
+
     /// The games in `library` that have been played, most recent first.
     func recentlyPlayed(in library: [LibraryEntry]) -> [LibraryEntry] {
         library
