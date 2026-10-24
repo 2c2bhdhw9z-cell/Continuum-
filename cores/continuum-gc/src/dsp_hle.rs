@@ -13,7 +13,13 @@
 //! - AESND (the homebrew SDK's newer "accelerated" mixer): voices played through the DSP's
 //!   sample accelerator from audio RAM, 96-frame (2 ms) blocks with 16.16 pitch stepping.
 //!   Written from its DSP source (libaesnd/dspcode/dspmixer.s).
+//! - AX (dsp_ax.rs), the sound program most commercial games use, and the small memory-card
+//!   program games switch to when they unlock a card.
 //! - Unknown programs: they get the "ready" mail and every mail is taken, so programs do not hang.
+//!
+//! Programs are told apart by their code (homebrew) or by the Ector checksum of their code
+//! (the community's way of naming Nintendo's programs). A program that switches to another one
+//! (task mail 0xCDD10001 and ten transfer mails) is kept and carries on when it comes back.
 
 use crate::hw::Hw;
 use serde::{Deserialize, Serialize};
@@ -28,6 +34,8 @@ pub enum Kind {
     Unknown,
     Asnd,
     Aesnd,
+    Ax,
+    Card,
 }
 
 /// Frames in one AESND block (96 stereo frames at 48 kHz, 2 ms).
@@ -38,6 +46,14 @@ pub struct HleState {
     pub kind: Kind,
     /// Checksum of the uploaded code (shown in development read-outs).
     pub crc: u32,
+    /// The Ector checksum of the uploaded code (identifies Nintendo's programs).
+    pub ector: u32,
+    /// AX's own state.
+    pub ax: Option<crate::dsp_ax::AxState>,
+    /// The program that switched to this one, to carry on when it comes back.
+    pub previous: Option<Box<HleState>>,
+    /// A switch to another program in progress: its transfer mails so far.
+    switch: Option<Vec<u32>>,
     /// A mail announced a value to follow (ASND 0x123: the voice data address).
     expect: Option<u32>,
     /// ASND: main-memory address of the 64-byte voice block.
@@ -64,8 +80,14 @@ pub fn crc32(data: &[u8]) -> u32 {
     !crc
 }
 
-/// Recognises a sound program by its code: the instructions that set up its command words.
-fn identify(code: &[u8]) -> Kind {
+/// Ector checksums of Nintendo's AX programs (GameCube), from the community's lists.
+const AX_CRCS: [u32; 6] = [0x3AD3_B7AC, 0x3DAF_59B9, 0x4E8A_8B21, 0x07F8_8145, 0xE213_6399, 0x3389_A79E];
+/// The memory-card unlock program.
+const CARD_CRC: u32 = 0x65D6_CC6F;
+
+/// Recognises a sound program by its code: the instructions that set up its command words, or
+/// its Ector checksum.
+fn identify(code: &[u8], ector: u32) -> Kind {
     let w: Vec<u16> = code.chunks_exact(2).map(|b| u16::from_be_bytes([b[0], b[1]])).collect();
     let has = |a: u16, b: u16| w.windows(2).any(|p| p[0] == a && p[1] == b);
     // AESND: "lri $acc0.m, #0xface" (its command mails start 0xFACE).
@@ -76,28 +98,98 @@ fn identify(code: &[u8]) -> Kind {
     if has(0x0381, 0x0111) && has(0x0381, 0x0666) && has(0x0381, 0x0123) {
         return Kind::Asnd;
     }
+    if ector == CARD_CRC {
+        return Kind::Card;
+    }
+    // AX by its checksum, or by its command-list mail (0xBABE) for versions not listed.
+    if AX_CRCS.contains(&ector) || w.contains(&0xBABE) {
+        return Kind::Ax;
+    }
     Kind::Unknown
 }
 
 impl Hw {
     /// A sound program was uploaded and started (the boot ROM's 0x80F3D001 mail).
     pub(crate) fn dsp_hle_start(&mut self, maddr: u32, len: u32) {
-        let code = self.dma_read(maddr & 0x03FF_FFFF, (len as usize).min(0x2000));
-        let crc = crc32(&code);
-        let kind = identify(&code);
-        self.dsp.hle = HleState { kind, crc, ..Default::default() };
-        // Every program starts by saying it is ready (0xDCD10000), with the DSP interrupt.
+        let code = self.dma_read(maddr & 0x03FF_FFFF, (len as usize).min(0x4000));
+        self.dsp_boot(&code);
+    }
+
+    /// A program starts: the one that was switched away from carries on where it was (and
+    /// says so, 0xDCD10001); any other starts afresh and says it is ready (0xDCD10000).
+    fn dsp_boot(&mut self, code: &[u8]) {
+        let ector = crate::dsp_ax::ector(code);
+        let mut keep = self.dsp.hle.previous.take();
+        if keep.as_ref().is_some_and(|p| p.ector == ector) {
+            self.dsp.hle = *keep.take().unwrap();
+            self.dsp_mail_irq(0xDCD1_0001);
+            return;
+        }
+        let kind = identify(code, ector);
+        let old = std::mem::take(&mut self.dsp.hle);
+        self.dsp.hle = HleState { kind: kind.clone(), crc: crc32(code), ector, ..Default::default() };
+        self.dsp.hle.previous = if old.kind != Kind::None { Some(Box::new(old)) } else { keep };
+        if kind == Kind::Ax {
+            self.ax_start(ector);
+        }
         self.dsp_mail_irq(0xDCD1_0000);
     }
 
     /// A mail from the DSP to the CPU with the DSP interrupt, as a running program sends them.
-    fn dsp_mail_irq(&mut self, mail: u32) {
+    pub(crate) fn dsp_mail_irq(&mut self, mail: u32) {
         self.dsp_post(mail);
         self.dsp.csr |= 0x80;
     }
 
+    /// Back to the boot ROM (the program finished), keeping the one to come back to.
+    fn dsp_back_to_rom(&mut self) {
+        let previous = self.dsp.hle.previous.take();
+        self.dsp.ucode = None;
+        self.dsp.hle = HleState { previous, ..Default::default() };
+    }
+
     /// A mail from the CPU while a sound program runs.
     pub(crate) fn dsp_hle_mail(&mut self, mail: u32) {
+        // Switching to another program: ten mails say where its code and data are
+        // (main-memory destination, size and DSP address of a data save; the code's address,
+        // size, destination and start; the data's address, size and destination).
+        if let Some(mut m) = self.dsp.hle.switch.take() {
+            m.push(mail & 0x7FFF_FFFF);
+            if m.len() < 10 {
+                self.dsp.hle.switch = Some(m);
+                return;
+            }
+            let (iram, size) = (m[3], (m[4] & 0xFFFF) as usize);
+            let code = self.dma_read(iram & 0x03FF_FFFF, size.min(0x4000));
+            self.dsp_boot(&code);
+            return;
+        }
+        match self.dsp.hle.kind {
+            Kind::Ax => {
+                if self.ax_waiting_task() {
+                    match mail & 0xFFFF {
+                        1 => self.dsp.hle.switch = Some(Vec::new()),
+                        2 => {
+                            self.dsp.ucode = None;
+                            self.dsp.hle = HleState::default();
+                            self.dsp_post(0x8071_FEED);
+                        }
+                        _ => self.ax_mail(mail),
+                    }
+                } else {
+                    self.ax_mail(mail);
+                }
+                return;
+            }
+            Kind::Card => {
+                // 0xFF000000 unlocks the card (the work is the CPU's); the program is done and
+                // the boot ROM takes over again.
+                self.dsp_mail_irq(0xDCD1_0003);
+                self.dsp_back_to_rom();
+                return;
+            }
+            _ => {}
+        }
         if self.dsp.hle.switch_left > 0 {
             self.dsp.hle.switch_left -= 1;
             if self.dsp.hle.switch_left == 0 {
