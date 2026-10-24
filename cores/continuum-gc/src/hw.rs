@@ -221,8 +221,11 @@ pub struct Hw {
     /// Bytes in the CPU's write-gather pipe, sent on to the FIFO 32 at a time.
     pub gather: Vec<u8>,
     pub disc: Option<Box<dyn Disc>>,
-    /// Code addresses invalidated (icbi, HID0 ICFI): read by the block caches of the faster CPUs.
+    /// Code addresses invalidated (icbi, HID0 ICFI, writes into code pages): read by the block
+    /// caches of the faster CPUs.
     pub invalidated: Vec<(u32, u32)>,
+    /// One bit per 4 KB physical page holding cached code (MEM1, then MEM2 from bit 8192).
+    pub code_pages: Vec<u64>,
     /// Lines the program printed through the debug UART (EXI channel 0, device 1).
     pub uart: Vec<u8>,
     /// Register addresses nothing answers yet, with how often they were touched (development aid).
@@ -263,6 +266,7 @@ impl Hw {
             gather: Vec::new(),
             disc: None,
             invalidated: Vec::new(),
+            code_pages: vec![0; (8192 + 16384) / 64],
             uart: Vec::new(),
             unknown: Default::default(),
             di_commands: Default::default(),
@@ -342,8 +346,45 @@ impl Hw {
 
     /// A DMA's view of main memory (DI, ARAM, AI and SI transfers all go through this).
     pub fn dma_write(&mut self, pa: u32, data: &[u8]) {
-        if let Some(r) = self.ram(pa & 0x1FFF_FFFF, data.len() as u32) {
+        let pa = pa & 0x1FFF_FFFF;
+        if let Some(r) = self.ram(pa, data.len() as u32) {
             r.copy_from_slice(data);
+            if !data.is_empty() {
+                for page in (pa >> 12)..=((pa + data.len() as u32 - 1) >> 12) {
+                    self.touch_page(page);
+                }
+            }
+        }
+    }
+
+    /// The bit for a physical page in `code_pages`, if it is RAM.
+    #[inline]
+    fn code_bit(page: u32) -> Option<usize> {
+        if page < 0x1800 {
+            Some(page as usize)
+        } else if (0x10000..0x14000).contains(&page) {
+            Some(8192 + (page - 0x10000) as usize)
+        } else {
+            None
+        }
+    }
+
+    /// Marks a physical page as holding cached code.
+    pub fn mark_code_page(&mut self, page: u32) {
+        if let Some(b) = Self::code_bit(page) {
+            self.code_pages[b / 64] |= 1 << (b % 64);
+        }
+    }
+
+    /// Memory in a page changed: if it held cached code, that code is dropped.
+    #[inline]
+    fn touch_page(&mut self, page: u32) {
+        if let Some(b) = Self::code_bit(page) {
+            let w = &mut self.code_pages[b / 64];
+            if *w & (1 << (b % 64)) != 0 {
+                *w &= !(1 << (b % 64));
+                self.invalidate_code(page << 12, 0x1000);
+            }
         }
     }
 
@@ -1290,6 +1331,7 @@ impl Bus for Hw {
     fn write8(&mut self, pa: u32, v: u8) {
         if let Some(r) = self.ram(pa, 1) {
             r[0] = v;
+            self.touch_page(pa >> 12);
             return;
         }
         self.mmio_write(pa, 1, v as u32);
@@ -1297,6 +1339,7 @@ impl Bus for Hw {
     fn write16(&mut self, pa: u32, v: u16) {
         if let Some(r) = self.ram(pa, 2) {
             r.copy_from_slice(&v.to_be_bytes());
+            self.touch_page(pa >> 12);
             return;
         }
         self.mmio_write(pa, 2, v as u32);
@@ -1304,6 +1347,7 @@ impl Bus for Hw {
     fn write32(&mut self, pa: u32, v: u32) {
         if let Some(r) = self.ram(pa, 4) {
             r.copy_from_slice(&v.to_be_bytes());
+            self.touch_page(pa >> 12);
             return;
         }
         self.mmio_write(pa, 4, v);
@@ -1311,6 +1355,9 @@ impl Bus for Hw {
     fn invalidate_code(&mut self, pa: u32, len: u32) {
         if self.invalidated.len() < 4096 {
             self.invalidated.push((pa, len));
+        } else if self.invalidated.last() != Some(&(0, u32::MAX)) {
+            // Too many to track one by one: drop everything.
+            self.invalidated.push((0, u32::MAX));
         }
     }
 }

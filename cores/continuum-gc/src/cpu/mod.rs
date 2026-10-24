@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 mod fpu;
 pub use fpu::{double_to_single, round_single, single_to_double};
+pub mod fast;
 mod interp;
 pub mod mmu;
 
@@ -392,9 +393,13 @@ impl Cpu {
     // ------------------------------------------------------------------ time
 
     /// Advances the time base and the decrementer by `cycles` CPU cycles.
+    #[inline]
     pub fn advance_time(&mut self, cycles: u64) {
         self.cycles += cycles;
         self.tb_rem += cycles;
+        if self.tb_rem < CYCLES_PER_TIMEBASE_TICK {
+            return;
+        }
         let ticks = self.tb_rem / CYCLES_PER_TIMEBASE_TICK;
         if ticks == 0 {
             return;
@@ -676,6 +681,19 @@ impl Cpu {
     }
 
     // ------------------------------------------------------------------ running
+
+    /// Starts executing the instruction at `pc` (for the fast interpreter's blocks).
+    #[inline]
+    pub(crate) fn begin(&mut self, pc: u32) {
+        self.faulted = false;
+        self.cur_pc = pc;
+    }
+
+    /// Whether the last instruction raised an exception.
+    #[inline]
+    pub(crate) fn faulted(&self) -> bool {
+        self.faulted
+    }
 
     /// Runs one instruction (or takes one interrupt). Returns the cycles it took.
     pub fn step<B: Bus>(&mut self, bus: &mut B) -> u64 {

@@ -9,20 +9,24 @@
 use super::{Access, Cpu, HID4_SBE, MSR_PR};
 use crate::bus::Bus;
 
-const TLB_SETS: usize = 256;
+const TLB_SETS: usize = 1024;
 
 #[derive(Clone, Copy, Default)]
 struct Entry {
     /// Effective page number + 1 (0 means empty).
     tag: u32,
+    /// The flush generation this entry belongs to; older generations are stale.
+    gen: u32,
     /// Physical page base.
     page: u32,
 }
 
-/// Remembered page-table translations, one table per kind of access (a page may be readable but
-/// not writable, and the C bit must be set on the first write).
+/// Remembered translations (block-mapped and page-table alike), one table per kind of access (a
+/// page may be readable but not writable, and the C bit must be set on the first write).
+/// Flushing only bumps a generation number, so it costs nothing however often it happens.
 #[derive(Clone)]
 pub struct Tlb {
+    gen: u32,
     read: Vec<Entry>,
     write: Vec<Entry>,
     fetch: Vec<Entry>,
@@ -30,14 +34,18 @@ pub struct Tlb {
 
 impl Default for Tlb {
     fn default() -> Self {
-        Tlb { read: vec![Entry::default(); TLB_SETS], write: vec![Entry::default(); TLB_SETS], fetch: vec![Entry::default(); TLB_SETS] }
+        Tlb { gen: 1, read: vec![Entry::default(); TLB_SETS], write: vec![Entry::default(); TLB_SETS], fetch: vec![Entry::default(); TLB_SETS] }
     }
 }
 
 impl Tlb {
     pub fn flush_all(&mut self) {
-        for t in [&mut self.read, &mut self.write, &mut self.fetch] {
-            t.iter_mut().for_each(|e| *e = Entry::default());
+        self.gen = self.gen.wrapping_add(1);
+        if self.gen == 0 {
+            for t in [&mut self.read, &mut self.write, &mut self.fetch] {
+                t.iter_mut().for_each(|e| *e = Entry::default());
+            }
+            self.gen = 1;
         }
     }
     /// The privilege level changed (exception, rfi, mtmsr): protection may differ.
@@ -61,18 +69,27 @@ impl Tlb {
 }
 
 /// Translates an effective address. None means the access faults (the caller raises DSI or ISI).
+#[inline]
 pub fn translate<B: Bus>(cpu: &mut Cpu, ea: u32, access: Access, bus: &mut B) -> Option<u32> {
-    if let Some(pa) = bat(cpu, ea, access) {
-        return pa;
-    }
     let set = ((ea >> 12) as usize) & (TLB_SETS - 1);
     let tag = (ea >> 12) + 1;
+    let gen = cpu.tlb.gen;
     let e = cpu.tlb.table(access)[set];
-    if e.tag == tag {
+    if e.tag == tag && e.gen == gen {
         return Some(e.page | (ea & 0xFFF));
     }
-    let page = page_table(cpu, ea, access, bus)?;
-    cpu.tlb.table(access)[set] = Entry { tag, page };
+    translate_slow(cpu, ea, access, bus, set, tag)
+}
+
+#[inline(never)]
+fn translate_slow<B: Bus>(cpu: &mut Cpu, ea: u32, access: Access, bus: &mut B, set: usize, tag: u32) -> Option<u32> {
+    let page = match bat(cpu, ea, access) {
+        Some(Some(pa)) => pa & !0xFFF,
+        Some(None) => return None,
+        None => page_table(cpu, ea, access, bus)?,
+    };
+    let gen = cpu.tlb.gen;
+    cpu.tlb.table(access)[set] = Entry { tag, gen, page };
     Some(page | (ea & 0xFFF))
 }
 

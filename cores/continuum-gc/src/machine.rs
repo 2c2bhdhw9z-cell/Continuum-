@@ -22,6 +22,8 @@ const BOOT_STACK: u32 = 0x816F_FFF0;
 pub struct Machine {
     pub cpu: Cpu,
     pub hw: Hw,
+    /// The fast interpreter's block cache; None runs the plain interpreter.
+    pub fast: Option<cpu::fast::FastCpu>,
     /// CPU cycles since the last video line.
     line_cycles: u64,
     pub cpu_hz: u64,
@@ -54,6 +56,7 @@ impl Machine {
         Machine {
             cpu: Cpu::new(if wii { cpu::PVR_BROADWAY } else { cpu::PVR_GEKKO }),
             hw: Hw::new(wii),
+            fast: Some(cpu::fast::FastCpu::new()),
             line_cycles: 0,
             cpu_hz: if wii { WII_CPU_HZ } else { GC_CPU_HZ },
         }
@@ -243,6 +246,18 @@ impl Machine {
                 let skip = (per_line - self.line_cycles.min(per_line - 1)).min(self.cpu.cycles_to_decrementer()).max(1);
                 self.cpu.advance_time(skip);
                 skip
+            } else if let Some(fast) = self.fast.as_mut() {
+                if !self.hw.invalidated.is_empty() {
+                    for (pa, len) in self.hw.invalidated.drain(..) {
+                        fast.invalidate(pa, len);
+                    }
+                }
+                let budget = (per_line - self.line_cycles.min(per_line - 1)).min(max_cycles - ran);
+                let (c, built) = fast.run(&mut self.cpu, &mut self.hw, budget, &|h: &mut Hw| h.irq_dirty || !h.invalidated.is_empty());
+                if let Some(page) = built {
+                    self.hw.mark_code_page(page);
+                }
+                c
             } else {
                 self.cpu.step(&mut self.hw)
             };
@@ -292,6 +307,9 @@ impl Machine {
         }
         self.cpu = s.cpu;
         self.cpu.tlb.flush_all();
+        if let Some(f) = self.fast.as_mut() {
+            f.clear();
+        }
         self.hw.mem1 = s.mem1;
         self.hw.mem2 = s.mem2;
         self.hw.aram = s.aram;
