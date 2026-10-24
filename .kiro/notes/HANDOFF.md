@@ -5,7 +5,7 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (24 October 2026, about 6:45 PM Eastern): Animal Crossing plays but is slow; build 221 measures why
+## START HERE (24 October 2026, about 6:25 PM Eastern): Animal Crossing plays but is slow; build 221 measures why
 
 OWNER REPORT on build 220 (6 PM): "Loads." Animal Crossing reaches its title screen ("Press START", the town
 demo). He feels it runs 60 fps with no sound playing and 12-20 fps when sound plays (not sure). Three
@@ -30,6 +30,11 @@ Read-out lines: SPEED %; CPU <M instructions per real second> LOAD <% of emulate
 JIT % (only with JIT); CPU/DRAW (% of wall time); WAIT (waiting for helper pixels)/SND (sound stand-in)/APP
 (time outside run_field); then the 5 hottest 256-byte code blocks (PC sampled at each video line) with %.
 Map hot addresses with ac-decomp config/GAFE01_00/symbols.txt (read only).
+BUILD 221 DONE 6:38 PM Eastern (started by hand, 2cd78c3, green). Checked: 0.8.0 (221), 38 emulator files,
+continuum_gc dylib 1,481,104 bytes with the cgc_speed_readout option inside. Link and steps given:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-221-2cd78c3/Continuum-221.ipa
+Map hot addresses: `python3 .scratch/acsym.py <hex>...` (static program symbols; .scratch/ac_symbols.txt from
+ac-decomp; foresta.rel addresses need its load address, symbols in .scratch/ac_foresta_symbols.txt).
 NEXT after his screenshot: if CPU dominates, make the interpreter faster (dispatch: cur_pc store and exit
 flag per op, superinstructions, stmw/lmw and cr ops are on the slow generic path); if DRAW/WAIT dominate,
 the GPU drawer (G6 part 2, planned next anyway).
