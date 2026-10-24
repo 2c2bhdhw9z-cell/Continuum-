@@ -23,8 +23,11 @@ Paste this to start a new chat:
   (cBoy, cArcade, the GameCube one) could stay in. Making the repo private also breaks the
   Releases download link his testers use. He asked how Manic does it: Manic does NOT; its app is
   AGPL-3.0 and public (`github.com/Manic-EMU/ManicEMU`, with a third-party notices file), and its
-  Dolphin fork is public too. Not legal advice. Waiting on his answer; do not make the repo
-  private, change LICENSE or remove cores without his clear go-ahead.
+  Dolphin fork is public too. Not legal advice. **His answer: choice 1** (stay public until
+  our own cores replace the outside ones, then go closed); saved in owner-rules. He posts the
+  .ipa on the internet himself, so the GitHub link is not what testers use.
+- Owner: the settings list was missing Lazuli (vxpm/lazuli, a from-scratch Rust GameCube
+  emulator). Added with gecko (ioncodes/gecko, Rust), rustcube (Rust), Ishiiruka and Dolphin-MPN.
 
 ## Earlier (23 October 2026, about 9:45 PM Eastern): build 213; next is GameCube
 

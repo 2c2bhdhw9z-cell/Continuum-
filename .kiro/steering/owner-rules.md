@@ -193,6 +193,12 @@ These come straight from the owner. They are not suggestions.
     line, for example: "Arcade games aren't playable right now. We're building our own arcade
     emulator." Don't ask "Which system?" for it, and never crash. Remove the arcade test
     rows, and the `neogeo.zip` BIOS mention, from TESTING.md.
+- **Closed source, later (owner, 23 October 2026, choice 1):** the owner wants Continuum closed
+  source. Because the app ships GPL emulators, it stays public (like Manic EMU, whose app is
+  AGPL and public) until our own cores have replaced every outside emulator; then it goes
+  closed. Our own cores therefore use no outside code or libraries in what ships. The owner
+  posts the .ipa on the internet himself; testers do not need the GitHub download link. Do not
+  make the repo private or change LICENSE before that point unless he says so.
 - **A guaranteed overnight build is for the one night the owner asks for it, and nothing more**
   (owner, 13 October 2026). On 12-13 October they asked never to wake up without a new build, so a
   temporary schedule and a gate job went into `.github/workflows/ios.yml` for that morning. They
