@@ -214,6 +214,9 @@ pub struct Gx {
     /// Decoded textures (rebuilt on demand; never in a save state).
     #[serde(skip)]
     pub(crate) tex_cache: std::collections::HashMap<texture::TexKey, std::sync::Arc<texture::Decoded>>,
+    /// Bytes the decoded textures in `tex_cache` take (kept under `texture::TEX_CACHE_BYTES`).
+    #[serde(skip)]
+    pub(crate) tex_cache_bytes: usize,
     #[serde(skip)]
     pub stats: Stats,
 }
@@ -283,8 +286,15 @@ impl Gx {
             efb_depth: vec![0x00FF_FFFF; efb::EFB_WIDTH * efb::EFB_HEIGHT],
             queue: Vec::new(),
             tex_cache: Default::default(),
+            tex_cache_bytes: 0,
             stats: Stats::default(),
         }
+    }
+
+    /// Forgets every decoded texture.
+    pub(crate) fn clear_tex_cache(&mut self) {
+        self.tex_cache.clear();
+        self.tex_cache_bytes = 0;
     }
 
     // ------------------------------------------------------------------ drawing threads
@@ -642,18 +652,18 @@ impl Gx {
             0x52 => {
                 self.efb_copy(ram, v);
                 if v & (1 << 14) == 0 {
-                    self.tex_cache.clear();
+                    self.clear_tex_cache();
                 }
             }
             0x63 => {
                 self.preload_texture(ram, v);
-                self.tex_cache.clear();
+                self.clear_tex_cache();
             }
             0x65 => {
                 self.load_tlut(ram, v);
-                self.tex_cache.clear();
+                self.clear_tex_cache();
             }
-            0x66 => self.tex_cache.clear(),
+            0x66 => self.clear_tex_cache(),
             0xE0..=0xE7 => {
                 // Pairs: even = red (0-10) and alpha (12-22); odd = blue (0-10) and green (12-22).
                 // Bit 23 says whether this is a konstant colour or a TEV register.

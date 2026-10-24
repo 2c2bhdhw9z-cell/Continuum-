@@ -411,8 +411,8 @@ impl Gx {
         if let Some(d) = self.tex_cache.get(&key) {
             return d.clone();
         }
-        if self.tex_cache.len() > 1024 {
-            self.tex_cache.clear();
+        if self.tex_cache.len() > 1024 || self.tex_cache_bytes > TEX_CACHE_BYTES {
+            self.clear_tex_cache();
         }
         let mut levels = Vec::with_capacity(nlev as usize);
         let (mut base, mut w, mut h) = (key.addr, t.width, t.height);
@@ -424,11 +424,17 @@ impl Gx {
             h = (h / 2).max(1);
         }
         let d = Arc::new(Decoded { levels });
+        self.tex_cache_bytes += d.levels.iter().map(|l| l.2.len() * 4).sum::<usize>();
         self.tex_cache.insert(key, d.clone());
         d
     }
 
 }
+
+/// The most memory decoded textures may take before they are all decoded again as needed: a
+/// real game has far more textures than fit, and an iPhone app that grows without bound is
+/// closed by the system.
+pub const TEX_CACHE_BYTES: usize = 192 << 20;
 
 /// How many levels a texture has (down to 1x1).
 fn levels(t: &TexMap) -> u32 {
