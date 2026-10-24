@@ -75,7 +75,12 @@ pub mod spr {
     pub const HID1: u32 = 1009;
     pub const HID4: u32 = 1011;
     pub const L2CR: u32 = 1017;
+    pub const THRM1: u32 = 1020;
+    pub const THRM2: u32 = 1021;
 }
+
+/// The temperature the thermal assist unit reports, in degrees Celsius.
+pub const CHIP_TEMPERATURE: u32 = 45;
 
 // HID2 bits.
 pub const HID2_LSQE: u32 = 1 << 31;
@@ -445,6 +450,18 @@ impl Cpu {
             DMAU => self.dmau,
             DMAL => self.dmal,
             L2CR => self.l2cr,
+            // The thermal assist unit (THRM1, THRM2): with V set, the compare has finished at
+            // once (TIV) and TIN says whether the chip is past the threshold, for a steady 45 C.
+            THRM1 | THRM2 => {
+                let v = self.other_spr.iter().find(|(k, _)| *k == n).map_or(0, |(_, v)| *v);
+                if v & 1 == 0 {
+                    return v & !0xC000_0000;
+                }
+                let threshold = (v >> 23) & 0x7F;
+                let below = v & 4 != 0;
+                let crossed = if below { CHIP_TEMPERATURE < threshold } else { CHIP_TEMPERATURE > threshold };
+                (v & !0xC000_0000) | 0x4000_0000 | if crossed { 0x8000_0000 } else { 0 }
+            }
             _ => self.other_spr.iter().find(|(k, _)| *k == n).map_or(0, |(_, v)| *v),
         }
     }

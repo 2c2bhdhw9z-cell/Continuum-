@@ -23,8 +23,8 @@ fn main() {
     eprintln!("exceptions taken: {:?}", m.cpu.exceptions.iter().enumerate().filter(|(_, n)| **n > 0).map(|(v, n)| (format!("{:X}00", v), *n)).collect::<Vec<_>>());
     eprintln!("faults (vector, at, address): {:08X?}", m.cpu.fault_log);
     eprintln!("unknown registers: {:X?}", m.hw.unknown.iter().take(40).collect::<Vec<_>>());
-    eprintln!("gx fifo bytes waiting: {}", m.hw.gx_fifo.len());
-    eprintln!("uart: {}", String::from_utf8_lossy(&m.hw.uart));
+    eprintln!("graphics: {:?}", m.hw.gx.stats);
+    eprintln!("uart: {}", String::from_utf8_lossy(&m.hw.uart).replace('\r', "\n"));
     let mut p: Vec<_> = pcs.into_iter().collect();
     p.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
     eprintln!("where it was at field ends: {:X?}", &p[..p.len().min(8)]);

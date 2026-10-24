@@ -21,6 +21,9 @@ pub const GC_CPU_HZ: u64 = 486_000_000;
 pub const WII_CPU_HZ: u64 = 729_000_000;
 
 // PI interrupt causes.
+/// "GP runtime error": the CPU touched a physical address nothing answers (a bus error).
+/// Programs use it to tell a GameCube from a Wii (Swiss reads 0x10000000, where a Wii has MEM2).
+pub const INT_ERROR: u32 = 1 << 0;
 pub const INT_RSW: u32 = 1 << 1;
 pub const INT_DI: u32 = 1 << 2;
 pub const INT_SI: u32 = 1 << 3;
@@ -208,8 +211,10 @@ pub struct Hw {
     pub di: Di,
     pub dsp: Dsp,
     pub ai: Ai,
-    /// Bytes written to the graphics FIFO, waiting for the graphics engine.
-    pub gx_fifo: Vec<u8>,
+    /// The graphics engine (command processor, transform, rasteriser, pixel engine).
+    pub gx: crate::gx::Gx,
+    /// Bytes in the CPU's write-gather pipe, sent on to the FIFO 32 at a time.
+    pub gather: Vec<u8>,
     pub disc: Option<Box<dyn Disc>>,
     /// Code addresses invalidated (icbi, HID0 ICFI): read by the block caches of the faster CPUs.
     pub invalidated: Vec<(u32, u32)>,
@@ -233,7 +238,8 @@ impl Hw {
             di: Di::default(),
             dsp: Dsp { csr: 0, ..Default::default() },
             ai: Ai::default(),
-            gx_fifo: Vec::new(),
+            gx: crate::gx::Gx::new(),
+            gather: Vec::new(),
             disc: None,
             invalidated: Vec::new(),
             uart: Vec::new(),
@@ -271,6 +277,15 @@ impl Hw {
         // AI: AIINT (bit 3) with AIINTMSK (bit 2).
         if self.ai.cr & 0xC == 0xC {
             c |= INT_AI;
+        }
+        if self.gx.irq_cp() {
+            c |= INT_CP;
+        }
+        if self.gx.irq_token() {
+            c |= INT_PE_TOKEN;
+        }
+        if self.gx.irq_finish() {
+            c |= INT_PE_FINISH;
         }
         c
     }
@@ -310,13 +325,27 @@ impl Hw {
 
     fn mmio_read(&mut self, pa: u32, n: u32) -> u32 {
         let off = pa & 0xFFFF;
+        if (0x0800_0000..0x0C00_0000).contains(&pa) {
+            return self.gx.efb_peek(pa);
+        }
         match pa & 0xFFFF_F000 {
-            // CP and PE: report an idle graphics pipe until the graphics engine exists.
-            0x0C00_0000 => match off & 0xFFF {
-                0x00 => 0x0014, // CP status: FIFO read-idle and command-idle
-                _ => 0,
-            },
-            0x0C00_1000 => 0,
+            // CP and PE: 16-bit registers; a 32-bit read joins two.
+            0x0C00_0000 => {
+                let o = off & 0xFFF;
+                if n == 4 {
+                    ((self.gx.cp_read(o) as u32) << 16) | self.gx.cp_read(o + 2) as u32
+                } else {
+                    self.gx.cp_read(o) as u32
+                }
+            }
+            0x0C00_1000 => {
+                let o = off & 0xFFF;
+                if n == 4 {
+                    ((self.gx.pe_read(o) as u32) << 16) | self.gx.pe_read(o + 2) as u32
+                } else {
+                    self.gx.pe_read(o) as u32
+                }
+            }
             0x0C00_2000 => self.vi_read(off & 0xFFF, n),
             0x0C00_3000 => match off & 0xFFF {
                 0x00 => self.cause(),
@@ -339,6 +368,7 @@ impl Hw {
             },
             _ => {
                 *self.unknown.entry(pa).or_default() += 1;
+                self.pi.latched |= INT_ERROR;
                 0
             }
         }
@@ -346,12 +376,34 @@ impl Hw {
 
     fn mmio_write(&mut self, pa: u32, n: u32, v: u32) {
         let off = pa & 0xFFFF;
+        if (0x0800_0000..0x0C00_0000).contains(&pa) {
+            self.gx.efb_poke(pa, v);
+            return;
+        }
         match pa & 0xFFFF_F000 {
-            0x0C00_0000 | 0x0C00_1000 | 0x0C00_4000 => {}
+            0x0C00_0000 => {
+                let o = off & 0xFFF;
+                if n == 4 {
+                    self.cp_write(o, (v >> 16) as u16);
+                    self.cp_write(o + 2, v as u16);
+                } else if n == 2 {
+                    self.cp_write(o, v as u16);
+                }
+            }
+            0x0C00_1000 => {
+                let o = off & 0xFFF;
+                if n == 4 {
+                    self.gx.pe_write(o, (v >> 16) as u16);
+                    self.gx.pe_write(o + 2, v as u16);
+                } else if n == 2 {
+                    self.gx.pe_write(o, v as u16);
+                }
+            }
+            0x0C00_4000 => {}
             0x0C00_2000 => self.vi_write(off & 0xFFF, n, v),
             0x0C00_3000 => match off & 0xFFF {
-                // Writing 1 to the reset-switch cause clears it.
-                0x00 => self.pi.latched &= !(v & INT_RSW),
+                // Writing 1 to the reset-switch or bus-error cause clears it.
+                0x00 => self.pi.latched &= !(v & (INT_RSW | INT_ERROR)),
                 0x04 => self.pi.mask = v,
                 0x0C => self.pi.fifo_base = v,
                 0x10 => self.pi.fifo_end = v,
@@ -369,13 +421,45 @@ impl Hw {
             // The write-gather pipe to the graphics FIFO.
             0x0C00_8000 => {
                 let bytes = v.to_be_bytes();
-                self.gx_fifo.extend_from_slice(&bytes[(4 - n as usize)..]);
-                if self.gx_fifo.len() > 8 << 20 {
-                    self.gx_fifo.clear();
+                self.gather.extend_from_slice(&bytes[(4 - n as usize)..]);
+                while self.gather.len() >= 32 {
+                    let mut block = [0u8; 32];
+                    block.copy_from_slice(&self.gather[..32]);
+                    self.gather.drain(..32);
+                    self.pi_fifo_burst(&block);
                 }
             }
-            _ => *self.unknown.entry(pa | 0x8000_0000).or_default() += 1,
+            _ => {
+                *self.unknown.entry(pa | 0x8000_0000).or_default() += 1;
+                self.pi.latched |= INT_ERROR;
+            }
         }
+    }
+
+    // ------------------------------------------------------------------ graphics FIFO
+
+    fn cp_write(&mut self, off: u32, v: u16) {
+        let Hw { gx, mem1, mem2, .. } = self;
+        let mut ram = crate::gx::Ram { mem1, mem2 };
+        gx.cp_write(&mut ram, off, v);
+    }
+
+    /// PI writes one 32-byte burst into the CPU FIFO in memory and steps its write pointer,
+    /// wrapping at the FIFO's end; the command processor follows when the FIFO is linked.
+    fn pi_fifo_burst(&mut self, block: &[u8; 32]) {
+        let (wrap_bit, mask) = if self.wii { (0x2000_0000, 0x1FFF_FFE0) } else { (0x0400_0000, 0x03FF_FFE0) };
+        let wp = self.pi.fifo_write & mask;
+        self.dma_write(wp, block);
+        let mut next = wp + 32;
+        let mut wrapped = self.pi.fifo_write & wrap_bit;
+        if next >= (self.pi.fifo_end & 0x1FFF_FFFC) && self.pi.fifo_end > self.pi.fifo_base {
+            next = self.pi.fifo_base & mask;
+            wrapped = wrap_bit;
+        }
+        self.pi.fifo_write = next | wrapped;
+        let Hw { gx, mem1, mem2, .. } = self;
+        let mut ram = crate::gx::Ram { mem1, mem2 };
+        gx.pi_burst(&mut ram, next);
     }
 
     // ------------------------------------------------------------------ VI
@@ -465,10 +549,10 @@ impl Hw {
         let progressive = dcr & 4 != 0;
         // ACV: active lines per field (VTR bits 4-13).
         let acv = ((self.vi.regs[0] >> 4) & 0x3FF) as u32;
-        // HSW (0x48): WPL (bits 8-14) in 16-pixel units, STD (bits 0-7) in 16-byte units.
+        // HSW (0x48): WPL (bits 8-14) and STD (bits 0-7), both in 16-pixel (32-byte) units.
         let hsw = self.vi.regs[0x48 / 2];
         let width = ((hsw >> 8) & 0x7F) as u32 * 16;
-        let stride = (hsw & 0xFF) as u32 * 16;
+        let stride = (hsw & 0xFF) as u32 * 32;
         if width == 0 || acv == 0 {
             return None;
         }
@@ -659,7 +743,10 @@ impl Hw {
                 Some(addr) => {
                     let reply = self.rtc_chip(addr, rw, data, len);
                     self.exi.ch[c].data = reply;
-                    self.exi.ch[c].dev_addr = Some(addr.wrapping_add(len << 6));
+                    // SRAM and the clock step on per byte; the UART is one port.
+                    if addr & 0x7FFF_FF00 != 0x2001_0000 {
+                        self.exi.ch[c].dev_addr = Some(addr.wrapping_add(len << 6));
+                    }
                 }
             }
         } else if c == 0 && dev == 2 && dma {
@@ -950,7 +1037,7 @@ impl Hw {
         if self.dsp.ucode.is_none() {
             self.dsp.rom_mails.push(mail);
             let m = &self.dsp.rom_mails;
-            if m.len() % 2 == 0 && m[m.len() - 2] == 0x80F3_D001 {
+            if m.len().is_multiple_of(2) && m[m.len() - 2] == 0x80F3_D001 {
                 let find = |cmd: u32| m.chunks(2).find(|p| p[0] == cmd).map(|p| p[1]).unwrap_or(0);
                 self.dsp.ucode = Some((find(0x80F3_A001), find(0x80F3_A002)));
                 self.dsp.rom_mails.clear();
@@ -1052,7 +1139,7 @@ impl Bus for Hw {
         if let Some(r) = self.ram(pa, 2) {
             return u16::from_be_bytes([r[0], r[1]]);
         }
-        if pa & 0xFFFF_F000 == 0x0C00_2000 || pa & 0xFFFF_F000 == 0x0C00_5000 {
+        if matches!(pa & 0xFFFF_F000, 0x0C00_0000 | 0x0C00_1000 | 0x0C00_2000 | 0x0C00_5000) {
             return self.mmio_read(pa, 2) as u16;
         }
         let v = self.mmio_read(pa & !3, 4);

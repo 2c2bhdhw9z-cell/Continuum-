@@ -41,10 +41,12 @@ struct State {
     di: crate::hw::Di,
     dsp: crate::hw::Dsp,
     ai: crate::hw::Ai,
+    gx: crate::gx::Gx,
+    gather: Vec<u8>,
     line_cycles: u64,
 }
 
-pub const STATE_MAGIC: &[u8; 4] = b"CGC1";
+pub const STATE_MAGIC: &[u8; 4] = b"CGC2";
 
 impl Machine {
     pub fn new(console: Console) -> Self {
@@ -227,6 +229,8 @@ impl Machine {
             di: self.hw.di.clone(),
             dsp: self.hw.dsp.clone(),
             ai: self.hw.ai.clone(),
+            gx: self.hw.gx.clone(),
+            gather: self.hw.gather.clone(),
             line_cycles: self.line_cycles,
         };
         let mut out = STATE_MAGIC.to_vec();
@@ -254,6 +258,8 @@ impl Machine {
         self.hw.di = s.di;
         self.hw.dsp = s.dsp;
         self.hw.ai = s.ai;
+        self.hw.gx = s.gx;
+        self.hw.gather = s.gather;
         self.line_cycles = s.line_cycles;
         Ok(())
     }

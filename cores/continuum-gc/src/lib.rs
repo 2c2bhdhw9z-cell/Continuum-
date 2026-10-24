@@ -4,10 +4,13 @@
 //! `.kiro/notes/tasks/gamecube.json`; the settings inventory is
 //! `.kiro/notes/docs/GC_OPTIONS_INVENTORY.md`.
 
+#![allow(clippy::needless_range_loop, clippy::field_reassign_with_default)]
+
 pub mod bus;
 pub mod cpu;
 pub mod disc;
 pub mod dol;
+pub mod gx;
 pub mod hw;
 pub mod libretro;
 pub mod machine;

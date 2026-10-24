@@ -82,8 +82,8 @@ fn vi_program() -> Vec<u8> {
         ori(3, 3, 0x2000),
         li(4, (240 << 4) | 6),
         sth(4, 3, 0x00), // VTR: 240 active lines
-        li(4, (40 << 8) | 80),
-        sth(4, 3, 0x48), // HSW: 640 pixels, 1280-byte stride
+        li(4, (40 << 8) | 40),
+        sth(4, 3, 0x48), // HSW: 640 pixels, 1280-byte stride (both in 32-byte units)
         lis(4, 0x1000),
         ori(4, 4, (XFB & 0x00FF_FFFF) >> 5),
         stw(4, 3, 0x1C), // TFBL, in 32-byte units
