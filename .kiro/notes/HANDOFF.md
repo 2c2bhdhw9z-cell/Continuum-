@@ -5,7 +5,7 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (24 October 2026, about 7:20 PM Eastern): build 222, the read-out made reachable
+## START HERE (24 October 2026, about 7:15 PM Eastern): build 223, the read-out made reachable
 
 OWNER ON 221 (~7 PM): "Nope. Saw and felt no difference. And the thing don't turn on." Three screenshots:
 title screen with the Metal HUD (~16 and ~24 fps), and Core settings showing Speed read-out: Off, with no
@@ -15,8 +15,8 @@ Through the engine here (crates/emulator-bridge/tests/gc_frontend.rs, CGC_SO=lib
 keeps running behind the Core settings sheet (the classic ⋯ menu does not pause), and the engine runs the
 core on the MAIN thread (MetalCanvas CADisplayLink -> EmulatorBridge::tick, up to 4 catch-up frames a tick,
 timing.rs MAX_CATCH_UP_STEPS), so a GameCube game slower than full speed keeps the screen too busy to use its
-menus. Fix in 222: PlayerScreen pauses the game while Core settings is open (not online, not web players)
-and resumes on close (pausedForCoreSettings). Also 222: the EFB->XFB copy line by line and threaded (same
+menus. Fix in 223 (222 was cancelled: started before the copy speed-up was saved): PlayerScreen pauses the game while Core settings is open (not online, not web players)
+and resumes on close (pausedForCoreSettings). Also 223: the EFB->XFB copy line by line and threaded (same
 pictures; FCE 11.2 -> 10.0 s for 400 fields). Note: the Metal HUD's fps is presented frames; with up to 4
 core frames per tick, game speed can differ from it. The read-out's SPEED line is the real speed.
 
