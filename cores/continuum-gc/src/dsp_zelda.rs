@@ -1427,6 +1427,67 @@ mod tests {
         assert_eq!(take_mail(&mut hw), Some(0xF355_8000));
     }
 
+    /// The sound program's cost, as Animal Crossing drives it: 64 voice blocks, 24 of them
+    /// playing looped 9-byte AFC from audio RAM to two buses, one second of 32 kHz sound (400
+    /// subframes of 80 samples). `cargo test --release bench_zelda -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn bench_zelda_one_second() {
+        let mut hw = Hw::new(false);
+        hw.zelda_start(variant(0x4BE6_A5CB).unwrap());
+        take_mail(&mut hw);
+        let tables = 0x10_0000u32;
+        let mut t = vec![0u16; 0x400];
+        for (k, w) in t.iter_mut().enumerate() {
+            *w = (k as u16).wrapping_mul(0x1234) >> 2;
+        }
+        words(&mut hw, tables, &t);
+        let afc = 0x11_0000u32;
+        words(&mut hw, afc, &[0x0800, 0xFC00, 0x1000, 0xF800, 0x0E00, 0xFA00, 0x0C00, 0xFC00, 0x1200, 0xF600, 0x1068, 0xF738, 0x12C0, 0xF704, 0x1400, 0xF400, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        for (k, b) in hw.aram.iter_mut().enumerate().take(0x10_0000) {
+            *b = (k as u32).wrapping_mul(2_654_435_761).rotate_left(7) as u8;
+        }
+        let vpbs = 0x12_0000u32;
+        for id in 0..64u32 {
+            let mut v = [0u16; vpb::WORDS];
+            if id < 24 {
+                v[vpb::ENABLED] = 1;
+                v[vpb::RATIO] = 0x0C00 + 0x20 * id as u16;
+                v[vpb::RESET] = 1;
+                v[vpb::CHANNELS] = 0x0D00;
+                v[vpb::CHANNELS + 1] = 0x2000;
+                v[vpb::CHANNELS + 2] = 0x2000;
+                v[vpb::CHANNELS + 4] = 0x0D60;
+                v[vpb::CHANNELS + 5] = 0x1000;
+                v[vpb::CHANNELS + 6] = 0x1000;
+                v[vpb::SOURCE] = 9;
+                v[vpb::LOOPING] = 1;
+                v[vpb::LOOP_START + 1] = 16 * 2000;
+                v[vpb::BASE_ADDR] = 1 + (id as u16 >> 3);
+                v[vpb::BASE_ADDR + 1] = (id as u16 & 7) * 0x2000;
+            }
+            words(&mut hw, vpbs + id * vpb::WORDS as u32 * 2, &v);
+        }
+        for m in [0x8100_0040u32, vpbs, tables, afc, 0] {
+            hw.zelda_mail(m);
+        }
+        take_mail(&mut hw);
+        let t0 = std::time::Instant::now();
+        let mut sub = 0;
+        while sub < 400 {
+            for m in [0x8207_4000u32, 0x13_0000, 0x14_0000] {
+                hw.zelda_mail(m);
+            }
+            take_mail(&mut hw);
+            for _ in 0..7 {
+                hw.zelda_mail(0);
+                sub += 1;
+            }
+        }
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        println!("one second of Animal Crossing-style sound: {ms:.1} ms ({:.1}% of real time)", ms / 10.0);
+    }
+
     #[test]
     fn versions_are_recognised() {
         assert!(variant(0x42F6_4AC4).unwrap().light);

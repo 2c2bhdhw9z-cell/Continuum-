@@ -289,19 +289,50 @@ pub(super) fn raster_triangle(target: Target, s: &Setup, v0: &Screen, v1: &Scree
 
 // ---------------------------------------------------------------------- helper threads
 
+/// The screen is dealt out in this many groups of bands (group g: the bands whose number is g
+/// modulo GROUPS). Whoever is free takes the next group that has work and nobody is on, so a
+/// fast processor core draws more groups than a slow one (a phone has both kinds), and the
+/// CPU's own thread draws too while it waits for the picture.
+const GROUPS: usize = 16;
+
 struct State {
     jobs: Vec<Arc<Job>>,
-    /// How many jobs each helper has finished.
-    done: Vec<usize>,
+    /// How many jobs each group has had drawn.
+    done: [usize; GROUPS],
+    /// Whether a thread is drawing the group now (one at a time, so its rows get every job in
+    /// order).
+    busy: [bool; GROUPS],
+    /// Helpers waiting for work.
+    sleeping: usize,
     pixels: u64,
     quit: bool,
+}
+
+impl State {
+    /// The group with the most jobs left that nobody is drawing.
+    fn pick(&self) -> Option<usize> {
+        let mut best: Option<usize> = None;
+        for g in 0..GROUPS {
+            if self.busy[g] || self.done[g] >= self.jobs.len() {
+                continue;
+            }
+            if best.is_none_or(|b| self.done[g] < self.done[b]) {
+                best = Some(g);
+            }
+        }
+        best
+    }
+
+    fn all_done(&self) -> bool {
+        (0..GROUPS).all(|g| !self.busy[g] && self.done[g] >= self.jobs.len())
+    }
 }
 
 struct Shared {
     state: Mutex<State>,
     /// Signalled when jobs are added (or it is time to stop).
     work: Condvar,
-    /// Signalled when a helper finishes some.
+    /// Signalled when a group's jobs are drawn.
     finished: Condvar,
 }
 
@@ -323,17 +354,39 @@ fn lock(s: &Shared) -> std::sync::MutexGuard<'_, State> {
     s.state.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+/// Draws group `g`'s rows of every job it has not had yet; `st` is given back locked, with the
+/// group marked done up to where it got.
+fn draw_group<'a>(s: &'a Shared, mut st: std::sync::MutexGuard<'a, State>, g: usize) -> std::sync::MutexGuard<'a, State> {
+    st.busy[g] = true;
+    let next = st.done[g];
+    let batch: Vec<Arc<Job>> = st.jobs[next..].to_vec();
+    let end = st.jobs.len();
+    drop(st);
+    let band = Band { index: g, count: GROUPS };
+    let mut pixels = 0;
+    for job in &batch {
+        pixels += job.run(band);
+    }
+    let mut st = lock(s);
+    st.done[g] = end;
+    st.busy[g] = false;
+    st.pixels += pixels;
+    s.finished.notify_all();
+    st
+}
+
 impl Threads {
     /// `count` helpers (0 or 1: none, everything drawn on the calling thread).
     pub fn start(count: usize) -> Threads {
         if count < 2 {
             return Threads::default();
         }
-        let shared = Arc::new(Shared { state: Mutex::new(State { jobs: Vec::new(), done: vec![0; count], pixels: 0, quit: false }), work: Condvar::new(), finished: Condvar::new() });
+        let state = State { jobs: Vec::new(), done: [0; GROUPS], busy: [false; GROUPS], sleeping: 0, pixels: 0, quit: false };
+        let shared = Arc::new(Shared { state: Mutex::new(state), work: Condvar::new(), finished: Condvar::new() });
         let handles = (0..count)
             .map(|index| {
                 let shared = shared.clone();
-                std::thread::Builder::new().name(format!("gx draw {index}")).spawn(move || helper(&shared, Band { index, count })).expect("drawing thread")
+                std::thread::Builder::new().name(format!("gx draw {index}")).spawn(move || helper(&shared)).expect("drawing thread")
             })
             .collect();
         Threads { shared: Some(shared), handles }
@@ -349,14 +402,20 @@ impl Threads {
         match &self.shared {
             None => job.run(Band::ALL),
             Some(s) => {
-                lock(s).jobs.push(Arc::new(job));
-                s.work.notify_all();
+                let mut st = lock(s);
+                st.jobs.push(Arc::new(job));
+                let wake = st.sleeping > 0;
+                drop(st);
+                if wake {
+                    s.work.notify_all();
+                }
                 0
             }
         }
     }
 
-    /// Waits until every queued job is drawn. Returns the pixels the helpers wrote.
+    /// Waits until every queued job is drawn, drawing groups itself meanwhile. Returns the
+    /// pixels the helpers wrote.
     pub fn wait(&self) -> u64 {
         let Some(s) = &self.shared else {
             return 0;
@@ -365,11 +424,17 @@ impl Threads {
         if st.jobs.is_empty() {
             return std::mem::take(&mut st.pixels);
         }
-        while st.done.iter().any(|&d| d < st.jobs.len()) {
-            st = s.finished.wait(st).unwrap_or_else(|p| p.into_inner());
+        loop {
+            if st.all_done() {
+                break;
+            }
+            match st.pick() {
+                Some(g) => st = draw_group(s, st, g),
+                None => st = s.finished.wait(st).unwrap_or_else(|p| p.into_inner()),
+            }
         }
         st.jobs.clear();
-        st.done.iter_mut().for_each(|d| *d = 0);
+        st.done = [0; GROUPS];
         std::mem::take(&mut st.pixels)
     }
 }
@@ -388,27 +453,19 @@ impl Drop for Threads {
     }
 }
 
-fn helper(s: &Shared, band: Band) {
+fn helper(s: &Shared) {
     let mut st = lock(s);
     loop {
         if st.quit {
             return;
         }
-        let next = st.done[band.index];
-        if next < st.jobs.len() {
-            let batch: Vec<Arc<Job>> = st.jobs[next..].to_vec();
-            let end = st.jobs.len();
-            drop(st);
-            let mut pixels = 0;
-            for job in &batch {
-                pixels += job.run(band);
+        match st.pick() {
+            Some(g) => st = draw_group(s, st, g),
+            None => {
+                st.sleeping += 1;
+                st = s.work.wait(st).unwrap_or_else(|p| p.into_inner());
+                st.sleeping -= 1;
             }
-            st = lock(s);
-            st.done[band.index] = end;
-            st.pixels += pixels;
-            s.finished.notify_all();
-        } else {
-            st = s.work.wait(st).unwrap_or_else(|p| p.into_inner());
         }
     }
 }

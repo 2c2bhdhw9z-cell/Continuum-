@@ -323,6 +323,8 @@ pub struct Hw {
     /// The CPU's clock, in CPU cycles, at the register access being handled (the CPU tells
     /// the bus before each access; the machine before each video line).
     pub now: u64,
+    /// Time spent in our stand-ins for the sound programs (the speed read-out).
+    pub dsp_time: std::time::Duration,
     /// Sound for the frontend: interleaved left/right 16-bit samples at 48 kHz.
     pub audio_out: Vec<i16>,
     /// Audio clock: DMA samples owed, in hundredths of a video line.
@@ -368,6 +370,7 @@ impl Hw {
             card: if wii { Vec::new() } else { crate::memcard::blank(&Self::card_format(0, &default_sram(), 0)) },
             irq_dirty: true,
             now: 0,
+            dsp_time: std::time::Duration::ZERO,
             audio_out: Vec::with_capacity(4096),
             audio_phase: 0,
             audio_prev: (0, 0),
@@ -1476,7 +1479,9 @@ impl Hw {
                 self.dsp_hle_start(maddr, len);
             }
         } else {
+            let t = std::time::Instant::now();
             self.dsp_hle_mail(mail);
+            self.dsp_time += t.elapsed();
         }
     }
 

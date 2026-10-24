@@ -38,6 +38,9 @@ pub struct Machine {
     pub apploader_log: Vec<String>,
     /// The game's ID and title (from the disc), for the status screen.
     pub title: String,
+    /// Where the CPU is at the end of each video line, by 256-byte block of code, while the
+    /// speed read-out is on (None: not sampled).
+    pub hot: Option<std::collections::HashMap<u32, u32>>,
 }
 
 /// Everything a save state holds (the disc is not part of it).
@@ -75,6 +78,7 @@ impl Machine {
             cpu_hz: if wii { WII_CPU_HZ } else { GC_CPU_HZ },
             apploader_log: Vec::new(),
             title: String::new(),
+            hot: None,
         }
     }
 
@@ -482,6 +486,11 @@ impl Machine {
             }
             while self.line_cycles >= per_line {
                 self.line_cycles -= per_line;
+                if let Some(hot) = self.hot.as_mut() {
+                    if hot.len() < 65_536 {
+                        *hot.entry(self.cpu.pc & !0xFF).or_default() += 1;
+                    }
+                }
                 self.hw.vi_line();
                 self.hw.ai_line();
                 self.hw.audio_line();

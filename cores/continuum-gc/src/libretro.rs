@@ -100,6 +100,91 @@ struct Core {
     /// numbers hold still long enough to read and screenshot (owner: they changed too fast).
     notice_frame: Vec<u32>,
     notice_at: Option<std::time::Instant>,
+    /// The speed read-out, when it is on (the `cgc_speed_readout` option).
+    readout: Option<Readout>,
+}
+
+/// The speed read-out: every second, how fast the game ran and where the time went, drawn in
+/// the corner of the picture (the lines are only for working out what to make faster).
+struct Readout {
+    since: std::time::Instant,
+    fields: u64,
+    /// Wall time spent running the machine (in `run_field`).
+    run: std::time::Duration,
+    start: Counters,
+    lines: Vec<String>,
+}
+
+/// The machine's running totals at the start of a second.
+#[derive(Clone, Copy, Default)]
+struct Counters {
+    cycles: u64,
+    idle: u64,
+    jit: u64,
+    draw: std::time::Duration,
+    wait: std::time::Duration,
+    sound: std::time::Duration,
+}
+
+impl Counters {
+    fn of(m: &Machine) -> Counters {
+        let f = m.fast.as_ref();
+        Counters {
+            cycles: m.cpu.cycles,
+            idle: f.map_or(0, |f| f.stats.idle_cycles),
+            jit: f.map_or(0, |f| f.stats.jit_instructions),
+            draw: m.hw.gx.stats.draw_time,
+            wait: m.hw.gx.stats.wait_time,
+            sound: m.hw.dsp_time,
+        }
+    }
+}
+
+impl Readout {
+    fn new(m: &mut Machine) -> Readout {
+        m.hot = Some(Default::default());
+        Readout { since: std::time::Instant::now(), fields: 0, run: std::time::Duration::ZERO, start: Counters::of(m), lines: vec!["SPEED ...".into()] }
+    }
+
+    /// After a field that took `run` to emulate; once a second the lines are worked out again.
+    fn field(&mut self, m: &mut Machine, run: std::time::Duration) {
+        self.fields += 1;
+        self.run += run;
+        let secs = self.since.elapsed().as_secs_f64();
+        if secs < 1.0 {
+            return;
+        }
+        let now = Counters::of(m);
+        let emulated = now.cycles.saturating_sub(self.start.cycles).max(1);
+        let busy = emulated.saturating_sub(now.idle.saturating_sub(self.start.idle));
+        let jit = now.jit.saturating_sub(self.start.jit);
+        let pct = |d: std::time::Duration| (100.0 * d.as_secs_f64() / secs).round() as i64;
+        let (draw, wait, sound) = (now.draw - self.start.draw, now.wait - self.start.wait, now.sound - self.start.sound);
+        let cpu = self.run.saturating_sub(draw + wait + sound);
+        let app = std::time::Duration::from_secs_f64(secs).saturating_sub(self.run);
+        let mut lines = vec![
+            format!("SPEED {}%", (100.0 * self.fields as f64 / secs / FPS).round() as i64),
+            format!("CPU {}M LOAD {}%", (busy as f64 / secs / 1e6).round() as i64, 100 * busy / emulated),
+        ];
+        if m.fast.as_ref().is_some_and(|f| f.jit.is_some()) {
+            lines.push(format!("JIT {}%", 100 * jit / busy.max(1)));
+        }
+        lines.push(format!("CPU {} DRAW {}", pct(cpu), pct(draw)));
+        lines.push(format!("WAIT {} SND {} APP {}", pct(wait), pct(sound), pct(app)));
+        if let Some(hot) = m.hot.as_mut() {
+            let total: u32 = hot.values().sum::<u32>().max(1);
+            let mut v: Vec<(u32, u32)> = hot.drain().collect();
+            v.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+            for (pc, n) in v.into_iter().take(5) {
+                lines.push(format!("{pc:08X} {}", 100 * n / total));
+            }
+        }
+        self.lines = lines;
+        self.since = std::time::Instant::now();
+        self.fields = 0;
+        self.run = std::time::Duration::ZERO;
+        self.start = now;
+    }
 }
 
 /// How long a game may show nothing before the status screen replaces the black picture.
@@ -118,6 +203,17 @@ impl Core {
             hot: Default::default(),
             notice_frame: Vec::new(),
             notice_at: None,
+            readout: None,
+        }
+    }
+
+    /// Turns the speed read-out on or off.
+    fn set_readout(&mut self, on: bool) {
+        if on && self.readout.is_none() {
+            self.readout = Some(Readout::new(&mut self.machine));
+        } else if !on {
+            self.readout = None;
+            self.machine.hot = None;
         }
     }
 
@@ -194,6 +290,8 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
 #[no_mangle]
 pub extern "C" fn retro_set_environment(f: EnvFn) {
     cb().env = Some(f);
+    // SAFETY: the frontend's environment callback.
+    unsafe { crate::options::declare(f) };
 }
 #[no_mangle]
 pub extern "C" fn retro_set_video_refresh(f: VideoFn) {
@@ -254,6 +352,13 @@ pub fn refusal(detail: &str) -> String {
         "this file could not be read."
     };
     format!("Continuum GC could not start the game: {what} Details for Kiro: {detail}")
+}
+
+/// An option read through the frontend's environment callback (false when there is none).
+fn read_option(f: unsafe fn(EnvFn) -> bool) -> bool {
+    let env = cb().env;
+    // SAFETY: the frontend's environment callback.
+    env.is_some_and(|e| unsafe { f(e) })
 }
 
 fn env(cmd: u32, data: *mut c_void) -> bool {
@@ -319,7 +424,9 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
                 machine.enable_jit();
             }
             machine.hw.gx.set_draw_threads(draw_helpers());
-            *core() = Some(Core::new(machine));
+            let mut c = Core::new(machine);
+            c.set_readout(read_option(crate::options::speed_readout));
+            *core() = Some(c);
             true
         }
         Err(e) => {
@@ -390,13 +497,27 @@ pub extern "C" fn retro_run() {
         let rumble = core.machine.hw.si.pads[0].rumble;
         core.machine.hw.si.pads[0] = crate::hw::PadState { rumble, ..p };
     }
+    let env = cb().env;
+    if let Some(env) = env {
+        // SAFETY: the frontend's environment callback.
+        if unsafe { crate::options::changed(env) } {
+            core.set_readout(unsafe { crate::options::speed_readout(env) });
+        }
+    }
     let per_field = core.machine.cpu_hz / 60;
+    let t = std::time::Instant::now();
     core.machine.run_field(per_field);
+    let ran = t.elapsed();
     if let Some((w, h, px)) = core.machine.hw.vi_picture() {
         core.frame = px;
         core.size = (w, h);
     }
     core.notice();
+    if let Some(r) = core.readout.as_mut() {
+        r.field(&mut core.machine, ran);
+        let (w, h) = (core.size.0 as usize, core.size.1 as usize);
+        crate::notice::draw_panel(&mut core.frame, w, h, &r.lines);
+    }
     if let Some(video) = video {
         let (w, h) = core.size;
         // SAFETY: `frame` holds w*h pixels of 4 bytes, and lives until the call returns.

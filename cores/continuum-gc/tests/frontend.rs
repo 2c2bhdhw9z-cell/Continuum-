@@ -8,10 +8,48 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 static FRAMES: AtomicU32 = AtomicU32::new(0);
 static LAST_W: AtomicU32 = AtomicU32::new(0);
 static JIT_ASKED: AtomicBool = AtomicBool::new(false);
+static READOUT_DECLARED: AtomicBool = AtomicBool::new(false);
+static READOUT_ON: AtomicBool = AtomicBool::new(false);
+static READOUT_CHANGED: AtomicBool = AtomicBool::new(false);
+/// The picture's pixel at (6, 4): white where the read-out's first letter is.
+static CORNER: AtomicU32 = AtomicU32::new(0);
+
+#[repr(C)]
+struct Definition {
+    key: *const std::ffi::c_char,
+    rest: [*const std::ffi::c_char; 5],
+    values: [[*const std::ffi::c_char; 2]; 128],
+    default: *const std::ffi::c_char,
+}
 
 unsafe extern "C" fn env(cmd: u32, data: *mut c_void) -> bool {
     match cmd {
         10 => true,
+        // SET_CORE_OPTIONS_V2: look for the speed read-out among the definitions.
+        67 => {
+            let mut d = *(data as *const *const Definition).add(1);
+            while !(*d).key.is_null() {
+                if std::ffi::CStr::from_ptr((*d).key).to_str() == Ok("cgc_speed_readout") {
+                    READOUT_DECLARED.store(true, Ordering::SeqCst);
+                }
+                d = d.add(1);
+            }
+            true
+        }
+        // GET_VARIABLE.
+        15 => {
+            let var = data as *mut [*const std::ffi::c_char; 2];
+            if std::ffi::CStr::from_ptr((*var)[0]).to_str() == Ok("cgc_speed_readout") {
+                (*var)[1] = if READOUT_ON.load(Ordering::SeqCst) { c"on".as_ptr() } else { c"off".as_ptr() };
+                return true;
+            }
+            false
+        }
+        // GET_VARIABLE_UPDATE.
+        17 => {
+            *(data as *mut bool) = READOUT_CHANGED.swap(false, Ordering::SeqCst);
+            true
+        }
         74 => {
             JIT_ASKED.store(true, Ordering::SeqCst);
             *(data as *mut bool) = false;
@@ -20,8 +58,9 @@ unsafe extern "C" fn env(cmd: u32, data: *mut c_void) -> bool {
         _ => false,
     }
 }
-unsafe extern "C" fn video(_d: *const c_void, w: u32, _h: u32, _p: usize) {
+unsafe extern "C" fn video(d: *const c_void, w: u32, _h: u32, _p: usize) {
     FRAMES.fetch_add(1, Ordering::SeqCst);
+    CORNER.store(*(d as *const u32).add(4 * w as usize + 6), Ordering::SeqCst);
     LAST_W.store(w, Ordering::SeqCst);
 }
 unsafe extern "C" fn audio(_d: *const i16, n: usize) -> usize {
@@ -71,6 +110,17 @@ fn loads_runs_and_saves_through_the_libretro_calls() {
     }
     assert_eq!(FRAMES.load(Ordering::SeqCst), 3);
     assert_eq!(LAST_W.load(Ordering::SeqCst), 640);
+    // The speed read-out: declared, off by default, drawn in the corner once switched on.
+    assert!(READOUT_DECLARED.load(Ordering::SeqCst), "the speed read-out option is declared");
+    assert_ne!(CORNER.load(Ordering::SeqCst), 0x00FF_FFFF);
+    READOUT_ON.store(true, Ordering::SeqCst);
+    READOUT_CHANGED.store(true, Ordering::SeqCst);
+    retro_run();
+    assert_eq!(CORNER.load(Ordering::SeqCst), 0x00FF_FFFF, "the read-out's first letter");
+    READOUT_ON.store(false, Ordering::SeqCst);
+    READOUT_CHANGED.store(true, Ordering::SeqCst);
+    retro_run();
+    assert_ne!(CORNER.load(Ordering::SeqCst), 0x00FF_FFFF, "gone again");
     let size = retro_serialize_size();
     // A GameCube's states leave out the Wii's 64 MB of MEM2.
     assert!(size < 64 << 20, "GameCube state room {size}");

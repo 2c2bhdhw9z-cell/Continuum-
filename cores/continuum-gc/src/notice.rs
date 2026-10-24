@@ -92,6 +92,49 @@ pub fn draw(frame: &mut [u32], w: usize, h: usize, lines: &[String]) {
     }
 }
 
+/// Draws `lines` in white on a darkened panel in the top-left corner of the `w` x `h` picture,
+/// over what is there (the speed read-out). The font is drawn at its own size (one pixel per
+/// font pixel) on pictures narrower than 600 pixels, else at twice.
+pub fn draw_panel(frame: &mut [u32], w: usize, h: usize, lines: &[String]) {
+    let scale = if w >= 600 { 2 } else { 1 };
+    let (cw, lh, pad) = (6 * scale, 9 * scale, 2 * scale);
+    let cols = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+    let pw = (cols * cw + 2 * pad).min(w);
+    let ph = (lines.len() * lh + 2 * pad).min(h);
+    if frame.len() < w * h {
+        return;
+    }
+    for y in 0..ph {
+        for p in &mut frame[y * w..y * w + pw] {
+            // A quarter of the colour left: the text stands out, the game still shows.
+            *p = (*p >> 2) & 0x003F_3F3F;
+        }
+    }
+    for (row, line) in lines.iter().enumerate() {
+        let y0 = pad + row * lh;
+        if y0 + 7 * scale > ph {
+            break;
+        }
+        for (col, c) in line.chars().enumerate() {
+            let x0 = pad + col * cw;
+            if x0 + 5 * scale > pw {
+                break;
+            }
+            for (gy, bits) in glyph(c).iter().enumerate() {
+                for gx in 0..5 {
+                    if bits & (0x10 >> gx) != 0 {
+                        for dy in 0..scale {
+                            for dx in 0..scale {
+                                frame[(y0 + scale * gy + dy) * w + x0 + scale * gx + dx] = 0x00FF_FFFF;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Splits `text` into lines of at most `width` characters, at spaces where it can.
 pub fn wrap(text: &str, width: usize) -> Vec<String> {
     let mut out = Vec::new();
@@ -138,6 +181,19 @@ mod tests {
         assert_eq!(f[17 * 640 + 23], 0x00FF_FFFF);
         assert_eq!(f[16 * 640 + 24], 0);
         assert_eq!(f[400 * 640 + 400], 0, "the rest is black");
+    }
+
+    #[test]
+    fn the_panel_darkens_its_corner_and_leaves_the_rest() {
+        let mut f = vec![0x0080_8080u32; 640 * 480];
+        draw_panel(&mut f, 640, 480, &["I".to_string()]);
+        assert_eq!(f[0], 0x0020_2020, "darkened");
+        assert_eq!(f[4 * 640 + 4 + 2], 0x00FF_FFFF, "the I's top row");
+        assert_eq!(f[300 * 640 + 300], 0x0080_8080, "the picture elsewhere");
+        // Small pictures get the font at its own size.
+        let mut s = vec![0u32; 320 * 240];
+        draw_panel(&mut s, 320, 240, &["I".to_string()]);
+        assert_eq!(s[2 * 320 + 2 + 1], 0x00FF_FFFF);
     }
 
     #[test]

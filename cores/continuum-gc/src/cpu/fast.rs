@@ -100,6 +100,8 @@ pub struct FastStats {
     pub blocks_run: u64,
     pub invalidations: u64,
     pub idle_skips: u64,
+    /// Cycles those skipped rounds stood for (time the program spent waiting).
+    pub idle_cycles: u64,
     /// With the JIT on: instructions run in compiled code, and why the other blocks ran in
     /// the interpreter (not the standard mapping, idle loop, reads the time, outside the
     /// compiled window, not run enough yet, budget shorter than the block).
@@ -323,6 +325,7 @@ impl FastCpu {
             let rounds = (budget.saturating_sub(cycles)) / n as u64;
             cycles += rounds * n as u64;
             self.stats.idle_skips += rounds;
+            self.stats.idle_cycles += rounds * n as u64;
         }
         self.last = Some(idx);
         let stop = block.timed;

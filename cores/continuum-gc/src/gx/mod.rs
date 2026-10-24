@@ -160,6 +160,8 @@ pub struct Stats {
     pub last_unknown: u8,
     /// Time spent drawing (development read-out).
     pub draw_time: std::time::Duration,
+    /// Time the CPU's thread spent waiting for (and helping with) the helpers' pixels.
+    pub wait_time: std::time::Duration,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -314,8 +316,10 @@ impl Gx {
 
     /// Waits for everything queued to be drawn into the EFB.
     pub fn sync(&mut self) {
+        let t = std::time::Instant::now();
         let n = self.draw.wait();
         self.stats.pixels += n;
+        self.stats.wait_time += t.elapsed();
     }
 
     /// `sync` for a shared borrow (save states); the pixel count is added at the next `sync`.
