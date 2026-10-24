@@ -1,0 +1,945 @@
+# Continuum GameCube/Wii settings mapping. Edit by hand; scripts/build-gc-inventory.py builds the table.
+# id	status (core | app | app-gap | na)	category (system video audio input link performance debug game)	note
+ANDROID_GFX_INTERNAL_RESOLUTION_FRAME_DUMPS	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+ANDROID_LOGGER_VERBOSITY	core	debug	
+ANDROID_LOGGER_WRITE_TO_FILE	core	debug	
+ANDROID_MAIN_ADAPTER_RUMBLE_0	na		needs a real Wii Remote, Bluetooth adapter or USB adapter plugged into the phone, which iOS apps cannot use
+ANDROID_MAIN_ADAPTER_RUMBLE_1	na		needs a real Wii Remote, Bluetooth adapter or USB adapter plugged into the phone, which iOS apps cannot use
+ANDROID_MAIN_ADAPTER_RUMBLE_2	na		needs a real Wii Remote, Bluetooth adapter or USB adapter plugged into the phone, which iOS apps cannot use
+ANDROID_MAIN_ADAPTER_RUMBLE_3	na		needs a real Wii Remote, Bluetooth adapter or USB adapter plugged into the phone, which iOS apps cannot use
+ANDROID_MAIN_BUTTON_LATCHING_CLASSIC_0	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_CLASSIC_1	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_CLASSIC_10	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_CLASSIC_2	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_CLASSIC_3	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_CLASSIC_4	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_CLASSIC_5	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_CLASSIC_6	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_CLASSIC_7	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_CLASSIC_8	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_CLASSIC_9	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_GC_0	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_GC_1	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_GC_2	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_GC_3	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_GC_4	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_GC_5	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_GC_6	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_GC_7	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_WII_0	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_WII_1	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_WII_2	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_WII_3	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_WII_4	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_WII_5	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_WII_6	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_WII_8	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_LATCHING_WII_9	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_CLASSIC_0	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_CLASSIC_1	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_CLASSIC_10	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_CLASSIC_11	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_CLASSIC_12	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_CLASSIC_13	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_CLASSIC_2	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_CLASSIC_3	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_CLASSIC_4	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_CLASSIC_5	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_CLASSIC_6	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_CLASSIC_7	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_CLASSIC_8	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_CLASSIC_9	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_GC_0	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_GC_1	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_GC_10	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_GC_11	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_GC_12	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_GC_2	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_GC_3	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_GC_4	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_GC_5	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_GC_6	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_GC_7	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_GC_8	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_GC_9	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_WII_0	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_WII_1	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_WII_10	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_WII_2	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_WII_3	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_WII_4	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_WII_5	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_WII_6	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_WII_7	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_WII_8	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_BUTTON_TOGGLE_WII_9	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_CONTROL_OPACITY	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_CONTROL_SCALE	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_DOUBLE_TAP_BUTTON	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_EMULATION_ORIENTATION	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_EXPAND_TO_CUTOUT_AREA	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_GB_PLAYER_ROM	app		where a file lives: the app keeps every file in its own folders
+ANDROID_MAIN_INTERFACE_THEME	app		the app's own library and look
+ANDROID_MAIN_INTERFACE_THEME_MODE	app		the app's own library and look
+ANDROID_MAIN_IR_ALWAYS_RECENTER	core	input	
+ANDROID_MAIN_IR_MODE	core	input	
+ANDROID_MAIN_JOYSTICK_REL_CENTER	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_LAST_PLATFORM_TAB	app		the app's own library and look
+ANDROID_MAIN_MOTION_CONTROLS	core	input	
+ANDROID_MAIN_OVERLAY_GC_CONTROLLER	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_OVERLAY_WII_CONTROLLER	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_PHONE_RUMBLE	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_SHOW_GAME_TITLES	app		the app's own library and look
+ANDROID_MAIN_SHOW_INPUT_OVERLAY	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ANDROID_MAIN_SIMULATE_KONGA_0	core	input	
+ANDROID_MAIN_SIMULATE_KONGA_1	core	input	
+ANDROID_MAIN_SIMULATE_KONGA_2	core	input	
+ANDROID_MAIN_SIMULATE_KONGA_3	core	input	
+ANDROID_MAIN_SI_DEVICE_0	core	input	
+ANDROID_MAIN_SI_DEVICE_1	core	input	
+ANDROID_MAIN_SI_DEVICE_2	core	input	
+ANDROID_MAIN_SI_DEVICE_3	core	input	
+ANDROID_MAIN_USE_BLACK_BACKGROUNDS	app		the app's own library and look
+ANDROID_NETPLAY_GAME	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+ANDROID_NETPLAY_SKIP_DUAL_CORE_WARNING	na		remembers that a one-time question was answered
+ANDROID_UPDATER_CHECK_AT_STARTUP	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+ANDROID_UPDATER_PERMISSION_ASKED	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+ANDROID_UPDATER_SKIPPED_VERSION	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+ARMPOSITION_FORWARDBACK	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+ARMPOSITION_LEFTRIGHT	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+ARMPOSITION_MODE	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+ARMPOSITION_UPDOWN	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+AUTO_EFB	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+AUTO_FOG_TOGGLE_MP3	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+BLOOM_INTENSITY	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+DISABLE_BLOOM	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+ENABLE_SECONDARY_GUNFX	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+FL1_CONTROL_TYPE	core	video	
+FOV	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+FOV_ENABLE	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+FREE_LOOK_BACKGROUND_INPUT	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+FREE_LOOK_ENABLED	core	video	
+GC_CROSSHAIR_COLOR_RGBA	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+GC_SHOW_CROSSHAIR	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+GECKO_Config.dsp_coef	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+GECKO_Config.dsp_rom	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+GECKO_Config.gcn_library	app		the app's own library and look
+GECKO_Config.input	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_Config.ipl	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+GECKO_Config.ipl_hle	core	system	
+GECKO_Config.keyboard	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_Config.memcard_enabled	core	system	
+GECKO_Config.setup_completed	app		the app's own library and look
+GECKO_Config.sram_enabled	core	system	
+GECKO_Config.system_dir	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+GECKO_Config.theme	app		the app's own library and look
+GECKO_Config.wii_library	app		the app's own library and look
+GECKO_Config.wii_presets	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_GcConfig.a	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_GcConfig.b	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_GcConfig.deadzone	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_GcConfig.invert_cstick_x	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_GcConfig.invert_cstick_y	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_GcConfig.invert_stick_x	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_GcConfig.invert_stick_y	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_GcConfig.start	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_GcConfig.x	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_GcConfig.y	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_GcConfig.z	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_InputConfig.gamepads	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_InputConfig.gc	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_InputConfig.wii	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.a	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.b	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.deadzone	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.home	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.invert_nunchuk_x	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.invert_nunchuk_y	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.invert_pointer_x	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.invert_pointer_y	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.invert_stick_dpad_x	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.invert_stick_dpad_y	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.left_stick_dpad	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.minus	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.nunchuk_attached	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.nunchuk_c	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.nunchuk_z	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.one	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.plus	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.pointer	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.pointer_sensitivity	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.recenter	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.shake	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.sideways	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.stick_dpad	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiConfig.two	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiPreset.controller	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiPreset.keyboard	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiPresets.active	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiPresets.sideways	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GECKO_WiiPresets.upright	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GFX_ADAPTER	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+GFX_ASPECT_RATIO	core	video	
+GFX_ASYNC_PRESENT	core	performance	
+GFX_BACKEND_MULTITHREADING	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+GFX_BBOX_SYNC_MODE	core	video	
+GFX_BITRATE_KBPS	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_BORDERLESS_FULLSCREEN	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+GFX_CACHE_HIRES_TEXTURES	core	video	
+GFX_CC_CORRECT_COLOR_SPACE	core	video	
+GFX_CC_CORRECT_GAMMA	core	video	
+GFX_CC_GAME_COLOR_SPACE	core	video	
+GFX_CC_GAME_GAMMA	core	video	
+GFX_CC_HDR_PAPER_WHITE_NITS	core	video	
+GFX_CC_SDR_DISPLAY_CUSTOM_GAMMA	core	video	
+GFX_CC_SDR_DISPLAY_GAMMA_SRGB	core	video	
+GFX_COMMAND_BUFFER_EXECUTE_INTERVAL	core	performance	
+GFX_CPU_CULL	core	performance	
+GFX_CROP	core	video	
+GFX_CROP_CUSTOM	core	video	
+GFX_CROP_CUSTOM_BOTTOM	core	video	
+GFX_CROP_CUSTOM_LEFT	core	video	
+GFX_CROP_CUSTOM_RIGHT	core	video	
+GFX_CROP_CUSTOM_TOP	core	video	
+GFX_CROP_TO_ASPECT_RATIO	core	video	
+GFX_CUSTOM_ASPECT_RATIO_HEIGHT	core	video	
+GFX_CUSTOM_ASPECT_RATIO_WIDTH	core	video	
+GFX_DISABLE_FOG	core	video	
+GFX_DISPLAY_SCALE	core	video	
+GFX_DRIVER_LIB_NAME	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+GFX_DUMP_BASE_TEXTURES	core	video	
+GFX_DUMP_CODEC	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_DUMP_EFB_TARGET	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_DUMP_ENCODER	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_DUMP_FORMAT	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_DUMP_FRAMES_AS_IMAGES	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_DUMP_MIP_TEXTURES	core	video	
+GFX_DUMP_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+GFX_DUMP_PIXEL_FORMAT	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_DUMP_TEXTURES	core	video	
+GFX_DUMP_XFB_TARGET	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_EFB_SCALE	core	video	
+GFX_ENABLE_GPU_TEXTURE_DECODING	core	video	
+GFX_ENABLE_PIXEL_LIGHTING	core	video	
+GFX_ENABLE_VALIDATION_LAYER	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+GFX_ENABLE_WIREFRAME	core	debug	
+GFX_ENHANCE_ARBITRARY_MIPMAP_DETECTION	core	video	
+GFX_ENHANCE_ARBITRARY_MIPMAP_DETECTION_THRESHOLD	core	video	
+GFX_ENHANCE_DISABLE_COPY_FILTER	core	video	
+GFX_ENHANCE_FORCE_FILTERING	core	video	
+GFX_ENHANCE_FORCE_TEXTURE_FILTERING	core	video	
+GFX_ENHANCE_FORCE_TRUE_COLOR	core	video	
+GFX_ENHANCE_HDR_OUTPUT	core	video	
+GFX_ENHANCE_MAX_ANISOTROPY	core	video	
+GFX_ENHANCE_OUTPUT_RESAMPLING	core	video	
+GFX_ENHANCE_POST_SHADER	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GFX_ENHANCE_SKIP_APPROXIMATE_LOGIC_OP	core	video	
+GFX_FAST_DEPTH_CALC	core	video	
+GFX_FRAME_DUMPS_RESOLUTION_TYPE	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_HACK_BBOX_ENABLE	core	performance	
+GFX_HACK_CAP_IMMEDIATE_XFB	core	performance	
+GFX_HACK_COPY_EFB_SCALED	core	performance	
+GFX_HACK_DEFER_EFB_COPIES	core	performance	
+GFX_HACK_DISABLE_COPY_TO_VRAM	core	performance	
+GFX_HACK_EARLY_XFB_OUTPUT	core	performance	
+GFX_HACK_EFB_ACCESS_ENABLE	core	performance	
+GFX_HACK_EFB_ACCESS_TILE_SIZE	core	performance	
+GFX_HACK_EFB_DEFER_INVALIDATION	core	performance	
+GFX_HACK_EFB_EMULATE_FORMAT_CHANGES	core	performance	
+GFX_HACK_FAST_MATH	core	performance	
+GFX_HACK_FAST_TEXTURE_SAMPLING	core	performance	
+GFX_HACK_FORCE_PROGRESSIVE	core	performance	
+GFX_HACK_GPU_EFB_PEEK_RESOLVE	core	performance	
+GFX_HACK_IMMEDIATE_XFB	core	performance	
+GFX_HACK_MISSING_COLOR_VALUE	core	performance	
+GFX_HACK_NEON_TEXTURE_DECODE	core	performance	
+GFX_HACK_NO_MIPMAPPING	core	performance	
+GFX_HACK_SKIP_DUPLICATE_XFBS	core	performance	
+GFX_HACK_SKIP_EFB_COPY_TO_RAM	core	performance	
+GFX_HACK_SKIP_XFB_COPY_TO_RAM	core	performance	
+GFX_HACK_VERTEX_ROUNDING	core	performance	
+GFX_HACK_VI_DECIMATE_INTERLACE	core	performance	
+GFX_HACK_VI_SKIP	core	performance	
+GFX_HACK_VI_SKIP_MODE	core	performance	
+GFX_HIRES_TEXTURES	core	video	
+GFX_INTERNAL_RESOLUTION_FRAME_DUMPS	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_LOG_RENDER_TIME_TO_FILE	core	debug	
+GFX_LOG_TURN_COUNT_TO_FILE	core	debug	
+GFX_MAX_EFB_SCALE	core	video	
+GFX_MODS_ENABLE	core	video	
+GFX_MOVABLE_PERFORMANCE_METRICS	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_MPN_HUD_SCALE	core	game	one game's extra (Melee replays and music, Mario Party, Rogue Squadron, The Last Story)
+GFX_MSAA	core	video	
+GFX_MTL_MANUALLY_UPLOAD_BUFFERS	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+GFX_MTL_METALFX_SPATIAL_UPSCALE	core	video	
+GFX_MTL_USE_PRESENT_DRAWABLE	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+GFX_OVERLAY_PROJ_STATS	core	debug	
+GFX_OVERLAY_SCISSOR_STATS	core	debug	
+GFX_OVERLAY_STATS	core	debug	
+GFX_PERF_QUERIES_ENABLE	core	video	
+GFX_PERF_SAMP_WINDOW	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_PNG_COMPRESSION_LEVEL	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_PREFER_GLES	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+GFX_PREFER_VS_FOR_LINE_POINT_EXPANSION	core	video	
+GFX_SAFE_TEXTURE_CACHE_COLOR_SAMPLES	core	video	
+GFX_SAVE_TEXTURE_CACHE_TO_STATE	core	video	
+GFX_SHADER_CACHE	core	performance	
+GFX_SHADER_COMPILATION_MODE	core	performance	
+GFX_SHADER_COMPILER_THREADS	core	performance	
+GFX_SHADER_PRECOMPILER_THREADS	core	performance	
+GFX_SHOW_FPS	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+GFX_SHOW_FTIMES	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_SHOW_GRAPHS	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_SHOW_INTERNAL_RESOLUTION	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_SHOW_MP_TURN	core	video	
+GFX_SHOW_NETPLAY_MESSAGES	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+GFX_SHOW_NETPLAY_PING	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+GFX_SHOW_SPEED	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_SHOW_SPEED_COLORS	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_SHOW_VPS	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_SHOW_VTIMES	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_SSAA	core	video	
+GFX_STEREO_CONVERGENCE	core	video	
+GFX_STEREO_CONVERGENCE_PERCENTAGE	core	video	
+GFX_STEREO_DEPTH	core	video	
+GFX_STEREO_DEPTH_PERCENTAGE	core	video	
+GFX_STEREO_EFB_MONO_DEPTH	core	video	
+GFX_STEREO_MODE	core	video	
+GFX_STEREO_PER_EYE_RESOLUTION_FULL	core	video	
+GFX_STEREO_SWAP_EYES	core	video	
+GFX_SUGGESTED_ASPECT_RATIO	core	video	
+GFX_SW_DUMP_OBJECTS	core	debug	
+GFX_SW_DUMP_TEV_STAGES	core	debug	
+GFX_SW_DUMP_TEV_TEX_FETCHES	core	debug	
+GFX_TEXFMT_OVERLAY_CENTER	core	debug	
+GFX_TEXFMT_OVERLAY_ENABLE	core	debug	
+GFX_TEXTURE_PNG_COMPRESSION_LEVEL	core	video	
+GFX_USE_COMPUTE_EFBXFB	core	performance	
+GFX_USE_COMPUTE_VERTEX_DECODE	core	performance	
+GFX_USE_FFV1	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_USE_LOSSLESS	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+GFX_VERTEX_LOADER_TYPE	core	performance	
+GFX_VSYNC	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+GFX_WAIT_FOR_SHADERS_BEFORE_STARTING	core	performance	
+GFX_WIDESCREEN_HACK	core	video	
+GFX_WIDESCREEN_HEURISTIC_ASPECT_RATIO_SLOP	core	video	
+GFX_WIDESCREEN_HEURISTIC_STANDARD_RATIO	core	video	
+GFX_WIDESCREEN_HEURISTIC_TRANSITION_THRESHOLD	core	video	
+GFX_WIDESCREEN_HEURISTIC_WIDESCREEN_RATIO	core	video	
+GetInfoForSIDevice	core	input	the device in each controller port (generated per port in Dolphin)
+ISHIIRUKA_AdapterWarning	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+ISHIIRUKA_AllowAllNetplayVersions	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+ISHIIRUKA_Apploader	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+ISHIIRUKA_AutoHideCursor	app		the app's own library and look
+ISHIIRUKA_BootDefaultISO	app		the app's own library and look
+ISHIIRUKA_BoundingBoxMode	core	video	
+ISHIIRUKA_ColorCompressed	core	video	
+ISHIIRUKA_ColumnState	app		the app's own library and look
+ISHIIRUKA_CompileShaderOnStartup	core	performance	
+ISHIIRUKA_ConvertHiresTextures	core	video	
+ISHIIRUKA_DVDRoot	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+ISHIIRUKA_DisableFiltering	core	video	
+ISHIIRUKA_DisableTooltips	app		the app's own library and look
+ISHIIRUKA_DumpPath	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+ISHIIRUKA_DumpVertexLoader	core	debug	
+ISHIIRUKA_EFBFastAccess	core	performance	
+ISHIIRUKA_EnableComputeTextureEncoding	core	performance	
+ISHIIRUKA_EnableOpenCL	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+ISHIIRUKA_Enabled	core	system	
+ISHIIRUKA_ForceDualSourceBlend	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+ISHIIRUKA_ForceLogicOpBlend	core	video	
+ISHIIRUKA_ForceNTSCJ	core	system	
+ISHIIRUKA_ForcePhongShading	core	video	
+ISHIIRUKA_ForcedLighting	core	video	
+ISHIIRUKA_FrameSkip	core	performance	
+ISHIIRUKA_FullAsyncShaderCompilation	core	performance	
+ISHIIRUKA_FullscreenResolution	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+ISHIIRUKA_HLE_BS2	core	system	
+ISHIIRUKA_HideCursor	app		the app's own library and look
+ISHIIRUKA_HiresMaterialMaps	core	video	
+ISHIIRUKA_HiresMaterialMapsBuild	core	video	
+ISHIIRUKA_LastFilename	app		the app's own library and look
+ISHIIRUKA_LastStoryEFBToRam	core	game	one game's extra (Melee replays and music, Mario Party, Rogue Squadron, The Last Story)
+ISHIIRUKA_MainWindowHeight	app		the app's own library and look
+ISHIIRUKA_MainWindowPosX	app		the app's own library and look
+ISHIIRUKA_MainWindowPosY	app		the app's own library and look
+ISHIIRUKA_MainWindowWidth	app		the app's own library and look
+ISHIIRUKA_OutputIR	core	debug	
+ISHIIRUKA_PostProcessingEnable	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ISHIIRUKA_PostProcessingShaders	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ISHIIRUKA_PostProcessingTrigger	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ISHIIRUKA_PredictiveFifo	core	performance	
+ISHIIRUKA_RSHACK	core	game	one game's extra (Melee replays and music, Mario Party, Rogue Squadron, The Last Story)
+ISHIIRUKA_ReduceTimingDispersion	core	performance	
+ISHIIRUKA_RimBase	core	video	
+ISHIIRUKA_RimIntesity	core	video	
+ISHIIRUKA_RimPower	core	video	
+ISHIIRUKA_SWDrawEnd	core	debug	
+ISHIIRUKA_SWDrawStart	core	debug	
+ISHIIRUKA_SWZComploc	core	debug	
+ISHIIRUKA_SWZFreeze	core	debug	
+ISHIIRUKA_ScalingShader	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ISHIIRUKA_ShowLogConfigWindow	app		the app's own library and look
+ISHIIRUKA_ShowLogWindow	app		the app's own library and look
+ISHIIRUKA_ShowOSDClock	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ISHIIRUKA_ShowSeekbar	app		the app's own library and look
+ISHIIRUKA_ShowStatusbar	app		the app's own library and look
+ISHIIRUKA_ShowToolbar	app		the app's own library and look
+ISHIIRUKA_ShownLagReductionWarning	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+ISHIIRUKA_SimBumpDetailBlend	core	video	
+ISHIIRUKA_SimBumpDetailFrequency	core	video	
+ISHIIRUKA_SimBumpEnabled	core	video	
+ISHIIRUKA_SimBumpStrength	core	video	
+ISHIIRUKA_SimBumpThreshold	core	video	
+ISHIIRUKA_SlippiRegenerateReplays	core	game	one game's extra (Melee replays and music, Mario Party, Rogue Squadron, The Last Story)
+ISHIIRUKA_SlippiReplayRegenerateDir	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+ISHIIRUKA_SpecularMultiplier	core	video	
+ISHIIRUKA_StereoShader	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ISHIIRUKA_Tessellation	core	video	
+ISHIIRUKA_TessellationDisplacementIntensity	core	video	
+ISHIIRUKA_TessellationDistance	core	video	
+ISHIIRUKA_TessellationEarlyCulling	core	video	
+ISHIIRUKA_TessellationMax	core	video	
+ISHIIRUKA_TessellationRoundingIntensity	core	video	
+ISHIIRUKA_TextureScalingFactor	core	video	
+ISHIIRUKA_TextureScalingType	core	video	
+ISHIIRUKA_TimeProfiling	core	debug	
+ISHIIRUKA_UseDePosterize	core	video	
+ISHIIRUKA_UseRealXFB	core	video	
+ISHIIRUKA_UseScalingFilter	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+ISHIIRUKA_UseXFB	core	video	
+ISHIIRUKA_WaitForShaderCompilation	core	performance	
+Info	core	input	the device in each controller port (generated per port in Dolphin)
+LAZULI_Config.debug	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+LAZULI_Config.exec	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+LAZULI_Config.ipl	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+LAZULI_Config.ipl_lle	core	system	
+LAZULI_Config.mappable_vram	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+LAZULI_Config.ppcjit	core	performance	
+LAZULI_Config.rom	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+LAZULI_Config.run	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+LAZULI_Config.uart_escape	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+LAZULI_PpcjitConfig.clear_cache	core	debug	
+LAZULI_PpcjitConfig.force_fpu	core	system	
+LAZULI_PpcjitConfig.ignore_unimplemented_inst	core	debug	
+LAZULI_PpcjitConfig.instr_per_block	core	performance	
+LAZULI_PpcjitConfig.nop_syscalls	core	debug	
+LAZULI_PpcjitConfig.round_to_single	core	system	
+LOCKCAMERA_IN_PUZZLES	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+MAIN_ABORT_ON_PANIC_ALERT	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_ACCURATE_CPU_CACHE	core	system	
+MAIN_ACCURATE_FMADDS	core	system	
+MAIN_ACCURATE_NANS	core	system	
+MAIN_AGP_CART_A_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_AGP_CART_B_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_ALLOW_SD_WRITES	core	system	
+MAIN_ANALYTICS_ENABLED	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_ANALYTICS_ID	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_ANALYTICS_PERMISSION_ASKED	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_ANALYTICS_WILL_PROMPT	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_ARAM_EXPANSION_SIZE	core	system	
+MAIN_AUDIO_AU_CHAIN	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_AUDIO_BACKEND	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_AUDIO_BUFFER_SIZE	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_AUDIO_FILL_GAPS	core	audio	
+MAIN_AUDIO_FX_CRUSH_BITS	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_AUDIO_FX_CRUSH_DOWNSAMPLE	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_AUDIO_FX_CRUSH_ENABLED	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_AUDIO_FX_DELAY_ENABLED	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_AUDIO_FX_DELAY_FEEDBACK	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_AUDIO_FX_DELAY_MS	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_AUDIO_FX_EQ_ENABLED	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_AUDIO_FX_EQ_HIGH_DB	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_AUDIO_FX_EQ_LOW_DB	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_AUDIO_FX_EQ_MID_DB	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_AUDIO_LATENCY	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_AUDIO_MUTED	core	audio	
+MAIN_AUDIO_MUTE_ON_DISABLED_SPEED_LIMIT	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_AUDIO_PRESERVE_PITCH	core	audio	
+MAIN_AUDIO_SPATIAL	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_AUDIO_SPATIAL_HEAD_TRACKING	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_AUDIO_STRETCH	core	audio	
+MAIN_AUDIO_STRETCH_LATENCY	core	audio	
+MAIN_AUDIO_VOLUME	core	audio	
+MAIN_AUTOUPDATE_HASH_OVERRIDE	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_AUTOUPDATE_UPDATE_TRACK	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_AUTO_DISC_CHANGE	core	system	
+MAIN_BBA_BUILTIN_DNS	core	link	
+MAIN_BBA_BUILTIN_IP	core	link	
+MAIN_BBA_MAC	core	link	
+MAIN_BBA_TAPSERVER_DESTINATION	core	link	
+MAIN_BBA_XLINK_CHAT_OSD	core	link	
+MAIN_BBA_XLINK_IP	core	link	
+MAIN_BB_DUMP_PORT	core	debug	
+MAIN_BLUETOOTH_PASSTHROUGH_ENABLED	na		needs a real Wii Remote, Bluetooth adapter or USB adapter plugged into the phone, which iOS apps cannot use
+MAIN_BLUETOOTH_PASSTHROUGH_LINK_KEYS	na		needs a real Wii Remote, Bluetooth adapter or USB adapter plugged into the phone, which iOS apps cannot use
+MAIN_BLUETOOTH_PASSTHROUGH_PID	na		needs a real Wii Remote, Bluetooth adapter or USB adapter plugged into the phone, which iOS apps cannot use
+MAIN_BLUETOOTH_PASSTHROUGH_VID	na		needs a real Wii Remote, Bluetooth adapter or USB adapter plugged into the phone, which iOS apps cannot use
+MAIN_CACHED_INTERPRETER_PREFETCH	core	performance	
+MAIN_CIR_BLOCK_LINKING	core	performance	
+MAIN_CIR_BLOCK_LINKING_VALIDATE	core	debug	
+MAIN_CIR_CACHE_LOOP_FF	core	performance	
+MAIN_CIR_CACHE_LOOP_FF_VALIDATE	core	debug	
+MAIN_CIR_DEAD_FLAG_ELIM	core	performance	
+MAIN_CIR_DEAD_FLAG_ELIM_VALIDATE	core	debug	
+MAIN_CIR_DEAD_FPRF_ELIM	core	performance	
+MAIN_CIR_DEAD_FPRF_ELIM_VALIDATE	core	debug	
+MAIN_CIR_DYN_LINKING	core	performance	
+MAIN_CIR_DYN_TARGET_CACHE	core	performance	
+MAIN_CIR_GP_COPY_FUSION	core	performance	
+MAIN_CIR_IR_CONST_FUSION	core	performance	
+MAIN_CIR_IR_CONST_FUSION_VALIDATE	core	debug	
+MAIN_CIR_IR_DEAD_FLAG_ELIM	core	performance	
+MAIN_CIR_IR_DEAD_FLAG_ELIM_VALIDATE	core	debug	
+MAIN_CIR_IR_MICROOP_FUSION	core	performance	
+MAIN_CIR_IR_MICROOP_FUSION_VALIDATE	core	debug	
+MAIN_CIR_IR_PIC_LOADSTORE_VALIDATE	core	debug	
+MAIN_CIR_IR_SPECIALIZED_OPS_VALIDATE	core	debug	
+MAIN_CIR_LONG_BLOCKS	core	performance	
+MAIN_CIR_MEM_MICROOPS	core	performance	
+MAIN_CIR_MICROOP_FUSION	core	performance	
+MAIN_CIR_MICROOP_FUSION_VALIDATE	core	debug	
+MAIN_CIR_MICRO_PAIRS	core	performance	
+MAIN_CIR_PIC_LOADSTORE	core	performance	
+MAIN_CIR_PROFILE	core	debug	
+MAIN_CIR_PSQ_FASTPATH	core	performance	
+MAIN_CIR_PSQ_FASTPATH_VALIDATE	core	debug	
+MAIN_CIR_PS_NEON	core	performance	
+MAIN_CIR_PS_NEON_VALIDATE	core	debug	
+MAIN_CIR_RECORD_CHAINING	core	performance	
+MAIN_CIR_SKIP_PERF_MONITOR	core	performance	
+MAIN_CIR_SPECIALIZED_FP_ARITH	core	performance	
+MAIN_CIR_SPECIALIZED_FP_ARITH_VALIDATE	core	debug	
+MAIN_CIR_SPECIALIZED_FP_LS	core	performance	
+MAIN_CIR_SPECIALIZED_OPS	core	performance	
+MAIN_CIR_SPECIALIZED_OPS_VALIDATE	core	debug	
+MAIN_CIR_SPECIALIZED_PSQ	core	performance	
+MAIN_CIR_STORE_LOOP_FF	core	performance	
+MAIN_CIR_STORE_LOOP_FF_VALIDATE	core	debug	
+MAIN_CIR_TAIL_LINK	core	performance	
+MAIN_CIR_TAPE_PREFETCH_DIST	core	performance	
+MAIN_CIR_TAPE_THRASH_STRIDE	core	performance	
+MAIN_CONFIRM_ON_STOP	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_CONNECT_WIIMOTES_FOR_CONTROLLER_INTERFACE	na		needs a real Wii Remote, Bluetooth adapter or USB adapter plugged into the phone, which iOS apps cannot use
+MAIN_CORRECT_TIME_DRIFT	core	system	
+MAIN_CPU_CORE	core	performance	interpreter, fast interpreter, or our JIT; Auto picks our JIT when the phone allows it (jit.rs)
+MAIN_CPU_THREAD	core	performance	
+MAIN_CURRENT_STATE_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_CUSTOM_RTC_ENABLE	core	system	
+MAIN_CUSTOM_RTC_VALUE	core	system	
+MAIN_DEBUG_JIT_BRANCH_OFF	core	debug	
+MAIN_DEBUG_JIT_ENABLE_PROFILING	core	debug	
+MAIN_DEBUG_JIT_FLOATING_POINT_OFF	core	debug	
+MAIN_DEBUG_JIT_INTEGER_OFF	core	debug	
+MAIN_DEBUG_JIT_LOAD_STORE_FLOATING_OFF	core	debug	
+MAIN_DEBUG_JIT_LOAD_STORE_LBZX_OFF	core	debug	
+MAIN_DEBUG_JIT_LOAD_STORE_LWZ_OFF	core	debug	
+MAIN_DEBUG_JIT_LOAD_STORE_LXZ_OFF	core	debug	
+MAIN_DEBUG_JIT_LOAD_STORE_OFF	core	debug	
+MAIN_DEBUG_JIT_LOAD_STORE_PAIRED_OFF	core	debug	
+MAIN_DEBUG_JIT_OFF	core	debug	
+MAIN_DEBUG_JIT_PAIRED_OFF	core	debug	
+MAIN_DEBUG_JIT_REGISTER_CACHE_OFF	core	debug	
+MAIN_DEBUG_JIT_SYSTEM_REGISTERS_OFF	core	debug	
+MAIN_DEFAULT_ISO	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_DISABLE_ICACHE	core	system	
+MAIN_DISABLE_SCREENSAVER	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_DIVIDE_BY_ZERO_EXCEPTIONS	core	system	
+MAIN_DPL2_DECODER	core	audio	
+MAIN_DPL2_QUALITY	core	audio	
+MAIN_DSP_CAPTURE_LOG	core	debug	
+MAIN_DSP_HLE	core	audio	our own stand-in for the sound programs (default), or the real sound chip with the player's own DSP files
+MAIN_DSP_JIT	core	performance	
+MAIN_DSP_THREAD	core	performance	
+MAIN_DUMP_AUDIO	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_DUMP_AUDIO_SILENT	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_DUMP_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_DUMP_UCODE	core	debug	
+MAIN_EMULATE_INFINITY_BASE	core	input	
+MAIN_EMULATE_SKYLANDER_PORTAL	core	input	
+MAIN_EMULATE_WII_SPEAK	core	input	
+MAIN_EMULATION_SPEED	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_ENABLE_CHEATS	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_ENABLE_DEBUGGING	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_ENABLE_SAVESTATES	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_EXTENDED_FPS_INFO	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_FALLBACK_REGION	core	system	
+MAIN_FASTMEM	core	performance	
+MAIN_FASTMEM_ARENA	core	performance	
+MAIN_FAST_DISC_SPEED	core	performance	
+MAIN_FAST_FORWARD_CTR_IDLE	core	performance	
+MAIN_FAST_FORWARD_HOTKEY	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_FAST_PAIRED_BLOCKS	core	performance	
+MAIN_FAST_PAIRED_MATH	core	performance	
+MAIN_FAST_PAIRED_ROUNDING	core	performance	
+MAIN_FAST_SINGLE_PRECISION	core	performance	
+MAIN_FIFOPLAYER_EARLY_MEMORY_UPDATES	core	debug	
+MAIN_FIFOPLAYER_LOOP_REPLAY	core	debug	
+MAIN_FLOAT_EXCEPTIONS	core	system	
+MAIN_FOCUSED_HOTKEYS	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_FPRF	core	system	
+MAIN_FP_FAST	core	system	
+MAIN_FS_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_FULLSCREEN	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_FULLSCREEN_DISPLAY_RES	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_GAMELIST_COLUMN_BANNER	app		the app's own library and look
+MAIN_GAMELIST_COLUMN_BLOCK_SIZE	app		the app's own library and look
+MAIN_GAMELIST_COLUMN_COMPRESSION	app		the app's own library and look
+MAIN_GAMELIST_COLUMN_DESCRIPTION	app		the app's own library and look
+MAIN_GAMELIST_COLUMN_FILE_FORMAT	app		the app's own library and look
+MAIN_GAMELIST_COLUMN_FILE_NAME	app		the app's own library and look
+MAIN_GAMELIST_COLUMN_FILE_PATH	app		the app's own library and look
+MAIN_GAMELIST_COLUMN_FILE_SIZE	app		the app's own library and look
+MAIN_GAMELIST_COLUMN_GAME_ID	app		the app's own library and look
+MAIN_GAMELIST_COLUMN_MAKER	app		the app's own library and look
+MAIN_GAMELIST_COLUMN_PHSUPPORT	app		the app's own library and look
+MAIN_GAMELIST_COLUMN_PLATFORM	app		the app's own library and look
+MAIN_GAMELIST_COLUMN_REGION	app		the app's own library and look
+MAIN_GAMELIST_COLUMN_TAGS	app		the app's own library and look
+MAIN_GAMELIST_COLUMN_TIME_PLAYED	app		the app's own library and look
+MAIN_GAMELIST_COLUMN_TITLE	app		the app's own library and look
+MAIN_GAMELIST_LIST_AUSTRALIA	app		the app's own library and look
+MAIN_GAMELIST_LIST_DRIVES	app		the app's own library and look
+MAIN_GAMELIST_LIST_ELF_DOL	app		the app's own library and look
+MAIN_GAMELIST_LIST_FRANCE	app		the app's own library and look
+MAIN_GAMELIST_LIST_GC	app		the app's own library and look
+MAIN_GAMELIST_LIST_GERMANY	app		the app's own library and look
+MAIN_GAMELIST_LIST_ITALY	app		the app's own library and look
+MAIN_GAMELIST_LIST_JPN	app		the app's own library and look
+MAIN_GAMELIST_LIST_KOREA	app		the app's own library and look
+MAIN_GAMELIST_LIST_NETHERLANDS	app		the app's own library and look
+MAIN_GAMELIST_LIST_PAL	app		the app's own library and look
+MAIN_GAMELIST_LIST_RUSSIA	app		the app's own library and look
+MAIN_GAMELIST_LIST_SORT	app		the app's own library and look
+MAIN_GAMELIST_LIST_SORT_SECONDARY	app		the app's own library and look
+MAIN_GAMELIST_LIST_SPAIN	app		the app's own library and look
+MAIN_GAMELIST_LIST_TAIWAN	app		the app's own library and look
+MAIN_GAMELIST_LIST_TRI	app		the app's own library and look
+MAIN_GAMELIST_LIST_UNKNOWN	app		the app's own library and look
+MAIN_GAMELIST_LIST_USA	app		the app's own library and look
+MAIN_GAMELIST_LIST_WAD	app		the app's own library and look
+MAIN_GAMELIST_LIST_WII	app		the app's own library and look
+MAIN_GAMELIST_LIST_WORLD	app		the app's own library and look
+MAIN_GBA_AUDIO_ROUTING_ENABLED	core	audio	
+MAIN_GBA_BIOS_PATH	app		where a file lives: the app keeps every file in its own folders
+MAIN_GBA_SAVES_IN_ROM_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_GBA_SAVES_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_GBA_THREADS	core	link	GBA link cable: the GBA side could be cBoy
+MAIN_GCI_FOLDER_A_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_GCI_FOLDER_A_PATH_OVERRIDE	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_GCI_FOLDER_B_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_GCI_FOLDER_B_PATH_OVERRIDE	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_GC_LANGUAGE	core	system	
+MAIN_GDB_PORT	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_GDB_SOCKET	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_GFX_BACKEND	core	video	which drawer: exact (main processor) or fast (graphics chip)
+MAIN_GPU_DETERMINISM_MODE	core	link	
+MAIN_HSP_DEVICE	core	link	Game Boy Player: could run Game Boy Advance games through cBoy
+MAIN_INPUT_BACKGROUND_INPUT	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_INTERFACE_LANGUAGE	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_ISO_PATH_COUNT	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_JIT_FOLLOW_BRANCH	core	performance	
+MAIN_KEEP_WINDOW_ON_TOP	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_LARGE_ENTRY_POINTS_MAP	core	debug	
+MAIN_LOAD_GAME_INTO_MEMORY	core	performance	
+MAIN_LOAD_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_LOCK_CURSOR	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_LOW_DCBZ_HACK	core	system	
+MAIN_MAX_FALLBACK	core	performance	
+MAIN_MEM1_SIZE	core	system	
+MAIN_MEM2_SIZE	core	system	
+MAIN_MEMCARD_A_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_MEMCARD_B_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_MEMORY_CARD_SIZE	core	system	
+MAIN_MMU	core	system	
+MAIN_MODEM_TAPSERVER_DESTINATION	core	link	
+MAIN_MOVIE_DUMP_FRAMES	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_MOVIE_DUMP_FRAMES_SILENT	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_MOVIE_MOVIE_AUTHOR	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_MOVIE_PAUSE_MOVIE	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_MOVIE_SHOW_INPUT_DISPLAY	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_MOVIE_SHOW_OSD	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_MOVIE_SHOW_RERECORD	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_MOVIE_SHOW_RTC	app-gap		belongs in the app for every console, and the app does not have it yet (speed read-outs, sound effects, recording a video or input movie)
+MAIN_MUTE_SWITCH_MODE	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_NETWORK_DUMP_AS_PCAP	core	debug	
+MAIN_NETWORK_DUMP_BBA	core	debug	
+MAIN_NETWORK_SSL_DUMP_PEER_CERT	core	debug	
+MAIN_NETWORK_SSL_DUMP_READ	core	debug	
+MAIN_NETWORK_SSL_DUMP_ROOT_CA	core	debug	
+MAIN_NETWORK_SSL_DUMP_WRITE	core	debug	
+MAIN_NETWORK_SSL_VERIFY_CERTIFICATES	core	link	
+MAIN_NETWORK_TIMEOUT	core	link	
+MAIN_OSD_FONT_SIZE	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_OSD_MESSAGES	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_OVERCLOCK	core	system	
+MAIN_OVERCLOCK_ENABLE	core	system	
+MAIN_OVERRIDE_BOOT_IOS	core	system	
+MAIN_OVERRIDE_REGION_SETTINGS	core	system	
+MAIN_PAGE_TABLE_FASTMEM	core	performance	
+MAIN_PAIRED_QUANTIZE_RETRIES	core	performance	
+MAIN_PAUSE_ON_FOCUS_LOST	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_PAUSE_ON_PANIC	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_PERF_MAP_DIR	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_PRECISION_FRAME_TIMING	core	performance	
+MAIN_RAM_OVERRIDE_ENABLE	core	system	
+MAIN_REAL_WII_REMOTE_REPEAT_REPORTS	na		needs a real Wii Remote, Bluetooth adapter or USB adapter plugged into the phone, which iOS apps cannot use
+MAIN_RECURSIVE_ISO_PATHS	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_RELAXED_IDLE_DETECTION	core	performance	
+MAIN_RENDER_TO_MAIN	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_RENDER_WINDOW_AUTOSIZE	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_RENDER_WINDOW_HEIGHT	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_RENDER_WINDOW_WIDTH	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_RENDER_WINDOW_XPOS	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_RENDER_WINDOW_YPOS	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_RESOURCEPACK_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_RUN_COMPARE_CLIENT	core	debug	
+MAIN_RUN_COMPARE_SERVER	core	debug	
+MAIN_RUSH_FRAME_PRESENTATION	core	performance	
+MAIN_SDL_HINT_JOYSTICK_DIRECTINPUT	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_SDL_HINT_JOYSTICK_ENHANCED_REPORTS	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_SDL_HINT_JOYSTICK_HIDAPI_COMBINE_JOY_CONS	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_SDL_HINT_JOYSTICK_HIDAPI_PS5_PLAYER_LED	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_SDL_HINT_JOYSTICK_HIDAPI_VERTICAL_JOY_CONS	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_SDL_HINT_JOYSTICK_WGI	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_SELECTED_STATE_SLOT	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_SERIAL_PORT_1	core	link	
+MAIN_SERIAL_PORT_2	core	system	
+MAIN_SHOW_ACTIVE_TITLE	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_SHOW_CURSOR	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_SHOW_FRAME_COUNT	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_SHOW_LAG	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_SKIP_IPL	core	system	start the game straight away; the real startup screen only with the player's own IPL file
+MAIN_SKIP_NKIT_WARNING	na		remembers that a one-time question was answered
+MAIN_SKYLANDERS_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_SLOT_A	core	link	
+MAIN_SLOT_B	core	link	
+MAIN_SMOOTH_EARLY_PRESENTATION	core	performance	
+MAIN_STALL_METRICS	core	debug	
+MAIN_SYNC_GPU	core	performance	
+MAIN_SYNC_GPU_MAX_DISTANCE	core	performance	
+MAIN_SYNC_GPU_MIN_DISTANCE	core	performance	
+MAIN_SYNC_GPU_OVERCLOCK	core	performance	
+MAIN_SYNC_ON_SKIP_IDLE	core	performance	
+MAIN_THEME_NAME	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_TIME_TRACKING	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_TIMING_VARIANCE	core	debug	
+MAIN_TOUCH_PAD_IR_MODE	core	input	
+MAIN_TOUCH_PAD_OPACITY	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_TRIFORCE_IP_REDIRECTIONS	core	link	
+MAIN_USB_PASSTHROUGH_DEVICES	na		needs a real Wii Remote, Bluetooth adapter or USB adapter plugged into the phone, which iOS apps cannot use
+MAIN_USB_PASSTHROUGH_DISGUISE_PLAYSTATION_AS_WII	na		needs a real Wii Remote, Bluetooth adapter or USB adapter plugged into the phone, which iOS apps cannot use
+MAIN_USE_BUILT_IN_TITLE_DATABASE	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_USE_DISCORD_PRESENCE	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_USE_GAME_COVERS	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+MAIN_USE_HIGH_CONTRAST_TOOLTIPS	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_USE_PANIC_HANDLERS	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_VI_OVERCLOCK	core	system	
+MAIN_VI_OVERCLOCK_ENABLE	core	system	
+MAIN_WASAPI_DEVICE	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+MAIN_WFS_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_WIIMOTE_AUDIO_ROUTING_ENABLED	core	audio	
+MAIN_WIIMOTE_AUTO_CONNECT_ADDRESSES	na		needs a real Wii Remote, Bluetooth adapter or USB adapter plugged into the phone, which iOS apps cannot use
+MAIN_WIIMOTE_CONTINUOUS_SCANNING	na		needs a real Wii Remote, Bluetooth adapter or USB adapter plugged into the phone, which iOS apps cannot use
+MAIN_WIIMOTE_ENABLE_SPEAKER	na		needs a real Wii Remote, Bluetooth adapter or USB adapter plugged into the phone, which iOS apps cannot use
+MAIN_WII_KEYBOARD	core	input	
+MAIN_WII_NUS_SHOP_URL	core	link	
+MAIN_WII_SD_CARD	core	system	
+MAIN_WII_SD_CARD_ENABLE_FOLDER_SYNC	core	system	
+MAIN_WII_SD_CARD_FILESIZE	core	system	
+MAIN_WII_SD_CARD_IMAGE_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_WII_SD_CARD_SYNC_FOLDER_PATH	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+MAIN_WII_SPEAK_MICROPHONE	core	input	
+MAIN_WII_SPEAK_MUTED	core	input	
+MAIN_WII_SPEAK_VOLUME_MODIFIER	core	input	
+MAIN_WII_WIILINK_ENABLE	core	link	
+MAIN_WIRELESS_MAC	core	system	
+NETPLAY_ADDRESS	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_BUFFER_SIZE	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_CHUNKED_UPLOAD_LIMIT	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_CLIENT_BUFFER_SIZE	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_CONNECT_PORT	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_ENABLE_CHUNKED_UPLOAD_LIMIT	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_ENABLE_QOS	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_GOLF_MODE_OVERLAY	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_HIDE_REMOTE_GBAS	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_HOST_CODE	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_HOST_PORT	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_INDEX_NAME	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_INDEX_PASSWORD	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_INDEX_REGION	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_INDEX_URL	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_LISTEN_PORT	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_NETWORK_MODE	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_NICKNAME	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_RECORD_INPUTS	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_SAVEDATA_LOAD	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_SAVEDATA_SYNC_ALL_WII	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_SAVEDATA_WRITE	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_STRICT_SETTINGS_SYNC	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_SYNC_CODES	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_TRAVERSAL_CHOICE	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_TRAVERSAL_PORT	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_TRAVERSAL_PORT_ALT	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_TRAVERSAL_SERVER	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_USE_INDEX	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+NETPLAY_USE_UPNP	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+PER_CTRL_BUTTONS	core	video	
+PRIMEHACK_ANYBEAM_DOOR	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+PRIMEHACK_DISABLE_HUDMEMO	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+PRIMEHACK_ENABLE	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+PRIMEHACK_FRIENDVOUCHERS	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+PRIMEHACK_INITIAL_RUN	na		remembers that a one-time question was answered
+PRIMEHACK_INVULNERABILITY	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+PRIMEHACK_MODLOADER_ENABLED	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+PRIMEHACK_NOCLIP	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+PRIMEHACK_PROMPT_TAB	na		remembers that a one-time question was answered
+PRIMEHACK_RESTORE_SCANDASH	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+PRIMEHACK_SKIPMP2_PORTAL	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+PRIMEHACK_SKIPPABLE_CUTSCENES	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+PRIMEHACK_UNLOCK_HYPERMODE	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+PUREIKYUBU_core.IDLE_SKIP_PERIOD_US	core	performance	
+PUREIKYUBU_core.IDLE_SKIP_POLLS	core	performance	
+PUREIKYUBU_core.IDLE_SKIP_STOP_ON_CAUSE	core	performance	
+PUREIKYUBU_core.IDLE_SKIP_STRICT	core	performance	
+PUREIKYUBU_hardware.AI_LOG	core	debug	
+PUREIKYUBU_hardware.ANSI	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+PUREIKYUBU_hardware.AR_LOG	core	debug	
+PUREIKYUBU_hardware.BBA_PEER	core	link	
+PUREIKYUBU_hardware.BBA_PORT	core	link	
+PUREIKYUBU_hardware.BOOTROM	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+PUREIKYUBU_hardware.CONSOLE	core	system	
+PUREIKYUBU_hardware.CP_LOG	core	debug	
+PUREIKYUBU_hardware.DI_LOG	core	debug	
+PUREIKYUBU_hardware.DSP_DROM	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+PUREIKYUBU_hardware.DSP_IROM	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+PUREIKYUBU_hardware.EXI_LOG	core	debug	
+PUREIKYUBU_hardware.GFX_PIPELINE	core	performance	
+PUREIKYUBU_hardware.GFX_UNIFORM_CACHE	core	performance	
+PUREIKYUBU_hardware.MI_LOG	core	debug	
+PUREIKYUBU_hardware.OS_REPORT	core	debug	
+PUREIKYUBU_hardware.PI_LOG	core	debug	
+PUREIKYUBU_hardware.SI_LOG	core	debug	
+PUREIKYUBU_hardware.SJIS	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+PUREIKYUBU_hardware.VI_LOG	core	debug	
+PUREIKYUBU_hardware.VI_XFB	core	video	
+PUREIKYUBU_hle.HLEMTX	core	audio	
+PUREIKYUBU_io.Devices	core	input	
+PUREIKYUBU_loader.MAKEMAP	core	debug	
+PUREIKYUBU_ui.BANNER_BG	app		the app's own library and look
+PUREIKYUBU_ui.BANNER_BG_COLOR	app		the app's own library and look
+PUREIKYUBU_ui.FILTER	app		the app's own library and look
+PUREIKYUBU_ui.FILTER_PORTABLE	app		the app's own library and look
+PUREIKYUBU_ui.HW_OSD	app		the app's own library and look
+PUREIKYUBU_ui.LASTFILE	app		the app's own library and look
+PUREIKYUBU_ui.PATH	app		the app's own library and look
+PUREIKYUBU_ui.SELECTOR	app		the app's own library and look
+PUREIKYUBU_ui.SMALLICONS	app		the app's own library and look
+PUREIKYUBU_ui.SORTVIEW	app		the app's own library and look
+PUREIKYUBU_ui.THEME	app		the app's own library and look
+RA_API_TOKEN	app		RetroAchievements: the app's own
+RA_CHALLENGE_INDICATORS_ENABLED	app		RetroAchievements: the app's own
+RA_DISCORD_PRESENCE_ENABLED	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+RA_ENABLED	app		RetroAchievements: the app's own
+RA_ENCORE_ENABLED	app		RetroAchievements: the app's own
+RA_HARDCORE_ENABLED	app		RetroAchievements: the app's own
+RA_HOST_URL	app		RetroAchievements: the app's own
+RA_LEADERBOARD_TRACKER_ENABLED	app		RetroAchievements: the app's own
+RA_PROGRESS_ENABLED	app		RetroAchievements: the app's own
+RA_SPECTATOR_ENABLED	app		RetroAchievements: the app's own
+RA_UNOFFICIAL_ENABLED	app		RetroAchievements: the app's own
+RA_USERNAME	app		RetroAchievements: the app's own
+REDUCE_BLOOM	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+RUSTCUBE_help	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+SESSION_CODE_SYNC_OVERRIDE	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+SESSION_GCI_FOLDER_CURRENT_GAME_ONLY	core	system	
+SESSION_LOAD_IPL_DUMP	core	system	
+SESSION_SAVE_DATA_WRITABLE	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+SESSION_SHOULD_FAKE_ERROR_001	core	link	
+SESSION_USE_FMA	core	system	
+SLIPPI_BLOCKING_PIPES	na		Slippi's own online service for Melee (its servers, ranks, spectators); online play is the app's
+SLIPPI_ENABLE_FRAME_INDEX	core	game	one game's extra (Melee replays and music, Mario Party, Rogue Squadron, The Last Story)
+SLIPPI_ENABLE_JUKEBOX	core	game	one game's extra (Melee replays and music, Mario Party, Rogue Squadron, The Last Story)
+SLIPPI_ENABLE_QUICK_CHAT	na		Slippi's own online service for Melee (its servers, ranks, spectators); online play is the app's
+SLIPPI_ENABLE_RANK_LOCAL	na		Slippi's own online service for Melee (its servers, ranks, spectators); online play is the app's
+SLIPPI_ENABLE_RANK_OPP	na		Slippi's own online service for Melee (its servers, ranks, spectators); online play is the app's
+SLIPPI_ENABLE_SEEK	core	game	one game's extra (Melee replays and music, Mario Party, Rogue Squadron, The Last Story)
+SLIPPI_ENABLE_SPECTATOR	na		Slippi's own online service for Melee (its servers, ranks, spectators); online play is the app's
+SLIPPI_FORCE_LAN_IP	na		Slippi's own online service for Melee (its servers, ranks, spectators); online play is the app's
+SLIPPI_FORCE_NETPLAY_PORT	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+SLIPPI_JUKEBOX_VOLUME	core	game	one game's extra (Melee replays and music, Mario Party, Rogue Squadron, The Last Story)
+SLIPPI_LAN_IP	na		Slippi's own online service for Melee (its servers, ranks, spectators); online play is the app's
+SLIPPI_NETPLAY_PORT	app		online play is the app's own (the core must stay deterministic: see GPUDeterminismMode)
+SLIPPI_ONLINE_DELAY	na		Slippi's own online service for Melee (its servers, ranks, spectators); online play is the app's
+SLIPPI_REPLAY_DIR	app		where a file lives: the app keeps every file in its own folders (BIOS, DSP and font files in <system folder>)
+SLIPPI_REPLAY_MONTHLY_FOLDERS	core	game	one game's extra (Melee replays and music, Mario Party, Rogue Squadron, The Last Story)
+SLIPPI_SAVE_REPLAYS	core	game	one game's extra (Melee replays and music, Mario Party, Rogue Squadron, The Last Story)
+SLIPPI_SPECTATOR_LOCAL_PORT	na		Slippi's own online service for Melee (its servers, ranks, spectators); online play is the app's
+SYSCONF_COUNTRY	core	system	
+SYSCONF_LANGUAGE	core	system	
+SYSCONF_PAL60	core	system	
+SYSCONF_PROGRESSIVE_SCAN	core	system	
+SYSCONF_SCREENSAVER	core	system	
+SYSCONF_SENSOR_BAR_POSITION	core	input	
+SYSCONF_SENSOR_BAR_SENSITIVITY	core	input	
+SYSCONF_SOUND_MODE	core	audio	
+SYSCONF_SPEAKER_VOLUME	core	audio	
+SYSCONF_WIDESCREEN	core	system	
+SYSCONF_WIIMOTE_MOTOR	core	input	
+TOGGLE_ARM_REPOSITION	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+TOGGLE_CULLING	core	game	Metroid Prime games only (PrimeHack's extras: aiming, field of view, camera and so on)
+WIIMOTE_1_SOURCE	core	input	
+WIIMOTE_2_SOURCE	core	input	
+WIIMOTE_3_SOURCE	core	input	
+WIIMOTE_4_SOURCE	core	input	
+WIIMOTE_BB_SOURCE	core	input	
+dolphin_accurate_fmadds	core	system	
+dolphin_call_back_audio_method	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+dolphin_cheats_import	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+dolphin_cpu_clock_rate	core	system	
+dolphin_crop_overscan	core	video	
+dolphin_default_mouse_bindings_enabled	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+dolphin_disc_based_games_boot_to_wii_menu	core	system	
+dolphin_dsu_enabled	core	input	motion from another device over the network (DSU)
+dolphin_dsu_ip_octet1	core	input	
+dolphin_dsu_ip_octet2	core	input	
+dolphin_dsu_ip_octet3	core	input	
+dolphin_dsu_ip_octet4	core	input	
+dolphin_dsu_port	core	input	
+dolphin_enable_gamecube_mic	core	input	
+dolphin_fast_float_math	core	system	
+dolphin_gc_sp1	core	link	
+dolphin_hotkey_activate_microphone	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+dolphin_hotkey_sideways_toggle	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+dolphin_hotkey_upright_toggle	app		the app does this for every console (speed, save states, cheats, filters, on-screen controls, mapping, FPS, pausing)
+dolphin_ir_deadzone	core	input	
+dolphin_ir_mode	core	input	
+dolphin_ir_modifier	core	input	
+dolphin_ir_offset	core	input	
+dolphin_ir_passthrough	core	input	
+dolphin_ir_pitch	core	input	
+dolphin_ir_yaw	core	input	
+dolphin_language	core	system	
+dolphin_libretro_vfs_enabled	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+dolphin_log_boot_enabled	core	debug	
+dolphin_log_common_enabled	core	debug	
+dolphin_log_core_enabled	core	debug	
+dolphin_log_dsp_mail_enabled	core	debug	
+dolphin_log_dsphle_enabled	core	debug	
+dolphin_log_dspinterface_enabled	core	debug	
+dolphin_log_dsplle_enabled	core	debug	
+dolphin_log_host_gpu_enabled	core	debug	
+dolphin_log_level	core	debug	
+dolphin_log_memmap_enabled	core	debug	
+dolphin_log_popups_enabled	core	debug	
+dolphin_log_video_enabled	core	debug	
+dolphin_renderer	core	video	which drawer: exact (main processor) or fast (graphics chip)
+dolphin_save_load_settings	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+dolphin_supports_binding_layout	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+dolphin_supports_copy_sub_image	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+dolphin_supports_gl_base_vertex	na		desktop window, graphics-driver, updater or pop-up setting; an iPhone app has one screen and one graphics path
+dolphin_swing_angle	core	input	
+dolphin_swing_modifier	core	input	
+dolphin_universal_widescreen	core	video	
+dolphin_vr_mode	core	video	
+dolphin_wii_logi_microphone_enable	core	input	

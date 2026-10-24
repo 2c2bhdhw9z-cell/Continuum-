@@ -22,7 +22,7 @@
   "No boot picture unless the player's own real IPL file is present."
  ],
  "steps": [
-  {"id": "G1", "done": false, "title": "Full settings list, generated from every current GameCube/Wii emulator's source, with what ours has"},
+  {"id": "G1", "done": true, "title": "Full settings list, generated from every current GameCube/Wii emulator's source, with what ours has"},
   {"id": "G2", "done": false, "title": "Empty core crate, wired into build-core.sh as optional; GameCube/Wii games keep their can't-play line"},
   {"id": "G3", "done": false, "title": "Reading games: DOL/ELF homebrew, ISO/GCM, then RVZ, GCZ, CISO, WIA, WBFS with our own decompressors; direct boot without an IPL"},
   {"id": "G4", "done": false, "title": "Correct plain interpreter of the Gekko/Broadway CPU (PowerPC 750 plus paired singles), MMU/BATs, exceptions, timers, proved by test programs"},

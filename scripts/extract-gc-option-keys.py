@@ -115,8 +115,12 @@ def libretro_options(dest, infos):
     base = os.path.join(dest, "Source/Core/DolphinLibretro")
     header = open(os.path.join(base, "Common/Options.h"), errors="ignore").read()
     consts = {}  # namespace::NAME -> key
-    for ns, body in re.findall(r'namespace (\w+)\s*\{(.*?)\n\}', header, re.S):
-        for const, key in re.findall(r'constexpr const char (\w+)\[\]\s*=\s*"(dolphin_\w+)"', body):
+    ns = ""
+    for line in header.splitlines():
+        m = re.match(r'\s*namespace (\w+)', line)
+        if m:
+            ns = m.group(1)
+        for const, key in re.findall(r'constexpr const char (\w+)\[\]\s*=\s*"(dolphin_\w+)"', line):
             consts[f"{ns}::{const}"] = key
     keys = set(consts.values())
     # Keys written straight into the code rather than through a constant.
