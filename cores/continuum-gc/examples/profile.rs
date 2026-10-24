@@ -21,6 +21,9 @@ fn main() {
         let entry = m.cpu.pc;
         m.set_args(entry, &args.split(' ').collect::<Vec<_>>(), &env.split(' ').filter(|s| !s.is_empty()).collect::<Vec<_>>());
     }
+    if let Some(n) = std::env::var("CGC_DRAW_THREADS").ok().and_then(|v| v.parse().ok()) {
+        m.hw.gx.set_draw_threads(n);
+    }
     let warm: u32 = std::env::var("CGC_WARM").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
     for _ in 0..warm { m.run_field(m.cpu_hz / 60); }
     let fields: u32 = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(120);

@@ -269,22 +269,44 @@ impl Gx {
             2 => 2.2,
             _ => 1.0,
         };
-        let lut: Vec<i32> = (0..256).map(|v| if gamma == 1.0 { v } else { ((v as f32 / 255.0).powf(1.0 / gamma) * 255.0 + 0.5) as i32 }).collect();
+        let mut lut = [0i32; 256];
+        for (v, l) in lut.iter_mut().enumerate() {
+            *l = if gamma == 1.0 { v as i32 } else { ((v as f32 / 255.0).powf(1.0 / gamma) * 255.0 + 0.5) as i32 };
+        }
         let wts = self.copy_filter();
         let f2f = (ctl >> 12) & 3;
         let (first, step, lines_in) = if f2f >= 2 { ((f2f - 2) as usize, 2, h.div_ceil(2)) } else { (0, 1, h) };
         let yscale = if ctl & (1 << 10) != 0 { (self.bp[0x4E] & 0x1FF).max(1) as usize } else { 256 };
         let lines_out = if yscale == 256 { lines_in } else { ((lines_in - 1) * 256 / yscale + 1).min(1024) };
-        let mut line = vec![0u8; w * 2];
-        for j in 0..lines_out {
+        // Line by line, each from its three EFB rows (the filter's above, this and below), the
+        // same arithmetic as `filtered` pixel by pixel. Big copies are shared out over threads:
+        // a picture a frame, on the CPU's own thread, was a sixth of the time in 2D games.
+        let pass = wts == [0, 64, 0];
+        let efb = &self.efb_color;
+        let line_of = |j: usize, line: &mut [u8], rgb: &mut Vec<[i32; 3]>| {
             let src_line = (j * yscale) >> 8;
             let sy = y0 + first + src_line.min(lines_in - 1) * step;
+            let up = if sy == y0 && clamp.0 { sy } else { sy.saturating_sub(1) };
+            let down = if sy + 1 >= y0 + h && clamp.1 { sy } else { (sy + 1).min(EFB_HEIGHT - 1) };
+            let row = |yy: usize| &efb[yy.min(EFB_HEIGHT - 1) * EFB_WIDTH..yy.min(EFB_HEIGHT - 1) * EFB_WIDTH + EFB_WIDTH];
+            let (ra, rb, rc) = (row(up), row(sy), row(down));
+            rgb.clear();
+            for x in 0..w {
+                let xx = (x0 + x).min(EFB_WIDTH - 1);
+                let b = unpack(rb[xx]);
+                let c = if pass {
+                    [b[0], b[1], b[2]]
+                } else {
+                    let (a, cc) = (unpack(ra[xx]), unpack(rc[xx]));
+                    let f = |k: usize| ((a[k] * wts[0] + b[k] * wts[1] + cc[k] * wts[2]) >> 6).clamp(0, 255);
+                    [f(0), f(1), f(2)]
+                };
+                rgb.push([lut[c[0] as usize], lut[c[1] as usize], lut[c[2] as usize]]);
+            }
+            let y = |c: [i32; 3]| ((66 * c[0] + 129 * c[1] + 25 * c[2] + 128) >> 8) + 16;
             for xp in (0..w).step_by(2) {
-                let a = self.filtered(x0 + xp, sy, y0, y0 + h, clamp, &wts);
-                let b = if xp + 1 < w { self.filtered(x0 + xp + 1, sy, y0, y0 + h, clamp, &wts) } else { a };
-                let a = [lut[a[0] as usize], lut[a[1] as usize], lut[a[2] as usize]];
-                let b = [lut[b[0] as usize], lut[b[1] as usize], lut[b[2] as usize]];
-                let y = |c: [i32; 3]| ((66 * c[0] + 129 * c[1] + 25 * c[2] + 128) >> 8) + 16;
+                let a = rgb[xp];
+                let b = if xp + 1 < w { rgb[xp + 1] } else { a };
                 let (ra, ga, ba) = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);
                 let u = ((-38 * ra - 74 * ga + 112 * ba + 128) >> 8) + 128;
                 let v = ((112 * ra - 94 * ga - 18 * ba + 128) >> 8) + 128;
@@ -295,7 +317,31 @@ impl Gx {
                     line[xp * 2 + 3] = v.clamp(0, 255) as u8;
                 }
             }
-            ram.write(dest + j as u32 * stride, &line);
+        };
+        let bytes = w * 2;
+        let mut out = vec![0u8; lines_out * bytes];
+        let threads = if lines_out * w >= 100_000 { (self.draw.count() + 1).min(8) } else { 1 };
+        if threads > 1 && bytes > 0 {
+            let per = lines_out.div_ceil(threads);
+            std::thread::scope(|sc| {
+                for (t, chunk) in out.chunks_mut(per * bytes).enumerate() {
+                    let line_of = &line_of;
+                    sc.spawn(move || {
+                        let mut rgb = Vec::with_capacity(w);
+                        for (k, line) in chunk.chunks_mut(bytes).enumerate() {
+                            line_of(t * per + k, line, &mut rgb);
+                        }
+                    });
+                }
+            });
+        } else if bytes > 0 {
+            let mut rgb = Vec::with_capacity(w);
+            for (j, line) in out.chunks_mut(bytes).enumerate() {
+                line_of(j, line, &mut rgb);
+            }
+        }
+        for j in 0..lines_out {
+            ram.write(dest + j as u32 * stride, &out[j * bytes..(j + 1) * bytes]);
         }
     }
 
