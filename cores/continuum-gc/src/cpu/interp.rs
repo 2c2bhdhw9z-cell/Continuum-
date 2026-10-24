@@ -246,10 +246,12 @@ impl Cpu {
                 if self.privileged() {
                     return;
                 }
+                let old_msr = self.msr;
                 self.msr = (self.msr & !MSR_SAVED) | (self.srr1 & MSR_SAVED);
                 self.msr &= !MSR_POW;
                 self.pc = self.srr0 & !3;
-                self.tlb.flush_mode();
+                let new_msr = self.msr;
+                self.tlb.flush_mode(old_msr, new_msr);
                 self.reserve = None;
             }
             150 => {
@@ -322,8 +324,10 @@ impl Cpu {
             }
             146 => {
                 if !self.privileged() {
+                    let old_msr = self.msr;
                     self.msr = self.gpr[d];
-                    self.tlb.flush_mode();
+                    let new_msr = self.msr;
+                    self.tlb.flush_mode(old_msr, new_msr);
                 }
             }
             210 => {

@@ -48,9 +48,13 @@ impl Tlb {
             self.gen = 1;
         }
     }
-    /// The privilege level changed (exception, rfi, mtmsr): protection may differ.
-    pub fn flush_mode(&mut self) {
-        self.flush_all();
+    /// The MSR changed (exception, rfi, mtmsr): translations depend only on the privilege
+    /// level (PR), so they are dropped only when that changed. (Whether translation is on at
+    /// all, IR/DR, is checked before the cache is used.)
+    pub fn flush_mode(&mut self, old_msr: u32, new_msr: u32) {
+        if (old_msr ^ new_msr) & MSR_PR != 0 {
+            self.flush_all();
+        }
     }
     /// `tlbie`: drop one effective page.
     pub fn flush_page(&mut self, ea: u32) {

@@ -354,6 +354,7 @@ impl Cpu {
     /// `srr0` is the address the handler returns to.
     pub fn raise(&mut self, ex: Exception, srr0: u32, srr1_bits: u32) {
         self.exceptions[(ex as usize >> 8) & 15] += 1;
+        let old_msr = self.msr;
         self.srr0 = srr0;
         self.srr1 = (self.msr & MSR_SAVED) | srr1_bits;
         let keep = self.msr & (MSR_ME | MSR_IP | MSR_ILE);
@@ -362,7 +363,8 @@ impl Cpu {
         self.pc = base | ex as u32;
         self.faulted = true;
         self.reserve = None;
-        self.tlb.flush_mode();
+        let new_msr = self.msr;
+        self.tlb.flush_mode(old_msr, new_msr);
     }
 
     /// The current instruction's fault (DSI, ISI, program ...): SRR0 points at it.
