@@ -22,9 +22,25 @@ Paste this to start a new chat:
 - Dev tools: examples/boot (CGC_WAV=out.wav saves sound), probe, compare (plain vs fast), profile
   (`cargo +1.92.0 run --profile profiling --example profile`), speed. Scratch tools in /projects/sandbox/.scratch:
   `c` (cargo wrapper with writable CARGO_HOME), ppcdis.py, dol2elf.py, sym.py, mkfat.py, venv (Pillow, numpy).
-- Next: interpreter speed (block linking, idle-loop skipping, faster TLB, more handlers), then the ARM64 JIT
-  (G8), the GPU/threaded drawer for speed, AX sound HLE for real games, memory cards (G9). No build until real
-  games play.
+- Fast interpreter now (later the same morning): block linking + chaining, exact idle-loop fast-forward,
+  FP quick path (proved vs the full path), translation cache kept across exceptions. examples/speed2: fast 298 vs
+  plain 103 million instructions a second; still IDENTICAL on all three programs (examples/compare.rs).
+- Owner, ~7 AM: screenshots of Manic EMU's "Cached Interpreter" (Dolphin's) playing Rogue Squadron III almost
+  perfectly on his phone with no JIT. That is the bar: match/beat Dolphin's cached interpreter, and draw on the
+  GPU (our CPU drawer is ~51 ms a field on Neverball here).
+- Owner, ~7:40 AM: an occasional experimental GameCube build is fine, not constantly (tasks/gamecube.json).
+  Offer one at a milestone; start only on his yes. The core is NOT wired into the app yet (G2).
+- GPU testing here: Vulkan 1.3 works through Chromium's SwiftShader (no root needed):
+  `LD_LIBRARY_PATH=/inner_container/opt/playwright/chromium-1232/chrome-linux64
+  VK_ICD_FILENAMES=/inner_container/opt/playwright/chromium-1232/chrome-linux64/vk_swiftshader_icd.json`
+  with the `ash` crate (test crate in .scratch/vktest). No logicOp and no dual-source blending (like Metal):
+  do logic ops and dest alpha in the shader.
+- ARM64 testing here: unicorn 2.1.4 in .scratch/venv (Python) and llvm-mc for encodings. src/jit/a64.rs is
+  our ARM64 encoder (checked against LLVM).
+- Next, in order: JIT (G8: block compiler on top of fast_ops handlers as fallback, register cache, inline RAM
+  fast path for the standard BAT layout, tested against the plain interpreter by running the ARM64 code in
+  unicorn), GPU drawer (G6 part 2, Vulkan, checked against the CPU drawer with SwiftShader), AX sound stand-in,
+  memory cards (G9), then wire the core into the app as an opt-in experimental core (G2).
 
 ## Earlier (24 October 2026, about 9:15 AM Eastern): GameCube core, booting real homebrew
 
