@@ -9,7 +9,8 @@
   "libraries": "Owner, 23 October (correcting an earlier reading): ANY libraries may be used (serde, bincode, a code generator and so on). What is not allowed is a FULL emulator core by someone else (Dolphin or any other GameCube/Wii emulator, or a wrapper of one). Libraries keep their small notices in the credits list; that is fine.",
   "name": "Working name continuum-gc (crate continuum_gc, option prefix cgc_). Owner: do not ask about the name; pick and carry on. A player-facing name can be set later; the option keys are only fixed once it ships.",
   "first_build": "No build until real games play properly. Until then no phone build for this work.",
-  "jit_testers": "The owner knows nobody with JIT. The JIT is proved on the test machine only (ARM64 under an emulator such as qemu-user)."
+  "jit_testers": "The owner knows nobody with JIT. The JIT is proved on the test machine only (ARM64 under an emulator such as qemu-user).",
+  "best_cpu_24_october": "Owner, 24 October 2026, about 6:50 AM Eastern: 'I want the absolute best... best fast interpreter, best JIT, better than Dolphin... I don't care how long it takes.' So G7 is a pre-decoded, threaded interpreter (operands decoded once, one small handler per instruction form, direct RAM access through the translation cache, time and interrupt checks per block, block linking, idle-loop skipping), proved identical to the plain interpreter (examples/compare.rs and per-instruction fuzz tests); G8 is a full ARM64 JIT with register allocation, fast memory, block linking and the same idle skipping. Aim: faster than Dolphin's interpreter and JIT on the same phone."
  },
  "hard_rules": [
   "Read .kiro/steering/owner-rules.md first.",
