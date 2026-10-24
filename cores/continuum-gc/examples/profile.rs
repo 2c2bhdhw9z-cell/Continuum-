@@ -51,6 +51,32 @@ fn main() {
     let mut v: Vec<_> = selft.into_iter().collect(); v.sort_by_key(|x| std::cmp::Reverse(x.1));
     eprintln!("self time ({total} samples):");
     for (n, c) in v.iter().take(28) { eprintln!("  {:5.1}%  {}", *c as f64 * 100.0 / total as f64, short(n)); }
+    // CGC_LINES=name: self time by source line for leaf frames whose function name has `name`.
+    if let Ok(want) = std::env::var("CGC_LINES") {
+        let mut lines: HashMap<String, usize> = HashMap::new();
+        let mut in_fn = 0;
+        for (frames, count) in report.data.iter() {
+            let Some(leaf) = frames.frames.first() else { continue };
+            // The innermost symbol of the leaf frame (inlined code keeps its own line).
+            if let Some(sym) = leaf.first() {
+                let outer = leaf.last().map(|s| s.name()).unwrap_or_default();
+                if outer.contains(&want) || sym.name().contains(&want) {
+                    in_fn += *count as usize;
+                    // Every symbol at the address (inlined functions and the one they are in).
+                    let key = leaf.iter().map(|s| {
+                        let file = s.filename.as_ref().and_then(|f| f.file_name()).map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+                        let name = short(&s.name());
+                        let name = name.rsplit("::").next().unwrap_or("").to_string();
+                        format!("{name}@{file}:{}", s.lineno.unwrap_or(0))
+                    }).collect::<Vec<_>>().join(" < ");
+                    *lines.entry(key).or_default() += *count as usize;
+                }
+            }
+        }
+        let mut lv: Vec<_> = lines.into_iter().collect(); lv.sort_by_key(|x| std::cmp::Reverse(x.1));
+        eprintln!("lines in {want} ({:.1}% of all samples):", in_fn as f64 * 100.0 / total as f64);
+        for (k, c) in lv.iter().take(40) { eprintln!("  {:5.1}%  {k}", *c as f64 * 100.0 / total as f64); }
+    }
     let mut pv: Vec<_> = parents.into_iter().collect(); pv.sort_by_key(|x| std::cmp::Reverse(x.1));
     eprintln!("hottest leaves by caller:");
     for ((leaf, p), c) in pv.iter().take(16) { eprintln!("  {:5.1}%  {}  <-  {}", *c as f64 * 100.0 / total as f64, short(leaf), short(p)); }
