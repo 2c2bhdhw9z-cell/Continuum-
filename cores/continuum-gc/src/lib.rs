@@ -8,3 +8,5 @@ pub mod bus;
 pub mod cpu;
 pub mod disc;
 pub mod dol;
+pub mod hw;
+pub mod machine;
