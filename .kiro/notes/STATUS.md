@@ -77,9 +77,8 @@ look unchanged, five bugs and several speed risks to fix (listed in HANDOFF.md "
 October"). GameCube (`tasks/gamecube.json`) has not been started.
 
 One page, kept current, so nothing has to be inferred from a commit log. Last updated
-23 October 2026. **Build 212** (`fd0d355`) is the newest published install: the Library shows the
-console just picked, cover frames fit their art (HANDOFF.md "START HERE, 23 October"). 211: no
-header band, Settings all closed and condensed. Build 209's swirl: owner "good enough for now".
+23 October 2026. **Build 213** (`84e7636`) is the newest published install: the turned box and
+the bug hunt's fixes (HANDOFF.md "START HERE, 9:45 PM"). Next: GameCube, our own.
 What the phone has passed since 185 is in "Next up" at the top and in TESTING.md. The paragraphs
 under this one that still name build 185 are the history of that install.
 

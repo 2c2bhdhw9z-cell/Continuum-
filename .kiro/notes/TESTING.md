@@ -1,11 +1,27 @@
 # What to test, and what to tell me
 
-Last updated 23 October 2026, 8:30 AM Eastern. **Build 212** (`fd0d355`) is the newest install:
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-212-fd0d355/Continuum-212.ipa
-Its checks are "Next install (after 211)" just below; the older sections are history. Do not ask the 192
+Last updated 23 October 2026, 9:45 PM Eastern. **Build 213** (`84e7636`) is the newest install:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-213-84e7636/Continuum-213.ipa
+Its checks are "Next install (after 212)" just below; the older sections are history. Do not ask the 192
 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
+
+## Next install (after 212): the turned box, and the bug hunt's fixes
+
+Owner on 212: circled the hero box's side (a flat strip stuck on). He did not want to verify the
+bug hunt: "fix them and a new build". Folded console bar left as 212 has it.
+
+1. Home: the big box is a real box turned a little, its side in the cover's own colour, joined
+   to the front in one edge.
+2. Game Hub, Delete this game: asks first.
+3. Auto-save off: a game never goes back to an old spot. Restart the game now (core settings)
+   keeps your place even with Pick up where you left off off.
+4. Background, Swirl colours: Accent stays Accent after closing the app.
+5. Filters (in a game): every slider is kept for that console, not only Brightness.
+6. Library By console: fold a console, select, All: only the games you can see.
+7. Speed sliders read 1.25x, 1.5x, 1.75x.
+8. Delete a game and import it again: no old star, no "Last played", no old core or skin.
 
 ## Next install (after 211): the picked console's games, frames that fit the art
 

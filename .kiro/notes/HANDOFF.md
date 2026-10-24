@@ -5,7 +5,20 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (23 October 2026, about 7 PM Eastern): box side fixed (not built), bugs to verify
+## START HERE (23 October 2026, about 9:45 PM Eastern): build 213; next is GameCube
+
+- **Build 213 is the newest install** (`84e7636`, 9:42 PM Eastern), checked: 0.8.0 (213), 37
+  emulator files. https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-213-84e7636/Continuum-213.ipa
+  The turned box plus the bug hunt's fixes (TESTING.md "after 212"). Left for later: a joined
+  disc game does not carry the cover picked for disc 1 (`MultiDisc.carryOver`, artwork keyed by
+  path).
+- The two looks are NOT separate code: Settings, the Library, the Game Hub and more are one
+  implementation styled by `LookStore.isNewLook` (New-look pieces in 21 shared files). Removing a
+  look later needs care. The owner asked about this on 23 October.
+- NEXT (owner): start on the GameCube emulator, "our own" (see the hand-off he was given;
+  `tasks/gamecube.json` is the older Dolphin plan). Ask him which he means before starting.
+
+## Earlier (23 October 2026, about 7 PM Eastern): box side fixed (not built), bugs to verify
 
 - Owner circled the standing box's side (Doki Doki Panic, Pokemon Silver): a flat strip of another
   colour stuck on the cover. `NewLookBoxFace` is now a real turned box: front `rotation3DEffect`
