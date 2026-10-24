@@ -194,7 +194,45 @@ impl Cpu {
     /// One arithmetic operation on raw doubles, with PowerPC's NaN rules and invalid flags.
     /// None: an invalid operation with VE set (the target is left alone).
     fn farith(&mut self, op: Op, a: u64, b: u64, c: u64, single: bool) -> Option<u64> {
+        self.farith_impl(op, a, b, c, single, true)
+    }
+
+    fn farith_impl(&mut self, op: Op, a: u64, b: u64, c: u64, single: bool, allow_quick: bool) -> Option<u64> {
+        // The common case first: every operand that takes part is an ordinary number (not
+        // infinite or NaN), and a division's divisor is not zero. Then no NaN rule, invalid
+        // case or zero-divide can apply, and only the overflow flag and the flush of
+        // denormals remain: exactly what the full path below does for these inputs.
+        let fin = |x: u64| (x >> 52) & 0x7FF != 0x7FF;
+        // frC as the multiplier sees it (single precision rounds it first, which can carry it
+        // up to infinity).
         let c = if single && matches!(op, Op::Mul | Op::Madd { .. }) { round_c25(c) } else { c };
+        let quick = match op {
+            Op::Add | Op::Sub => fin(a) && fin(b),
+            Op::Mul => fin(a) && fin(c),
+            Op::Div => fin(a) && fin(b) && !is_zero(b),
+            Op::Madd { .. } => fin(a) && fin(b) && fin(c),
+        };
+        if quick && allow_quick {
+            let (fa, fb, fc) = (f64::from_bits(a), f64::from_bits(b), f64::from_bits(c));
+            let r = match op {
+                Op::Add => fa + fb,
+                Op::Sub => fa - fb,
+                Op::Mul => fa * fc,
+                Op::Div => fa / fb,
+                Op::Madd { sub, .. } => fa.mul_add(fc, if sub { -fb } else { fb }),
+            };
+            let mut bits = r.to_bits();
+            if let Op::Madd { neg: true, .. } = op {
+                bits ^= 1 << 63;
+            }
+            if single {
+                bits = round_single(bits);
+            }
+            if is_inf(bits) {
+                self.fpscr_exc(OX | XX);
+            }
+            return Some(self.flush_denormal(bits));
+        }
         let used: &[u64] = match op {
             Op::Mul => &[a, c],
             Op::Madd { .. } => &[a, b, c],
@@ -752,5 +790,59 @@ impl Cpu {
         };
         let _ = (FR, UX);
         UPPER | v as u32 as u64
+    }
+}
+
+#[cfg(test)]
+mod quick_path_tests {
+    use super::*;
+
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+    }
+
+    /// Doubles of every kind the quick path must treat exactly like the full path: ordinary,
+    /// tiny, denormal, huge (near overflow, and whose 25-bit rounding carries), zero, infinite,
+    /// NaN.
+    fn value(r: &mut Rng) -> u64 {
+        let sign = (r.next() & 1) << 63;
+        let frac = r.next() & 0x000F_FFFF_FFFF_FFFF;
+        match r.next() % 10 {
+            0 => sign,
+            1 => sign | 0x7FF0_0000_0000_0000,
+            2 => sign | 0x7FF0_0000_0000_0000 | (frac | 1),
+            3 => sign | frac,
+            4 => sign | (0x7FE << 52) | 0x000F_FFFF_F800_0000 | (frac & 0x7FF_FFFF),
+            5 => sign | ((0x47E + (r.next() % 4)) << 52) | frac,
+            6 => sign | ((0x36A + (r.next() % 8)) << 52) | frac,
+            7 => (((r.next() as u32 as f32) as f64) * if sign != 0 { -1e-3 } else { 1e3 }).to_bits(),
+            _ => sign | ((0x380 + r.next() % 0x100) << 52) | frac,
+        }
+    }
+
+    #[test]
+    fn quick_path_matches_the_full_path() {
+        let mut r = Rng(0xF00D_1234_5678_9ABC);
+        let ops = [Op::Add, Op::Sub, Op::Mul, Op::Div, Op::Madd { sub: false, neg: false }, Op::Madd { sub: true, neg: false }, Op::Madd { sub: false, neg: true }, Op::Madd { sub: true, neg: true }];
+        for n in 0..4_000_000u32 {
+            let op = ops[(r.next() % ops.len() as u64) as usize];
+            let (a, b, c) = (value(&mut r), value(&mut r), value(&mut r));
+            let single = r.next() & 1 != 0;
+            let mut p = Cpu::default();
+            p.fpscr = (r.next() as u32) & !(VE | 0x8000_0000);
+            if r.next() % 8 == 0 {
+                p.fpscr |= VE;
+            }
+            let mut q = p.clone();
+            let x = p.farith_impl(op, a, b, c, single, false);
+            let y = q.farith_impl(op, a, b, c, single, true);
+            assert!(x == y && p.fpscr == q.fpscr, "case {n}: {a:016X} {b:016X} {c:016X} single {single}: full {x:016X?} fpscr {:08X}, quick {y:016X?} fpscr {:08X}", p.fpscr, q.fpscr);
+        }
     }
 }
