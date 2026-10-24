@@ -7,12 +7,12 @@ Paste this to start a new chat:
 
 ## START HERE (24 October 2026, about 1:45 PM Eastern): GameCube in the app (hidden), memory cards, controls fixed
 
-- BUILD 215 (run 40117347132, started by hand 1:42 PM Eastern from 3394ad4) is the one experimental GameCube build
-  the owner agreed to. Build 214 (ac4deec, the wiring) built and verified its .ipa (continuum_gc dylib inside) but
+- BUILD 216 (run 40118325908, started by hand 1:55 PM Eastern from af13640, which adds the drive's streamed music
+  that Ikaruga uses; 215 was cancelled for it) is the one experimental GameCube build the owner agreed to. Build 214 (ac4deec, the wiring) built and verified its .ipa (continuum_gc dylib inside) but
   FAILED at "Upload the .ipa": GitHub's own network (ENOTFOUND creating the artifact), not our code. Its cores were
-  cached first ("Cache saved", key ios-cores-macOS-7781a752f3acd0d7-40110264031-1), so 215 only rebuilds the GC
-  core. 215 also carries everything below. When it is green: download Continuum-215.ipa from the Release
-  build-215-<sha>, check version 0.8.0 (215) and Frameworks/continuum_gc_libretro_ios.dylib, give the owner the
+  cached first ("Cache saved", key ios-cores-macOS-7781a752f3acd0d7-40110264031-1), so 216 only rebuilds the GC
+  core. 216 also carries everything below. When it is green: download Continuum-216.ipa from the Release
+  build-216-<sha>, check version 0.8.0 (216) and Frameworks/continuum_gc_libretro_ios.dylib, give the owner the
   link and the steps (Settings, ABOUT, tap Version 7 times, cube drops in, "GameCube (experimental)" switch on;
   import a .iso/.rvz/.gcz; try Ikaruga first; slow; saves on the memory card; report what he sees). If it fails,
   read the log (gh api repos/.../actions/jobs/<id>/logs) and fix.
@@ -35,7 +35,7 @@ Paste this to start a new chat:
   CGC_EXI_TRACE. Fingerprints in `.scratch/golden/` re-recorded with the card in (older ones in golden/pre-card).
   Background jobs: use run_in_background (a plain `&` dies with the command's sandbox).
 - Next: DTK disc-streamed music (DI 0xE1/0xE2 are only accepted now), a replacement IPL font, PAL timing (0xCC),
-  then speed (GPU drawer, JIT register cache), then whatever the owner reports from build 215.
+  then speed (GPU drawer, JIT register cache), then whatever the owner reports from build 216.
 
 ## Earlier (24 October 2026, about 10:30 AM Eastern): GameCube core — our own JIT, drawing on several cores, RVZ, AX
 
