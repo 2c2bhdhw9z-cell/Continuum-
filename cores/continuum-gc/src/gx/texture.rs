@@ -302,9 +302,12 @@ fn levels(t: &TexMap) -> u32 {
 fn wrap(c: i32, size: u32, mode: u32) -> u32 {
     let s = size as i32;
     match mode {
+        // For a power-of-two size (what repeat and mirror are for) the remainder is a mask:
+        // the same value as rem_euclid, negative coordinates included, without a division.
+        1 if size.is_power_of_two() => (c & (s - 1)) as u32,
         1 => c.rem_euclid(s) as u32,
         2 => {
-            let p = c.rem_euclid(2 * s);
+            let p = if size.is_power_of_two() { c & (2 * s - 1) } else { c.rem_euclid(2 * s) };
             (if p >= s { 2 * s - 1 - p } else { p }) as u32
         }
         _ => c.clamp(0, s - 1) as u32,
@@ -344,8 +347,10 @@ pub fn sample_decoded(d: &Decoded, t: &TexMap, u: f32, v: f32, lod: f32) -> [u8;
 fn level_sample(d: &Decoded, level: u32, t: &TexMap, u: f32, v: f32, linear: bool) -> [u8; 4] {
     let (w, h, px) = &d.levels[level as usize];
     let (w, h) = (*w, *h);
-    let scale = (1u32 << level) as f32;
-    let (u, v) = (u / scale, v / scale);
+    // Dividing by a power of two and multiplying by its reciprocal (also exact in floating
+    // point) give the same result; the multiply is several times quicker.
+    let inv = 1.0 / (1u32 << level) as f32;
+    let (u, v) = (u * inv, v * inv);
     let at = |x: u32, y: u32| px[(y * w + x) as usize];
     if !linear {
         return at(wrap(u.floor() as i32, w, t.wrap_s), wrap(v.floor() as i32, h, t.wrap_t));
