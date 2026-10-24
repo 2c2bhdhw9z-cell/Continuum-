@@ -21,9 +21,18 @@ Paste this to start a new chat:
   `option-sources/gc/mapping.tsv` and `same.tsv` are now HAND files (the rules draft that first
   filled them is not in the repo; do not regenerate). "And more": our extras go in during G11
   (ideas so far: GBA link cable and Game Boy Player through cBoy).
-- G2 started: `cores/continuum-gc` (working name; owner said do not ask about the name). NOT wired into
-  build-core.sh or the app yet, on purpose: no build until real games play, and the crate's folder
-  is not in the iOS workflow's push paths. Wire it in (like continuum_arcade) when it plays.
+- **Owner rule (24 October, 3 AM): when he says he is going to bed, keep working and never stop
+  to ask; decide small things yourself and note them** (he was furious at being asked the name).
+- Overnight 23-24 October: `cores/continuum-gc` (36 tests, all pass, clippy clean): the plain CPU
+  interpreter (G4), console hardware start (G5), DOL/ELF/ISO boot without an IPL (G3 part), the
+  libretro entry points (G2 part), save states. Details and gaps per step: `tasks/gamecube.json`
+  "progress". Our own VI test program shows its framebuffer and gets VI interrupts. NOT in the
+  app or build yet (on purpose). Run tests: `cargo +1.92.0 test` in the crate with
+  CARGO_HOME=/projects/sandbox/.scratch/cargo-home (the default cargo home is read-only here).
+- Next, in order: (1) prove the CPU against public PowerPC tests and Dolphin as yardstick on
+  open homebrew; (2) find free GameCube homebrew DOLs (libogc demos) to boot; (3) graphics G6
+  (CP FIFO, XF, BP/TEV, a CPU drawer first); (4) sound (AI DMA, our own DSP stand-ins); (5) G7
+  fast interpreter; (6) G8 JIT.
 - **Owner, 23 October, about 10:45 PM: "I want my app closed sourced."** NOTHING changed for it.
   He was told: the app ships about 30 GPL emulators (PPSSPP, Azahar, bsnes, Mesen and the rest),
   and GPL requires the app's source to stay public, so closed source means only our own cores

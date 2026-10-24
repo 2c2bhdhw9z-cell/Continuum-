@@ -385,7 +385,7 @@ impl Hw {
         let mut put = |o: u32, h: u16| {
             if let Some(r) = self.vi.regs.get_mut((o / 2) as usize) {
                 // Display interrupts (DI0-DI3, 0x30-0x3E): the status bit (31) is only ever cleared by writes.
-                if (0x30..0x40).contains(&o) && o % 4 == 0 {
+                if (0x30..0x40).contains(&o) && o.is_multiple_of(4) {
                     *r = (h & 0x7FFF) | (*r & h & 0x8000);
                 } else {
                     *r = h;
@@ -525,7 +525,7 @@ impl Hw {
         match off {
             0x00..=0x2F => {
                 let ch = (off / 12) as usize;
-                if off % 12 == 0 {
+                if off.is_multiple_of(12) {
                     self.si.out[ch] = v;
                     // Rumble is bit 0 of the polling command's last byte.
                     self.si.pads[ch].rumble = v & 1 != 0;

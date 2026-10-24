@@ -9,4 +9,5 @@ pub mod cpu;
 pub mod disc;
 pub mod dol;
 pub mod hw;
+pub mod libretro;
 pub mod machine;

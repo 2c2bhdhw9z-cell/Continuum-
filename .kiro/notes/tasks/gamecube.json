@@ -22,17 +22,69 @@
   "No boot picture unless the player's own real IPL file is present."
  ],
  "steps": [
-  {"id": "G1", "done": true, "title": "Full settings list, generated from every current GameCube/Wii emulator's source, with what ours has"},
-  {"id": "G2", "done": false, "title": "Empty core crate, wired into build-core.sh as optional; GameCube/Wii games keep their can't-play line"},
-  {"id": "G3", "done": false, "title": "Reading games: DOL/ELF homebrew, ISO/GCM, then RVZ, GCZ, CISO, WIA, WBFS with our own decompressors; direct boot without an IPL"},
-  {"id": "G4", "done": false, "title": "Correct plain interpreter of the Gekko/Broadway CPU (PowerPC 750 plus paired singles), MMU/BATs, exceptions, timers, proved by test programs"},
-  {"id": "G5", "done": false, "title": "Rest of the console: memory map, interrupts, VI, PI, DI, EXI (memory cards, RTC), SI (pads, rumble), AI, ARAM, DSP (our own HLE of the common sound microcodes)"},
-  {"id": "G6", "done": false, "title": "Graphics: exact CPU drawer as yardstick, then a GPU drawer through the engine's Vulkan path"},
-  {"id": "G7", "done": false, "title": "Fast interpreter (no-JIT phones), proved identical to G4, speed measured"},
-  {"id": "G8", "done": false, "title": "Our own ARM64 JIT through jit.rs, proved identical on the test machine"},
-  {"id": "G9", "done": false, "title": "Saves and controls: memory cards, save states, GameCube touch layout, rumble"},
-  {"id": "G10", "done": false, "title": "Wii: IOS services, NAND, Wii Remote, Nunchuk, Classic Controller, pointer"},
-  {"id": "G11", "done": false, "title": "Every setting from G1, plus our own extras"},
-  {"id": "G12", "done": false, "title": "One build when real games play properly; check the .ipa, link and phone steps"}
+  {
+   "id": "G1",
+   "done": true,
+   "title": "Full settings list, generated from every current GameCube/Wii emulator's source, with what ours has"
+  },
+  {
+   "id": "G2",
+   "done": false,
+   "title": "Empty core crate, wired into build-core.sh as optional; GameCube/Wii games keep their can't-play line",
+   "progress": "Crate cores/continuum-gc exists with the libretro entry points (src/libretro.rs: load by path, asks GET_JIT_CAPABLE (74) and keeps the answer in JIT_ALLOWED, XRGB8888 frames, silent audio, save states, RetroPad -> GameCube pad). NOT wired into build-core.sh / project.yml / ContinuumApp.swift yet, on purpose (no build until games play). Core id for jit.rs: continuum_gc."
+  },
+  {
+   "id": "G3",
+   "done": false,
+   "title": "Reading games: DOL/ELF homebrew, ISO/GCM, then RVZ, GCZ, CISO, WIA, WBFS with our own decompressors; direct boot without an IPL",
+   "progress": "Done so far: DOL and ELF loader (src/dol.rs), plain ISO/GCM reader and disc header/apploader (src/disc.rs), IPL-free boot: DOL direct, disc via the disc's own apploader run on our CPU (src/machine.rs boot_disc). Left: RVZ, WIA, GCZ, CISO, WBFS; Wii discs (partitions, decryption)."
+  },
+  {
+   "id": "G4",
+   "done": false,
+   "title": "Correct plain interpreter of the Gekko/Broadway CPU (PowerPC 750 plus paired singles), MMU/BATs, exceptions, timers, proved by test programs",
+   "progress": "Plain interpreter written (src/cpu/: mod.rs registers/SPRs/exceptions/memory, interp.rs integer/branch/load-store/system, fpu.rs FP and paired singles, mmu.rs BATs + hashed page table). 26 CPU tests pass. Known gaps (fpu.rs header): fres/frsqrte exact instead of the hardware estimate tables, rounding modes only in fctiw, approximate XX/OX/UX flags, FP-enabled exceptions not raised. Next: check against a public PowerPC test suite and against Dolphin as yardstick (owner allowed, test machine only). Speed on the x86 sandbox: ~179 MIPS (examples/speed.rs)."
+  },
+  {
+   "id": "G5",
+   "done": false,
+   "title": "Rest of the console: memory map, interrupts, VI, PI, DI, EXI (memory cards, RTC), SI (pads, rumble), AI, ARAM, DSP (our own HLE of the common sound microcodes)",
+   "progress": "Started (src/hw.rs): PI interrupts, VI registers/display interrupts/timing and the YUV framebuffer picture, SI controllers (status, origin, polling), EXI clock/SRAM/UART chip, DI read/inquiry, DSP mailbox (reset mail 0x8071FEED, mails acknowledged) and ARAM DMA, AI registers. Left: real DSP sound (our own stand-ins for the sound programs), audio DMA output, memory cards, CP/PE (with G6), exact timing, Wii Hollywood/IOS."
+  },
+  {
+   "id": "G6",
+   "done": false,
+   "title": "Graphics: exact CPU drawer as yardstick, then a GPU drawer through the engine's Vulkan path"
+  },
+  {
+   "id": "G7",
+   "done": false,
+   "title": "Fast interpreter (no-JIT phones), proved identical to G4, speed measured"
+  },
+  {
+   "id": "G8",
+   "done": false,
+   "title": "Our own ARM64 JIT through jit.rs, proved identical on the test machine"
+  },
+  {
+   "id": "G9",
+   "done": false,
+   "title": "Saves and controls: memory cards, save states, GameCube touch layout, rumble"
+  },
+  {
+   "id": "G10",
+   "done": false,
+   "title": "Wii: IOS services, NAND, Wii Remote, Nunchuk, Classic Controller, pointer"
+  },
+  {
+   "id": "G11",
+   "done": false,
+   "title": "Every setting from G1, plus our own extras"
+  },
+  {
+   "id": "G12",
+   "done": false,
+   "title": "One build when real games play properly; check the .ipa, link and phone steps"
+  }
  ]
 }
