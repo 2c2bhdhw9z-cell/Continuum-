@@ -1,0 +1,33 @@
+# Continuum's own GameCube and Wii emulator (working name continuum-gc; the player-facing name is
+# not chosen yet). Written from scratch in Rust like cores/continuum-gb (cBoy) and
+# cores/continuum-arcade (cArcade), exposed as a libretro core. A standalone crate (its own empty
+# [workspace]) so it builds and tests without the app's engine.
+#
+# No other emulator's code goes in (no Dolphin, no wrapper). Ordinary libraries are fine
+# (owner, 23 October 2026: "whatever libraries, just no FULL cores").
+[package]
+name = "continuum_gc"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+bincode = "1.3"
+
+[dev-dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.test]
+opt-level = 2
+
+[workspace]

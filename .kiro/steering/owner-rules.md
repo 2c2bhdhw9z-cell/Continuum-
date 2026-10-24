@@ -196,7 +196,8 @@ These come straight from the owner. They are not suggestions.
 - **Closed source, later (owner, 23 October 2026, choice 1):** the owner wants Continuum closed
   source. Because the app ships GPL emulators, it stays public (like Manic EMU, whose app is
   AGPL and public) until our own cores have replaced every outside emulator; then it goes
-  closed. Our own cores therefore use no outside code or libraries in what ships. The owner
+  closed. Our own cores contain no other emulator's code; ordinary libraries are fine (owner,
+  23 October: "You can use whatever libraries. Just no FULL cores"). The owner
   posts the .ipa on the internet himself; testers do not need the GitHub download link. Do not
   make the repo private or change LICENSE before that point unless he says so.
 - **A guaranteed overnight build is for the one night the owner asks for it, and nothing more**

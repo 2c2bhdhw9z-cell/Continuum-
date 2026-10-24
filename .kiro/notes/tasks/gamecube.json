@@ -6,15 +6,15 @@
   "wii": "Plan Wii in from the start (same emulator, GameCube first).",
   "reading": "Anything may be read to learn how the hardware works, Dolphin's source included, as long as nobody has to be credited. So: read, understand, write our own; never copy code, tables or files (Dolphin's per-game settings database, fonts, etc. are theirs: make our own).",
   "dolphin_as_yardstick": "Yes: Dolphin may run on the test machine only, to compare results (like MAME for cArcade). Never in the app, never committed except our own recorded reference results.",
-  "libraries": "The owner wants to credit nobody. So the shipped core uses NO outside libraries at all (not even serde/bincode/libc, which are MIT/Apache and ask for a notice). Test-only tools that never ship are fine.",
-  "name": "Not decided. Must suit GameCube AND Wii. Asked again 23 October.",
+  "libraries": "Owner, 23 October (correcting an earlier reading): ANY libraries may be used (serde, bincode, a code generator and so on). What is not allowed is a FULL emulator core by someone else (Dolphin or any other GameCube/Wii emulator, or a wrapper of one). Libraries keep their small notices in the credits list; that is fine.",
+  "name": "Working name continuum-gc (crate continuum_gc, option prefix cgc_). Owner: do not ask about the name; pick and carry on. A player-facing name can be set later; the option keys are only fixed once it ships.",
   "first_build": "No build until real games play properly. Until then no phone build for this work.",
   "jit_testers": "The owner knows nobody with JIT. The JIT is proved on the test machine only (ARM64 under an emulator such as qemu-user)."
  },
  "hard_rules": [
   "Read .kiro/steering/owner-rules.md first.",
   "Own crate in cores/ like cores/continuum-gb and cores/continuum-arcade, a libretro cdylib built by scripts/build-core.sh as an OPTIONAL core.",
-  "No outside code in the shipped core. No credits, no outside licences.",
+  "No other emulator's code in the core (no Dolphin, no wrapper). Ordinary libraries are fine.",
   "JIT: our own ARM64 code generator, used automatically when crates/emulator-bridge/src/jit.rs says yes (GET_JIT_CAPABLE at load, code memory through continuum_jit_region on TXM phones, core id added to core_may_use_jit). Never required.",
   "A fast interpreter for phones without JIT (the owner's iPhone 17 Pro Max), proved identical to the plain interpreter.",
   "Settings: every setting any current GameCube/Wii emulator offers, and more (docs/CORE_OPTIONS_STANDARD.md). The list is made FIRST, generated from source.",
