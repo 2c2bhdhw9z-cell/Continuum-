@@ -5,7 +5,15 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (23 October 2026, about 9:45 PM Eastern): build 213; next is GameCube
+## START HERE (23 October 2026, about 10:30 PM Eastern): GameCube and Wii, our own
+
+- The plan and the owner's answers are in `.kiro/notes/tasks/gamecube.json` (steps G1 to G12).
+  Wii is in from the start. Anything may be read (Dolphin's source too) but nothing copied, and
+  nobody credited, so the shipped core uses NO outside libraries. Dolphin may run on the test
+  machine as a yardstick only. No build until real games play properly. Name not decided yet.
+- Working on G1, the settings list.
+
+## Earlier (23 October 2026, about 9:45 PM Eastern): build 213; next is GameCube
 
 - **Build 213 is the newest install** (`84e7636`, 9:42 PM Eastern), checked: 0.8.0 (213), 37
   emulator files. https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-213-84e7636/Continuum-213.ipa
