@@ -11,7 +11,20 @@ Paste this to start a new chat:
   Wii is in from the start. Anything may be read (Dolphin's source too) but nothing copied, and
   nobody credited, so the shipped core uses NO outside libraries. Dolphin may run on the test
   machine as a yardstick only. No build until real games play properly. Name not decided yet.
-- Working on G1, the settings list.
+- G1 in progress: `scripts/extract-gc-option-keys.py` collects every setting from Dolphin (and
+  its Android app), RetroArch's Dolphin, Manic's Dolphin, DolphiniOS, iCube, Provenance, MMJR2,
+  Slippi and PrimeHack into `.kiro/notes/docs/option-sources/gc/` (done, 23 October). Next: the
+  mapping (each setting: our core, the app, or not applicable with a reason) and the generated
+  table `docs/GC_OPTIONS_INVENTORY.md`. The MMJR2 Android extraction found 0 (its settings code
+  is laid out differently): fix that first.
+- **Owner, 23 October, about 10:45 PM: "I want my app closed sourced."** NOTHING changed for it.
+  He was told: the app ships about 30 GPL emulators (PPSSPP, Azahar, bsnes, Mesen and the rest),
+  and GPL requires the app's source to stay public, so closed source means only our own cores
+  (cBoy, cArcade, the GameCube one) could stay in. Making the repo private also breaks the
+  Releases download link his testers use. He asked how Manic does it: Manic does NOT; its app is
+  AGPL-3.0 and public (`github.com/Manic-EMU/ManicEMU`, with a third-party notices file), and its
+  Dolphin fork is public too. Not legal advice. Waiting on his answer; do not make the repo
+  private, change LICENSE or remove cores without his clear go-ahead.
 
 ## Earlier (23 October 2026, about 9:45 PM Eastern): build 213; next is GameCube
 
