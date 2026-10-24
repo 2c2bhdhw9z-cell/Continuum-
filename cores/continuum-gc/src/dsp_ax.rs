@@ -439,15 +439,16 @@ impl Hw {
         }
     }
 
-    /// Adds 3 x 3 buses from memory, each group scaled by its volume.
+    /// One set of left, right and surround samples from memory, added to the main, AUX A and
+    /// AUX B buses, each scaled by its own volume.
     fn ax_download_mix(&mut self, a: u32, vols: [u16; 3]) {
-        let src = self.ram_i32s(a, 9 * FRAME);
+        let src = self.ram_i32s(a, 3 * FRAME);
         let bufs = self.ax_bufs();
         for g in 0..3 {
             for c in 0..3 {
                 let b = 3 * g + c;
                 for k in 0..FRAME {
-                    let s = (src[b * FRAME + k] as i64 * vols[g] as i64) >> 15;
+                    let s = (src[c * FRAME + k] as i64 * vols[g] as i64) >> 15;
                     bufs[b * FRAME + k] = bufs[b * FRAME + k].wrapping_add(s as i32);
                 }
             }
