@@ -429,6 +429,10 @@ impl Asm {
     pub fn fneg_d(&mut self, dd: R, dn: R) {
         self.emit(0x1E61_4000 | (dn << 5) | dd);
     }
+    /// FMOV Sd, Wn.
+    pub fn fmov_s_w(&mut self, sd: R, wn: R) {
+        self.emit(0x1E27_0000 | (wn << 5) | sd);
+    }
     /// FCVT Sd, Dn (round to single) and FCVT Dd, Sn (exact).
     pub fn fcvt_s_d(&mut self, sd: R, dn: R) {
         self.emit(0x1E62_4000 | (dn << 5) | sd);
@@ -608,6 +612,7 @@ mod tests {
         put(&mut a, &|a| a.fnmsub_d(0, 1, 2, 3), "fnmsub d0, d1, d2, d3");
         put(&mut a, &|a| a.fneg_d(0, 1), "fneg d0, d1");
         put(&mut a, &|a| a.fcvt_s_d(0, 1), "fcvt s0, d1");
+        put(&mut a, &|a| a.fmov_s_w(2, 7), "fmov s2, w7");
         put(&mut a, &|a| a.fcvt_d_s(0, 1), "fcvt d0, s1");
         put(&mut a, &|a| a.blr(16), "blr x16");
         put(&mut a, &|a| a.br(16), "br x16");

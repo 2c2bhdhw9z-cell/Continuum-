@@ -91,6 +91,12 @@ fn ps0(r: u8) -> u32 {
 fn ps1(r: u8) -> u32 {
     (offset_of!(Cpu, ps1) + 8 * r as usize) as u32
 }
+fn off_hid2() -> u32 {
+    offset_of!(Cpu, hid2) as u32
+}
+fn gqr(n: u32) -> u32 {
+    (offset_of!(Cpu, gqr) + 4 * n as usize) as u32
+}
 
 /// Everything the compiler needs to know about one instruction.
 pub struct Inst<'a> {
@@ -414,6 +420,7 @@ fn native(c: &mut Ctx, ins: &Inst, count: u32) -> bool {
         }
         31 => return native31(c, ins, count),
         59 | 63 if fp_kind(i).is_some() => fp_native(c, ins, count),
+        48..=55 | 56 | 57 | 60 | 61 if c.fast_mem => fp_mem(c, ins, count),
         32 | 34 | 40 | 42 | 33 | 35 | 41 | 43 if c.fast_mem && !update_invalid(op) => {
             let n = match i >> 26 {
                 32 | 33 => 4,
@@ -651,6 +658,219 @@ fn fp_native(c: &mut Ctx, ins: &Inst, count: u32) {
     let done = c.a.here();
     let w = c.a.b_to(done_at, done, false);
     c.a.patch(done_at, w);
+}
+
+/// A branch to the slow path, patched once the slow path's place is known.
+#[derive(Clone, Copy)]
+enum Slow {
+    Cond(Cond),
+    /// TBZ (false) or TBNZ (true) on a bit of a register.
+    Bit(bool, R, u32),
+}
+
+struct SlowSites(Vec<(usize, Slow)>);
+
+impl SlowSites {
+    fn add(&mut self, c: &mut Ctx, kind: Slow) {
+        self.0.push((c.a.here(), kind));
+        c.a.emit(0);
+    }
+    /// Ends the native path: jumps over the slow path, which runs the handler.
+    fn finish(self, c: &mut Ctx, ins: &Inst, count: u32) {
+        let done_at = c.a.here();
+        c.a.emit(0);
+        let slow = c.a.here();
+        for (at, k) in self.0 {
+            let w = match k {
+                Slow::Cond(cond) => Asm::b_cond_to(at, slow, cond),
+                Slow::Bit(nz, r, bit) => Asm::tbz_to(nz, r, bit, at, slow),
+            };
+            c.a.patch(at, w);
+        }
+        c.fallback(ins, count);
+        let done = c.a.here();
+        let w = c.a.b_to(done_at, done, false);
+        c.a.patch(done_at, w);
+    }
+}
+
+/// The address in w0 is inside the data window and an `n`-byte access there stays inside one
+/// 4 KB page: w1 = its offset in main memory. Otherwise the slow path.
+fn window(c: &mut Ctx, n: u32, slow: &mut SlowSites) {
+    c.a.ubfx(false, 4, 0, 0, 12);
+    c.a.cmp_imm(false, 4, 0x1000 - n);
+    slow.add(c, Slow::Cond(Cond::Hi));
+    c.a.emit(eor_top_bit(1, 0));
+    c.a.cmp(false, 1, LIMIT);
+    slow.add(c, Slow::Cond(Cond::Hs));
+}
+
+/// A store to offset w1 must not hit a page holding compiled or cached code.
+fn not_code_page(c: &mut Ctx, slow: &mut SlowSites) {
+    c.a.lsr_imm(false, 4, 1, 18);
+    c.a.ldr_x_reg_lsl3(5, PAGES, 4);
+    c.a.lsr_imm(false, 6, 1, 12);
+    c.a.lsrv(true, 5, 5, 6);
+    slow.add(c, Slow::Bit(true, 5, 0));
+}
+
+/// The single in w`src` as a double in x`dst` (lfs): exact. An infinity or NaN (whose bits
+/// PowerPC keeps and the host's conversion would not) takes the slow path.
+fn single_to_double(c: &mut Ctx, dst: R, src: R, slow: &mut SlowSites) {
+    c.a.ubfx(false, 9, src, 23, 8);
+    c.a.cmp_imm(false, 9, 0xFF);
+    slow.add(c, Slow::Cond(Cond::Eq));
+    c.a.fmov_s_w(0, src);
+    c.a.fcvt_d_s(0, 0);
+    c.a.fmov_x_d(dst, 0);
+}
+
+/// The double in x`src` as a single in w`dst` by PowerPC's store-single rule (stfs): its bits
+/// picked out when it is in single range (or zero, infinite or NaN), its sign alone when it is
+/// far below; values that must be denormalised take the slow path.
+fn double_to_single(c: &mut Ctx, dst: R, src: R, slow: &mut SlowSites) {
+    c.a.ubfx(true, 9, src, 52, 11);
+    c.a.lsl_imm(true, 10, src, 1);
+    // Bits: exponent above 896, or a zero.
+    c.a.cmp_imm(false, 9, 896);
+    let bits_hi = c.a.here();
+    c.a.emit(0);
+    let bits_zero = c.a.here();
+    c.a.emit(0);
+    // 874 to 896: denormalised, the handler's job; below: the sign alone.
+    c.a.cmp_imm(false, 9, 874);
+    slow.add(c, Slow::Cond(Cond::Hs));
+    c.a.lsr_imm(true, dst, src, 32);
+    c.a.mov_imm(false, 11, 0x8000_0000);
+    c.a.and(false, dst, dst, 11);
+    let to_end = c.a.here();
+    c.a.emit(0);
+    let bits = c.a.here();
+    c.a.patch(bits_hi, Asm::b_cond_to(bits_hi, bits, Cond::Hi));
+    c.a.patch(bits_zero, Asm::cbz_to(true, false, 10, bits_zero, bits));
+    c.a.lsr_imm(true, 12, src, 32);
+    c.a.mov_imm(false, 11, 0xC000_0000);
+    c.a.and(false, 12, 12, 11);
+    c.a.lsr_imm(true, dst, src, 29);
+    c.a.mov_imm(false, 11, 0x3FFF_FFFF);
+    c.a.and(false, dst, dst, 11);
+    c.a.orr(false, dst, dst, 12);
+    let end = c.a.here();
+    let w = c.a.b_to(to_end, end, false);
+    c.a.patch(to_end, w);
+}
+
+/// lfs, lfd, stfs, stfd and their update forms; psq_l and psq_st (and update forms) when the
+/// GQR says plain floats. Inline inside the data window, the handler otherwise, exactly as
+/// the handlers do them.
+fn fp_mem(c: &mut Ctx, ins: &Inst, count: u32) {
+    let op = ins.op;
+    let i = op.inst;
+    let opc = i >> 26;
+    let (d, a) = (op.d, op.a);
+    let psq = matches!(opc, 56 | 57 | 60 | 61);
+    let update = matches!(opc, 49 | 51 | 53 | 55 | 57 | 61);
+    let store = matches!(opc, 52..=55 | 60 | 61);
+    let mut slow = SlowSites(Vec::new());
+    // Floating point on (and paired singles, for psq).
+    c.ldr(0, off_msr());
+    slow.add(c, Slow::Bit(false, 0, 13));
+    let w_one = (i >> 15) & 1 != 0;
+    if psq {
+        c.ldr(0, off_hid2());
+        slow.add(c, Slow::Bit(false, 0, 29));
+        // Plain floats only: the load type is GQR bits 16-18, the store type bits 0-2.
+        c.ldr(2, gqr((i >> 12) & 7));
+        c.a.ubfx(false, 2, 2, if store { 0 } else { 16 }, 3);
+        c.a.cmp_imm(false, 2, 4);
+        slow.add(c, Slow::Cond(Cond::Hs));
+    }
+    // The address.
+    let disp = if psq { (((i & 0xFFF) << 20) as i32 >> 20) as u32 } else { op.imm };
+    if update || a != 0 {
+        c.load_gpr(0, a);
+    } else {
+        c.a.mov_imm(false, 0, 0);
+    }
+    c.add_imm32(0, 0, disp, 1);
+    let n = match opc {
+        48 | 49 | 52 | 53 => 4,
+        50 | 51 | 54 | 55 => 8,
+        _ => {
+            if w_one {
+                4
+            } else {
+                8
+            }
+        }
+    };
+    window(c, n, &mut slow);
+    if !store {
+        if n == 4 {
+            c.a.ldr_w_reg(3, MEM, 1);
+            c.a.rev_w(3, 3);
+        } else {
+            c.a.ldr_x_reg(3, MEM, 1);
+            c.a.rev_x(3, 3);
+        }
+        match opc {
+            48 | 49 => {
+                single_to_double(c, 7, 3, &mut slow);
+                c.a.str_x_any(7, CPU, ps0(d), 16);
+                c.a.str_x_any(7, CPU, ps1(d), 16);
+            }
+            50 | 51 => c.a.str_x_any(3, CPU, ps0(d), 16),
+            _ => {
+                if w_one {
+                    single_to_double(c, 7, 3, &mut slow);
+                    c.a.mov_imm(true, 8, 1.0f64.to_bits());
+                } else {
+                    // Two singles: the first is the high word.
+                    c.a.lsr_imm(true, 6, 3, 32);
+                    single_to_double(c, 7, 6, &mut slow);
+                    c.a.mov(false, 6, 3);
+                    single_to_double(c, 8, 6, &mut slow);
+                }
+                c.a.str_x_any(7, CPU, ps0(d), 16);
+                c.a.str_x_any(8, CPU, ps1(d), 16);
+            }
+        }
+    } else {
+        not_code_page(c, &mut slow);
+        match opc {
+            52 | 53 => {
+                c.a.ldr_x_any(2, CPU, ps0(d), 16);
+                double_to_single(c, 3, 2, &mut slow);
+                c.a.rev_w(3, 3);
+                c.a.str_w_reg(3, MEM, 1);
+            }
+            54 | 55 => {
+                c.a.ldr_x_any(3, CPU, ps0(d), 16);
+                c.a.rev_x(3, 3);
+                c.a.str_x_reg(3, MEM, 1);
+            }
+            _ => {
+                c.a.ldr_x_any(2, CPU, ps0(d), 16);
+                double_to_single(c, 3, 2, &mut slow);
+                if w_one {
+                    c.a.rev_w(3, 3);
+                    c.a.str_w_reg(3, MEM, 1);
+                } else {
+                    c.a.ldr_x_any(2, CPU, ps1(d), 16);
+                    double_to_single(c, 7, 2, &mut slow);
+                    // First value in the high word.
+                    c.a.lsl_imm(true, 3, 3, 32);
+                    c.a.orr(true, 3, 3, 7);
+                    c.a.rev_x(3, 3);
+                    c.a.str_x_reg(3, MEM, 1);
+                }
+            }
+        }
+    }
+    if update {
+        c.store_gpr(0, a);
+    }
+    slow.finish(c, ins, count);
 }
 
 /// CR1 = FPSCR[FX, FEX, VX, OX].

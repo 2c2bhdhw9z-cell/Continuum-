@@ -28,7 +28,7 @@ impl Rng {
 }
 
 fn instruction(rng: &mut Rng) -> u32 {
-    let ops = [14u32, 15, 24, 25, 26, 27, 28, 29, 10, 11, 20, 21, 32, 33, 34, 35, 40, 41, 42, 43, 36, 37, 38, 39, 44, 45, 31, 31, 31, 31, 31, 31, 7, 8, 12, 13, 23, 59, 59, 63, 63, 63];
+    let ops = [14u32, 15, 24, 25, 26, 27, 28, 29, 10, 11, 20, 21, 32, 33, 34, 35, 40, 41, 42, 43, 36, 37, 38, 39, 44, 45, 31, 31, 31, 31, 31, 31, 7, 8, 12, 13, 23, 59, 59, 63, 63, 63, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 60, 61];
     let op = ops[(rng.next() as usize) % ops.len()];
     let f = rng.next() & 0x03FF_FFFF;
     if op == 59 || op == 63 {
@@ -86,6 +86,8 @@ fn setup(cpu: &mut Cpu, rng: &mut Rng) {
         for half in 0..2 {
             let v = match rng.next() % 12 {
                 0 => [0u64, 1 << 63, 0x7FF0_0000_0000_0000, 0xFFF0_0000_0000_0000, 0x7FF8_0000_0000_0000, 0x7FF4_0000_0000_0001, 0x0000_0000_0000_0001, 0x000F_FFFF_FFFF_FFFF, 0x0010_0000_0000_0000, 0x7FEF_FFFF_FFFF_FFFF, 0x47EF_FFFF_E000_0000, 0x3810_0000_0000_0000][(rng.next() % 12) as usize],
+                // Around the single-precision denormal range (exponents 873 to 897).
+                1 if rng.next() % 2 == 0 => (((873 + rng.next() % 25) as u64) << 52) | ((rng.next() as u64) << 20) | ((rng.next() as u64) << 63 & (1 << 63)),
                 1 => (rng.next() as u64) << 32 | rng.next() as u64,
                 2 => (1.0f64 + (rng.next() as f64) / 4e9).to_bits() ^ (((rng.next() & 1) as u64) << 63),
                 3 => ((rng.next() as f64) * 1e300).to_bits(),
@@ -104,6 +106,13 @@ fn setup(cpu: &mut Cpu, rng: &mut Rng) {
     cpu.fpscr = rng.next() & 0xFFFF_F0FF & if rng.next() % 2 == 0 { !0xF8 } else { !0 } & if rng.next() % 3 == 0 { !0 } else { !3 };
     if rng.next() % 16 == 0 {
         cpu.msr &= !MSR_FP;
+    }
+    // Quantisation registers: plain floats mostly, every other type sometimes.
+    for g in cpu.gqr.iter_mut() {
+        *g = if rng.next() % 3 == 0 { rng.next() & 0x3F07_3F07 } else { 0 };
+    }
+    if rng.next() % 16 == 0 {
+        cpu.hid2 &= !HID2_PSE;
     }
 }
 
