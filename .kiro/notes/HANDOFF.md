@@ -5,7 +5,7 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (24 October 2026, about 10:30 AM Eastern): GameCube core — our own JIT works, drawing on several cores
+## START HERE (24 October 2026, about 10:30 AM Eastern): GameCube core — our own JIT, drawing on several cores, RVZ, AX
 
 - Our JIT (G8) is in `cores/continuum-gc/src/jit/` and turns on at load when the app allows JIT (code memory from
   the app's `continuum_jit_region`, two addresses, as iOS 26 needs). Proved equal to the interpreter: 20,000 random
@@ -22,9 +22,38 @@ Paste this to start a new chat:
   memory shortcut, memcpy replacements). Measured with `examples/hot.rs` and the profiler; results in
   tasks/gamecube.json G7: only the memory shortcut was worth doing (done; small gain). The real bottleneck was
   drawing (55-89% of the time), hence the threads.
-- Next, in order: TEV per-stage operand plans (the CPU drawer is ~90 ns a pixel per thread), AX sound stand-in (real
-  games use AX and will likely wait for it), wire the core into the app as an opt-in experimental core (G2), then
-  offer the owner ONE experimental build (start only on his yes), then the GPU drawer, JIT register cache and FP.
+- Also done by ~10:30 AM: compressed discs (RVZ, WIA, GCZ, CISO, TGC) through the `nod` library (Swiss's own disc,
+  converted with `.scratch/nodtool/bin/nodtool`, draws exactly like the ISO in every format: `.scratch/discs/`), and
+  AX (`src/dsp_ax.rs`), the sound program most commercial games use, plus the memory-card unlock program and program
+  switching. AX is unit-tested only: no commercial game here.
+- OPEN QUESTION FOR THE OWNER (rules 12 and 16: do not build it before he answers): how should the experimental
+  GameCube core get into the app? (1) a "GameCube (experimental)" switch in Settings, off by default, in every
+  build (testers could find it too); (2) only in one special test build for him; (3) wait until it plays more. The
+  wiring map (build-core.sh, check-core-cache.sh, build-engine.sh, project.yml, ContinuumApp.swift, TouchControls,
+  GameArtwork, NewLookShell, ImportCenter, detect.rs, jit.rs) is in this session's notes below. Editing
+  build-engine.sh makes the next build rebuild every core once (about an hour).
+- Next, in order: JIT floating point and paired singles natively, JIT register cache, TEV per-stage operand plans
+  (the CPU drawer is ~90 ns a pixel per thread), the GPU drawer, Zelda-family sound program (Nintendo's own games).
+
+### Wiring map for the GameCube core (G2), found 24 October (not done; waiting on the owner's answer)
+
+Model it on cArcade (`.kiro/notes/docs/ARCADE_CORE.md`, "Every place the app wires it in"):
+- `scripts/build-core.sh`: add `continuum_gc` to `IOS_OPTIONAL_CORES`; a `# recipe-start: continuum_gc` region with
+  its config arm (`IOS_KIND="cargo-continuum-gc"`, `IOS_DYLIB_NAME="continuum_gc_libretro_ios.dylib"`, no repo, no
+  pin), `build_ios_continuum_gc_core` (cargo build --release --target aarch64-apple-ios in cores/continuum-gc,
+  stage `libcontinuum_gc.dylib`) and its dispatch in `build_ios_core`, all inside the region.
+- `scripts/check-core-cache.sh`: every hard-coded `IOS_OPTIONAL_CORES=(...)` line (four places) and three gc checks
+  like cArcade's. `native/ios/build-engine.sh`: drop a cached gc dylib (no pin) and add it to `NOT_IN_IOS_YML`
+  (ios.yml edits are parked). `native/ios/project.yml`: the four-line optional embed.
+- Swift: `GameSystem` gets `gamecube` (Wii later), and every exhaustive switch (TouchControls badge,
+  dpadDrivesAnalogStick, touchScreen, displayName, wantsKeyboard, controls (GameCube pad: retro A=A, B=B, X=X, Y=Y,
+  L, R, L2/R2=Z, Start; left stick = main stick, right = C-stick), GameArtwork playlistDirectory and hue,
+  NewLookShell shortName, trayName, consoleColor); `ContinuumApp.swift` CoreSpec `continuumGc` (640x480, max
+  720x576, 4:3, 59.94, 48000, XRGB8888) in `CoreCatalog.all` (not `required`), `defaultCoreBySystem[.gamecube]`,
+  `discSystems`, routeTable rows for gcm/dol/rvz/gcz/ciso/wia; `unplayableSystems` keeps GameCube's line unless the
+  switch is on and the dylib is bundled; `ImportCenter.swift` `NotGames.gameTypesThisBuildCantRun` loses the
+  routed extensions. Engine: `detect.rs` (dol, ciso, wia, tgc), `jit.rs` `core_may_use_jit` adds `continuum_gc`.
+- nod's C compressors must compile for aarch64-apple-ios in CI (cc crate; not tried here, no Apple SDK).
 
 ## Earlier (24 October 2026, morning Eastern): GameCube core — all three homebrew run, graphics, sound, fast interpreter
 
