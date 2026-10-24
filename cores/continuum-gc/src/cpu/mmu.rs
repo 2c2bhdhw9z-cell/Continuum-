@@ -26,7 +26,7 @@ struct Entry {
 /// Flushing only bumps a generation number, so it costs nothing however often it happens.
 #[derive(Clone)]
 pub struct Tlb {
-    gen: u32,
+    pub(crate) gen: u32,
     read: Vec<Entry>,
     write: Vec<Entry>,
     fetch: Vec<Entry>,

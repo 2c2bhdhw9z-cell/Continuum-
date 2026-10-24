@@ -375,6 +375,7 @@ impl Cpu {
     }
 
     /// Takes a pending asynchronous interrupt if it is allowed now. Returns true if one was taken.
+    #[inline]
     pub fn check_interrupts(&mut self) -> bool {
         if self.msr & MSR_EE == 0 {
             return false;
