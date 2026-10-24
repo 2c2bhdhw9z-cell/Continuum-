@@ -53,8 +53,8 @@ struct State {
 }
 
 /// "CGC" and the state's layout version (3: the memory card's command state and the ticking
-/// clock in Exi).
-pub const STATE_MAGIC: &[u8; 4] = b"CGC3";
+/// clock in Exi; 4: SI polling, the drive's streamed music).
+pub const STATE_MAGIC: &[u8; 4] = b"CGC4";
 
 impl Machine {
     pub fn new(console: Console) -> Self {

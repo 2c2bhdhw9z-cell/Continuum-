@@ -324,3 +324,61 @@ fn an_immediate_exi_transfer_takes_its_time_on_the_wire() {
     // The registers repeat every 64 bytes: channel 0's control register at 0x8C.
     assert_eq!(m.hw.read32(0x0C00_688C), m.hw.read32(0x0C00_680C));
 }
+
+/// A disc that is just bytes.
+struct DiscBytes(Vec<u8>);
+impl continuum_gc::disc::Disc for DiscBytes {
+    fn read(&mut self, offset: u64, buf: &mut [u8]) -> std::io::Result<()> {
+        buf.fill(0);
+        let start = (offset as usize).min(self.0.len());
+        let n = buf.len().min(self.0.len() - start);
+        buf[..n].copy_from_slice(&self.0[start..start + n]);
+        Ok(())
+    }
+    fn size(&self) -> u64 {
+        self.0.len() as u64
+    }
+}
+
+#[test]
+fn the_drive_streams_music_into_the_sound_output() {
+    use continuum_gc::bus::Bus;
+    let mut m = booted(&dol(&[(0x8000_3100, vec![HANG])], 0x8000_3100));
+    // 50 blocks at 0x8000: left code 1 and right code 2, filter 0, shift 0 (4096 and 8192).
+    let mut disc = vec![0u8; 0x1_0000];
+    for b in 0..50 {
+        let at = 0x8000 + 32 * b;
+        disc[at..at + 4].fill(0x00);
+        disc[at + 4..at + 32].fill(0x21);
+    }
+    m.hw.disc = Some(Box::new(DiscBytes(disc)));
+    let di = |m: &mut Machine, cmd: [u32; 3]| {
+        m.hw.write32(0x0C00_6008, cmd[0]);
+        m.hw.write32(0x0C00_600C, cmd[1]);
+        m.hw.write32(0x0C00_6010, cmd[2]);
+        m.hw.write32(0x0C00_601C, 1);
+        m.hw.read32(0x0C00_6020)
+    };
+    di(&mut m, [0xE100_0000, 0x8000 >> 2, 32 * 50]);
+    assert_eq!(di(&mut m, [0xE200_0000, 0, 0]), 1, "playing");
+    assert_eq!(di(&mut m, [0xE202_0000, 0, 0]), 0x8000 >> 2, "track start");
+    assert_eq!(di(&mut m, [0xE203_0000, 0, 0]), 32 * 50, "track length");
+    // The audio interface plays the stream at 48 kHz, full volume on the left, half on the right.
+    m.hw.write32(0x0C00_6C04, 0x80FF);
+    m.hw.write32(0x0C00_6C00, 0x3);
+    m.hw.audio_out.clear();
+    for _ in 0..10 {
+        m.hw.audio_line();
+    }
+    let out = std::mem::take(&mut m.hw.audio_out);
+    assert!(out.len() >= 2 * 28);
+    let (left, right) = ((4096 * 255 / 256) as i16, (8192 * 128 / 256) as i16);
+    assert!(out.chunks(2).all(|f| f[0] == left && f[1] == right), "{:?}", &out[..8]);
+    // Stopped: silence.
+    di(&mut m, [0xE101_0000, 0, 0]);
+    assert_eq!(di(&mut m, [0xE200_0000, 0, 0]), 0);
+    for _ in 0..3 {
+        m.hw.audio_line();
+    }
+    assert!(m.hw.audio_out.iter().all(|s| *s == 0));
+}

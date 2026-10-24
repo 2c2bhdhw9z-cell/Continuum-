@@ -212,6 +212,11 @@ pub struct Di {
     pub cfg: u32,
     /// Cycles until the current command completes (0 = idle).
     pub busy: u64,
+    /// Music the drive streams off the disc (dtk.rs), and where the audio interface is between
+    /// two of its 32 kHz samples when it plays them at that rate.
+    pub stream: crate::dtk::Stream,
+    pub stream_phase: u32,
+    pub stream_last: (i16, i16),
 }
 
 #[derive(Default, Clone, Serialize, Deserialize)]
@@ -1268,8 +1273,20 @@ impl Hw {
             }
             // Request error: none.
             0xE0 => self.di.imm = 0,
-            // Seek, stop motor, audio streaming, audio buffer config: accept.
-            0xAB | 0xE3 | 0xE1 | 0xE2 | 0xE4 => self.di.imm = 0,
+            // Streamed music (dtk.rs): play or queue a track (offset in 4-byte units, length in
+            // bytes; length 0 stops at the track's end), or stop at once.
+            0xE1 => {
+                if (self.di.cmd[0] >> 16) & 0xFF == 0 {
+                    self.di.stream.play((self.di.cmd[1] as u64) << 2, self.di.cmd[2]);
+                } else {
+                    self.di.stream.cancel();
+                }
+                self.di.imm = 0;
+            }
+            // Streaming status: playing, position, track start, track length.
+            0xE2 => self.di.imm = self.di.stream.status((self.di.cmd[0] >> 16) & 0xFF),
+            // Seek, stop motor, audio buffer config: accept.
+            0xAB | 0xE3 | 0xE4 => self.di.imm = 0,
             _ => error = true,
         }
         self.di.cr &= !1;
@@ -1516,6 +1533,29 @@ impl Hw {
         self.ram(pa, 4).map(|r| u32::from_be_bytes([r[0], r[1], r[2], r[3]])).unwrap_or(0)
     }
 
+    /// One 48 kHz output frame with the drive's streamed music mixed in: while the audio
+    /// interface plays the stream (AICR PSTAT), at 48 kHz (AFR) or 32 kHz, at AIVR's volume
+    /// (left in bits 0-7, right in 8-15).
+    fn with_stream(&mut self, dsp: (i16, i16)) -> (i16, i16) {
+        if self.ai.cr & 1 == 0 || !self.di.stream.playing {
+            return dsp;
+        }
+        let s = if self.ai.cr & 2 != 0 {
+            self.di.stream.sample(self.disc.as_mut())
+        } else {
+            // Two stream samples for every three output frames.
+            self.di.stream_phase += 2;
+            if self.di.stream_phase >= 3 {
+                self.di.stream_phase -= 3;
+                self.di.stream_last = self.di.stream.sample(self.disc.as_mut());
+            }
+            self.di.stream_last
+        };
+        let vol = |v: i16, shift: u32| (v as i32 * ((self.ai.vr >> shift) & 0xFF) as i32) >> 8;
+        let add = |a: i16, b: i32| (a as i32 + b).clamp(-32768, 32767) as i16;
+        (add(dsp.0, vol(s.0, 0)), add(dsp.1, vol(s.1, 8)))
+    }
+
     /// One video line of sound: the DMA plays at 32 or 48 kHz; the output is always 48 kHz.
     pub fn audio_line(&mut self) {
         self.irq_dirty = true;
@@ -1526,14 +1566,16 @@ impl Hw {
             self.audio_phase -= lines_x100;
             let f = self.audio_dma_frame();
             if rate == 48_000 {
-                self.audio_out.extend_from_slice(&[f.0, f.1]);
+                let (l, r) = self.with_stream(f);
+                self.audio_out.extend_from_slice(&[l, r]);
             } else {
                 let step = 32_000.0 / 48_000.0;
                 let p = self.audio_prev;
                 while self.audio_t <= 1.0 {
                     let t = self.audio_t;
                     let mix = |a: i16, b: i16| (a as f32 + (b as f32 - a as f32) * t) as i16;
-                    self.audio_out.extend_from_slice(&[mix(p.0, f.0), mix(p.1, f.1)]);
+                    let (l, r) = self.with_stream((mix(p.0, f.0), mix(p.1, f.1)));
+                    self.audio_out.extend_from_slice(&[l, r]);
                     self.audio_t += step;
                 }
                 self.audio_t -= 1.0;

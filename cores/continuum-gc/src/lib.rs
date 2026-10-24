@@ -10,6 +10,7 @@ pub mod bus;
 pub mod cpu;
 pub mod disc;
 pub mod dol;
+pub mod dtk;
 pub mod dsp_ax;
 pub mod dsp_hle;
 pub mod dsp_zelda;
