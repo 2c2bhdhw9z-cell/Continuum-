@@ -207,9 +207,12 @@ impl Gx {
         }
     }
 
-    /// Runs the TEV, the alpha test and fog for one pixel. Returns the colour and depth, or
-    /// None when the alpha test throws the pixel away.
-    pub(super) fn shade(&self, p: &Pipeline, px: &PixelIn, lods: &[f32; 8]) -> Option<([i32; 4], u32)> {
+}
+
+/// Runs the TEV, the alpha test and fog for one pixel. Returns the colour and depth, or None
+/// when the alpha test throws the pixel away.
+pub(super) fn shade(p: &Pipeline, px: &PixelIn, lods: &[f32; 8]) -> Option<([i32; 4], u32)> {
+    {
         let mut regs = p.regs;
         // Indirect texture lookups, one per indirect stage.
         let mut ind = [[0i32; 3]; 4];

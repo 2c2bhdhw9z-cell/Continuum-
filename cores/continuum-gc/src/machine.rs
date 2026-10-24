@@ -291,6 +291,8 @@ impl Machine {
     // ------------------------------------------------------------------ save states
 
     pub fn save_state(&self) -> Vec<u8> {
+        // The EFB must hold everything drawn so far.
+        self.hw.gx.wait_idle();
         let s = State {
             cpu: self.cpu.clone(),
             mem1: self.hw.mem1.clone(),
@@ -335,7 +337,9 @@ impl Machine {
         self.hw.di = s.di;
         self.hw.dsp = s.dsp;
         self.hw.ai = s.ai;
+        let threads = self.hw.gx.draw_threads();
         self.hw.gx = s.gx;
+        self.hw.gx.set_draw_threads(threads);
         self.hw.gather = s.gather;
         self.line_cycles = s.line_cycles;
         Ok(())

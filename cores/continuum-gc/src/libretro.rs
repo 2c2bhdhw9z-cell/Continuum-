@@ -166,6 +166,19 @@ fn env(cmd: u32, data: *mut c_void) -> bool {
     f.is_some_and(|f| unsafe { f(cmd, data) })
 }
 
+/// How many helper threads draw pixels (gx/draw.rs; exactly the same picture as drawing on the
+/// CPU's thread): all the processor cores but two (the emulated CPU's and the app's), at most
+/// four, none on a phone with fewer than four cores.
+fn draw_helpers() -> usize {
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let n = cores.saturating_sub(2).min(4);
+    if n < 2 {
+        0
+    } else {
+        n
+    }
+}
+
 /// Opens a game by its path: a DOL/ELF program, or a disc image.
 pub fn open(path: &str) -> Result<Machine, String> {
     let lower = path.to_ascii_lowercase();
@@ -202,6 +215,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
             if JIT_ALLOWED.load(Ordering::SeqCst) {
                 machine.enable_jit();
             }
+            machine.hw.gx.set_draw_threads(draw_helpers());
             *core() = Some(Core { machine, frame: vec![0; 640 * 480], size: (640, 480) });
             true
         }

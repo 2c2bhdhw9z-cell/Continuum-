@@ -33,12 +33,17 @@ fn main() {
         let entry = m.cpu.pc;
         m.set_args(entry, &args.split(' ').collect::<Vec<_>>(), &env.split(' ').filter(|s| !s.is_empty()).collect::<Vec<_>>());
     }
+    // CGC_DRAW_THREADS=n: draw on n helper threads (must give exactly the same picture).
+    if let Some(n) = std::env::var("CGC_DRAW_THREADS").ok().and_then(|s| s.parse().ok()) {
+        m.hw.gx.set_draw_threads(n);
+    }
     let expected: Vec<String> = if mode == "check" { std::fs::read_to_string(file).expect("recorded file").lines().map(String::from).collect() } else { Vec::new() };
     let mut out = String::new();
     let t = std::time::Instant::now();
     let mut differences = 0;
     for f in 0..fields {
         m.run_field(m.cpu_hz / 60);
+        m.hw.gx.sync();
         let pic = m.hw.vi_picture().map(|(_, _, px)| hash(&px)).unwrap_or(0);
         let line = format!("{f} {:016x} {:016x} {pic:016x}", hash(&m.hw.gx.efb_color), hash(&m.hw.gx.efb_depth));
         if mode == "check" {

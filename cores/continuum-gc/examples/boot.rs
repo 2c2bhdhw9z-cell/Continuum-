@@ -53,6 +53,7 @@ fn main() {
     eprintln!("exceptions taken: {:?}", m.cpu.exceptions.iter().enumerate().filter(|(_, n)| **n > 0).map(|(v, n)| (format!("{:X}00", v), *n)).collect::<Vec<_>>());
     eprintln!("faults (vector, at, address): {:08X?}", m.cpu.fault_log);
     eprintln!("unknown registers: {:X?}", m.hw.unknown.iter().take(40).collect::<Vec<_>>());
+    m.hw.gx.sync();
     eprintln!("graphics: {:?}", m.hw.gx.stats);
     eprintln!("disc commands: {:X?}", m.hw.di_commands);
     eprintln!("sound program: {:?} crc {:08X}", m.hw.dsp.hle.kind, m.hw.dsp.hle.crc);

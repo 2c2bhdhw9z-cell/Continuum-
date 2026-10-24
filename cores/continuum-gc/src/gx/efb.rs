@@ -81,50 +81,10 @@ fn mul(v: i32, f: i32) -> i32 {
     (v * (f + (f >> 7))) >> 8
 }
 
-impl Gx {
-    pub(super) fn pe_state(&self) -> PeState {
-        let z = self.bp[0x40];
-        let c0 = self.bp[0x41];
-        let c1 = self.bp[0x42];
-        let ctl = self.bp[0x43];
-        PeState {
-            z_enable: z & 1 != 0,
-            z_func: (z >> 1) & 7,
-            z_update: z & 0x10 != 0,
-            z_early: ctl & 0x40 != 0,
-            blend: c0 & 1 != 0,
-            logic: c0 & 2 != 0,
-            subtract: c0 & 0x800 != 0,
-            src_factor: (c0 >> 8) & 7,
-            dst_factor: (c0 >> 5) & 7,
-            logic_op: (c0 >> 12) & 15,
-            color_update: c0 & 8 != 0,
-            alpha_update: c0 & 0x10 != 0,
-            dst_alpha: if c1 & 0x100 != 0 { Some((c1 & 0xFF) as u8) } else { None },
-            format: ctl & 7,
-        }
-    }
-
-    /// Depth test (and write) on its own: used before texturing when the program asked for an
-    /// early depth test, and for the late test otherwise.
-    #[inline]
-    pub(super) fn depth_test(&mut self, pe: &PeState, idx: usize, z: u32) -> bool {
-        if !pe.z_enable {
-            return true;
-        }
-        if !z_pass(pe.z_func, z, self.efb_depth[idx]) {
-            return false;
-        }
-        if pe.z_update {
-            self.efb_depth[idx] = z;
-        }
-        true
-    }
-
-    /// Blends one shaded pixel into the EFB.
-    #[inline]
-    pub(super) fn write_color(&mut self, pe: &PeState, idx: usize, src: [i32; 4]) {
-        let dst = unpack(self.efb_color[idx]);
+/// Blends one shaded pixel `src` with the EFB pixel `dst_px` (as stored): the new stored value.
+#[inline]
+pub(super) fn blend(pe: &PeState, dst_px: u32, src: [i32; 4]) -> u32 {
+        let dst = unpack(dst_px);
         let has_alpha = pe.format == 1;
         let dst_a = if has_alpha { dst[3] } else { 255 };
         let mut out = src;
@@ -199,12 +159,38 @@ impl Gx {
         if pe.alpha_update || pe.dst_alpha.is_some() {
             result[3] = if has_alpha { q[3] } else { 255 };
         }
-        self.efb_color[idx] = pack(result);
+        pack(result)
+}
+
+impl Gx {
+    pub(super) fn pe_state(&self) -> PeState {
+        let z = self.bp[0x40];
+        let c0 = self.bp[0x41];
+        let c1 = self.bp[0x42];
+        let ctl = self.bp[0x43];
+        PeState {
+            z_enable: z & 1 != 0,
+            z_func: (z >> 1) & 7,
+            z_update: z & 0x10 != 0,
+            z_early: ctl & 0x40 != 0,
+            blend: c0 & 1 != 0,
+            logic: c0 & 2 != 0,
+            subtract: c0 & 0x800 != 0,
+            src_factor: (c0 >> 8) & 7,
+            dst_factor: (c0 >> 5) & 7,
+            logic_op: (c0 >> 12) & 15,
+            color_update: c0 & 8 != 0,
+            alpha_update: c0 & 0x10 != 0,
+            dst_alpha: if c1 & 0x100 != 0 { Some((c1 & 0xFF) as u8) } else { None },
+            format: ctl & 7,
+        }
     }
 
     // ------------------------------------------------------------------ EFB copies
 
     pub(super) fn efb_copy(&mut self, ram: &mut Ram, ctl: u32) {
+        // Everything drawn so far must be in the EFB first.
+        self.sync();
         let x0 = (self.bp[0x49] & 0x3FF) as usize;
         let y0 = ((self.bp[0x49] >> 10) & 0x3FF) as usize;
         let w = ((self.bp[0x4A] & 0x3FF) + 1) as usize;
@@ -446,7 +432,8 @@ impl Gx {
     }
 
     /// The CPU's direct EFB access (physical 0x08000000): colour or (bit 22) depth.
-    pub fn efb_peek(&self, pa: u32) -> u32 {
+    pub fn efb_peek(&mut self, pa: u32) -> u32 {
+        self.sync();
         let x = ((pa >> 2) & 0x3FF) as usize;
         let y = ((pa >> 12) & 0x3FF) as usize;
         if x >= EFB_WIDTH || y >= EFB_HEIGHT {
@@ -463,6 +450,7 @@ impl Gx {
     }
 
     pub fn efb_poke(&mut self, pa: u32, v: u32) {
+        self.sync();
         let x = ((pa >> 2) & 0x3FF) as usize;
         let y = ((pa >> 12) & 0x3FF) as usize;
         if x >= EFB_WIDTH || y >= EFB_HEIGHT {

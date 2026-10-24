@@ -1,85 +1,92 @@
-//! Primitive assembly, clipping, the viewport, culling and the rasteriser.
+//! Primitive assembly, clipping, the viewport and culling.
 //!
 //! Triangles are clipped in clip space against the near and far planes (GX keeps z/w between
-//! -1 at the near plane and 0 at the far plane) and a wide guard band, then drawn with exact
-//! edge functions on a 1/16-pixel grid with the top-left fill rule, sampling at pixel centres.
-//! Colours and texture coordinates are interpolated with perspective correction; depth is
-//! linear in screen space.
+//! -1 at the near plane and 0 at the far plane) and a wide guard band, then handed to the
+//! rasteriser (draw.rs) in screen space, one job per primitive.
 
+use super::draw::{Job, Target};
 use super::efb::{PeState, EFB_HEIGHT, EFB_WIDTH};
-use super::tev::{PixelIn, Pipeline};
+use super::tev::Pipeline;
 use super::vertex::OutVertex;
 use super::{Gx, Ram};
+use std::sync::Arc;
 
 /// A vertex after the viewport: EFB pixel position, depth, 1/w and attributes divided by w.
 #[derive(Clone, Copy)]
-struct Screen {
-    x: f32,
-    y: f32,
-    z: f32,
-    inv_w: f32,
-    attr: [f32; 32],
+pub(super) struct Screen {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub inv_w: f32,
+    pub attr: [f32; 32],
 }
 
 /// Everything one primitive's pixels share.
-struct Setup {
-    pipe: Pipeline,
-    pe: PeState,
-    num_chans: usize,
-    num_tex: usize,
+pub(super) struct Setup {
+    pub pipe: Pipeline,
+    pub pe: PeState,
+    pub num_chans: usize,
+    pub num_tex: usize,
     /// Scissor rectangle in EFB pixels (inclusive left/top, exclusive right/bottom).
-    sc: (i32, i32, i32, i32),
-    off: (f32, f32),
-    vp: [f32; 6],
-    cull: u32,
-    need_lod: [bool; 8],
+    pub sc: (i32, i32, i32, i32),
+    pub off: (f32, f32),
+    pub vp: [f32; 6],
+    pub cull: u32,
+    pub need_lod: [bool; 8],
 }
 
 impl Gx {
     pub(super) fn rasterize_primitive(&mut self, ram: &mut Ram, prim: u8, v: &[OutVertex]) {
         let s = self.setup(ram);
+        let mut tris: Vec<[Screen; 3]> = Vec::new();
         match prim {
             0 | 1 => {
                 for q in v.chunks_exact(4) {
-                    self.triangle(ram, &s, &q[0], &q[1], &q[2]);
-                    self.triangle(ram, &s, &q[0], &q[2], &q[3]);
+                    self.triangle(&s, &q[0], &q[1], &q[2], &mut tris);
+                    self.triangle(&s, &q[0], &q[2], &q[3], &mut tris);
                 }
             }
             2 => {
                 for t in v.chunks_exact(3) {
-                    self.triangle(ram, &s, &t[0], &t[1], &t[2]);
+                    self.triangle(&s, &t[0], &t[1], &t[2], &mut tris);
                 }
             }
             3 => {
                 for i in 2..v.len() {
                     if i % 2 == 0 {
-                        self.triangle(ram, &s, &v[i - 2], &v[i - 1], &v[i]);
+                        self.triangle(&s, &v[i - 2], &v[i - 1], &v[i], &mut tris);
                     } else {
-                        self.triangle(ram, &s, &v[i - 1], &v[i - 2], &v[i]);
+                        self.triangle(&s, &v[i - 1], &v[i - 2], &v[i], &mut tris);
                     }
                 }
             }
             4 => {
                 for i in 2..v.len() {
-                    self.triangle(ram, &s, &v[0], &v[i - 1], &v[i]);
+                    self.triangle(&s, &v[0], &v[i - 1], &v[i], &mut tris);
                 }
             }
             5 => {
                 for l in v.chunks_exact(2) {
-                    self.line(ram, &s, &l[0], &l[1]);
+                    self.line(&s, &l[0], &l[1], &mut tris);
                 }
             }
             6 => {
                 for i in 1..v.len() {
-                    self.line(ram, &s, &v[i - 1], &v[i]);
+                    self.line(&s, &v[i - 1], &v[i], &mut tris);
                 }
             }
             _ => {
                 for p in v {
-                    self.point(ram, &s, p);
+                    self.point(&s, p, &mut tris);
                 }
             }
         }
+        if tris.is_empty() {
+            return;
+        }
+        let target = Target::new(&mut self.efb_color, &mut self.efb_depth);
+        let n = self.draw.submit(Job { setup: Arc::new(s), tris, target });
+        self.stats.pixels += n;
     }
 
     fn setup(&mut self, ram: &Ram) -> Setup {
@@ -149,7 +156,7 @@ impl Gx {
         }
     }
 
-    fn triangle(&mut self, ram: &mut Ram, s: &Setup, a: &OutVertex, b: &OutVertex, c: &OutVertex) {
+    fn triangle(&mut self, s: &Setup, a: &OutVertex, b: &OutVertex, c: &OutVertex, out: &mut Vec<[Screen; 3]>) {
         self.stats.triangles += 1;
         let poly = clip(&[*a, *b, *c]);
         if poly.len() < 3 {
@@ -170,11 +177,11 @@ impl Gx {
             _ => {}
         }
         for i in 1..sv.len() - 1 {
-            self.raster_triangle(ram, s, &sv[0], &sv[i], &sv[i + 1]);
+            out.push([sv[0], sv[i], sv[i + 1]]);
         }
     }
 
-    fn line(&mut self, ram: &mut Ram, s: &Setup, a: &OutVertex, b: &OutVertex) {
+    fn line(&mut self, s: &Setup, a: &OutVertex, b: &OutVertex, out: &mut Vec<[Screen; 3]>) {
         if a.clip[3] <= 0.0 || b.clip[3] <= 0.0 {
             return;
         }
@@ -185,11 +192,11 @@ impl Gx {
         let (ox, oy) = if dx.abs() >= dy.abs() { (0.0, width / 2.0) } else { (width / 2.0, 0.0) };
         let shift = |p: &Screen, sx: f32, sy: f32| Screen { x: p.x + sx, y: p.y + sy, ..*p };
         let q = [shift(&pa, -ox, -oy), shift(&pb, -ox, -oy), shift(&pb, ox, oy), shift(&pa, ox, oy)];
-        self.raster_triangle(ram, s, &q[0], &q[1], &q[2]);
-        self.raster_triangle(ram, s, &q[0], &q[2], &q[3]);
+        out.push([q[0], q[1], q[2]]);
+        out.push([q[0], q[2], q[3]]);
     }
 
-    fn point(&mut self, ram: &mut Ram, s: &Setup, a: &OutVertex) {
+    fn point(&mut self, s: &Setup, a: &OutVertex, out: &mut Vec<[Screen; 3]>) {
         if a.clip[3] <= 0.0 {
             return;
         }
@@ -197,152 +204,8 @@ impl Gx {
         let h = (((self.bp[0x22] >> 8) & 0xFF) as f32 / 6.0).max(1.0 / 6.0) / 2.0;
         let shift = |sx: f32, sy: f32| Screen { x: p.x + sx, y: p.y + sy, ..p };
         let q = [shift(-h, -h), shift(h, -h), shift(h, h), shift(-h, h)];
-        self.raster_triangle(ram, s, &q[0], &q[1], &q[2]);
-        self.raster_triangle(ram, s, &q[0], &q[2], &q[3]);
-    }
-
-    fn raster_triangle(&mut self, _ram: &mut Ram, s: &Setup, v0: &Screen, v1: &Screen, v2: &Screen) {
-        let fx = |v: f32| (v * 16.0).round() as i64;
-        let (p0, mut p1, mut p2) = (v0, v1, v2);
-        let mut x = [fx(p0.x), fx(p1.x), fx(p2.x)];
-        let mut y = [fx(p0.y), fx(p1.y), fx(p2.y)];
-        let mut area = (x[1] - x[0]) * (y[2] - y[0]) - (y[1] - y[0]) * (x[2] - x[0]);
-        if area == 0 {
-            return;
-        }
-        if area < 0 {
-            std::mem::swap(&mut p1, &mut p2);
-            x.swap(1, 2);
-            y.swap(1, 2);
-            area = -area;
-        }
-        let minx = x[0].min(x[1]).min(x[2]);
-        let maxx = x[0].max(x[1]).max(x[2]);
-        let miny = y[0].min(y[1]).min(y[2]);
-        let maxy = y[0].max(y[1]).max(y[2]);
-        // Pixels whose centres (16 * px + 8) are inside the box.
-        let px0 = (((minx - 8) as f64 / 16.0).ceil() as i32).max(s.sc.0);
-        let px1 = (((maxx - 8) as f64 / 16.0).floor() as i32).min(s.sc.2 - 1);
-        let py0 = (((miny - 8) as f64 / 16.0).ceil() as i32).max(s.sc.1);
-        let py1 = (((maxy - 8) as f64 / 16.0).floor() as i32).min(s.sc.3 - 1);
-        if px0 > px1 || py0 > py1 {
-            return;
-        }
-        // Edge i runs from vertex i to vertex i+1; the function is positive inside.
-        let edges: [(i64, i64, i64); 3] = std::array::from_fn(|i| {
-            let (j, k) = (i, (i + 1) % 3);
-            let (dx, dy) = (x[k] - x[j], y[k] - y[j]);
-            let top_left = (dy == 0 && dx > 0) || dy < 0;
-            (dx, dy, if top_left { 0 } else { -1 })
-        });
-        let eval = |i: usize, px: i64, py: i64| -> i64 {
-            let (dx, dy, bias) = edges[i];
-            dx * (py - y[i]) - dy * (px - x[i]) + bias
-        };
-
-        // Attribute planes: value(px, py) = base + ddx * (px - x0) + ddy * (py - y0), in pixels.
-        let nattr = 8 + 3 * s.num_tex;
-        let fa = area as f32;
-        let (x0, y0) = (x[0] as f32 / 16.0, y[0] as f32 / 16.0);
-        let (e1x, e1y) = ((x[1] - x[0]) as f32 / 16.0, (y[1] - y[0]) as f32 / 16.0);
-        let (e2x, e2y) = ((x[2] - x[0]) as f32 / 16.0, (y[2] - y[0]) as f32 / 16.0);
-        let inv_area = 256.0 / fa;
-        let plane = |a0: f32, a1: f32, a2: f32| -> (f32, f32) {
-            let (d1, d2) = (a1 - a0, a2 - a0);
-            ((d1 * e2y - d2 * e1y) * inv_area, (d2 * e1x - d1 * e2x) * inv_area)
-        };
-        let mut base = [0f32; 34];
-        let mut ddx = [0f32; 34];
-        let mut ddy = [0f32; 34];
-        let (z0, z1, z2) = (p0.z, p1.z, p2.z);
-        let (dzx, dzy) = plane(z0, z1, z2);
-        let (dwx, dwy) = plane(p0.inv_w, p1.inv_w, p2.inv_w);
-        for k in 0..nattr {
-            let (dx, dy) = plane(p0.attr[k], p1.attr[k], p2.attr[k]);
-            base[k] = p0.attr[k];
-            ddx[k] = dx;
-            ddy[k] = dy;
-        }
-        let mut tex = [[0f32; 3]; 8];
-        let mut lods = [0f32; 8];
-        let mut vals = [0f32; 34];
-        // Edge values step by -dy*16 per pixel and dx*16 per row.
-        let step_x: [i64; 3] = std::array::from_fn(|i| -edges[i].1 * 16);
-        let num_chans = s.num_chans.max(1);
-        let fx0 = (px0 as f32 + 0.5) - x0;
-        for py in py0..=py1 {
-            let cy = (py * 16 + 8) as i64;
-            let fy = (py as f32 + 0.5) - y0;
-            let cx0 = (px0 * 16 + 8) as i64;
-            let mut e = [eval(0, cx0, cy), eval(1, cx0, cy), eval(2, cx0, cy)];
-            let mut z = z0 + dzx * fx0 + dzy * fy;
-            let mut iw = p0.inv_w + dwx * fx0 + dwy * fy;
-            for k in 0..nattr {
-                vals[k] = base[k] + ddx[k] * fx0 + ddy[k] * fy;
-            }
-            let mut inside_seen = false;
-            for px in px0..=px1 {
-                if px > px0 {
-                    e[0] += step_x[0];
-                    e[1] += step_x[1];
-                    e[2] += step_x[2];
-                    z += dzx;
-                    iw += dwx;
-                    for k in 0..nattr {
-                        vals[k] += ddx[k];
-                    }
-                }
-                if e[0] < 0 || e[1] < 0 || e[2] < 0 {
-                    if inside_seen {
-                        // Triangles are convex: once out on this row, the rest is out too.
-                        break;
-                    }
-                    continue;
-                }
-                inside_seen = true;
-                let idx = py as usize * EFB_WIDTH + px as usize;
-                let zi = z.clamp(0.0, 16_777_215.0) as u32;
-                if s.pe.z_early && s.pe.z_enable && !self.depth_test(&s.pe, idx, zi) {
-                    continue;
-                }
-                let w = if iw != 0.0 { 1.0 / iw } else { 0.0 };
-                let mut color = [[0i32; 4]; 2];
-                for c in 0..num_chans {
-                    for ch in 0..4 {
-                        color[c][ch] = (vals[c * 4 + ch] * w).clamp(0.0, 255.0) as i32;
-                    }
-                }
-                for t in 0..s.num_tex {
-                    let k = 8 + 3 * t;
-                    let (sw, tw, mut qw) = (vals[k], vals[k + 1], vals[k + 2]);
-                    if qw == 0.0 {
-                        qw = 1e-20;
-                    }
-                    let (ss, ts) = s.pipe.tc_scale[t];
-                    let iq = 1.0 / qw;
-                    tex[t] = [sw * iq * ss, tw * iq * ts, 1.0];
-                    if s.need_lod[t] {
-                        let (sx, sy, tx, ty, qx, qy) = (ddx[k], ddy[k], ddx[k + 1], ddy[k + 1], ddx[k + 2], ddy[k + 2]);
-                        let iq2 = iq * iq;
-                        let dudx = (sx * qw - sw * qx) * iq2 * ss;
-                        let dudy = (sy * qw - sw * qy) * iq2 * ss;
-                        let dvdx = (tx * qw - tw * qx) * iq2 * ts;
-                        let dvdy = (ty * qw - tw * qy) * iq2 * ts;
-                        let rho = (dudx * dudx + dvdx * dvdx).max(dudy * dudy + dvdy * dvdy);
-                        lods[t] = if rho > 0.0 { 0.5 * rho.log2() } else { -10.0 };
-                    }
-                }
-                let pin = PixelIn { z: zi, color, tex: &tex };
-                let Some((out, z2)) = self.shade(&s.pipe, &pin, &lods) else {
-                    continue;
-                };
-                self.stats.pixels += 1;
-                if !s.pe.z_early && !self.depth_test(&s.pe, idx, z2) {
-                    continue;
-                }
-                self.write_color(&s.pe, idx, out);
-            }
-        }
+        out.push([q[0], q[1], q[2]]);
+        out.push([q[0], q[2], q[3]]);
     }
 }
 

@@ -18,6 +18,7 @@
 
 use serde::{Deserialize, Serialize};
 
+mod draw;
 mod efb;
 mod raster;
 mod tev;
@@ -163,6 +164,10 @@ pub struct Stats {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Gx {
+    /// Drawing helper threads (draw.rs). First, so that it is dropped (finishing its queue)
+    /// before the EFB it draws into.
+    #[serde(skip)]
+    draw: draw::Threads,
     // ---- CP registers (CPU side, 0x0C000000)
     pub cp_sr: u16,
     pub cp_cr: u16,
@@ -251,6 +256,7 @@ impl Gx {
         // The line/point setup's default width (6/6 of a pixel).
         bp[0x22] = 0x0000_0606;
         Gx {
+            draw: draw::Threads::default(),
             cp_sr: SR_READ_IDLE | SR_CMD_IDLE,
             cp_cr: 0,
             cp_token: 0,
@@ -279,6 +285,33 @@ impl Gx {
             tex_cache: Default::default(),
             stats: Stats::default(),
         }
+    }
+
+    // ------------------------------------------------------------------ drawing threads
+
+    /// Draws on `count` helper threads (other processor cores) from now on; 0 or 1 draws on
+    /// the calling thread. The picture is exactly the same either way.
+    pub fn set_draw_threads(&mut self, count: usize) {
+        if count.max(1) != self.draw.count().max(1) {
+            self.sync();
+            self.draw = draw::Threads::start(count);
+        }
+    }
+
+    pub fn draw_threads(&self) -> usize {
+        self.draw.count()
+    }
+
+    /// Waits for everything queued to be drawn into the EFB.
+    pub fn sync(&mut self) {
+        let n = self.draw.wait();
+        self.stats.pixels += n;
+    }
+
+    /// `sync` for a shared borrow (save states); the pixel count is added at the next `sync`.
+    pub fn wait_idle(&self) {
+        // Pixels counted here are dropped from the development counter; nothing else.
+        let _ = self.draw.wait();
     }
 
     // ------------------------------------------------------------------ interrupts
