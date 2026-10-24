@@ -382,3 +382,118 @@ fn the_drive_streams_music_into_the_sound_output() {
     }
     assert!(m.hw.audio_out.iter().all(|s| *s == 0));
 }
+
+// ---------------------------------------------------------------------- booting a disc
+
+const NOP: u32 = 0x6000_0000;
+const BLR: u32 = 0x4E80_0020;
+fn cmpwi(a: u32, v: i32) -> u32 {
+    d(11, 0, a, v)
+}
+/// bne: branch `off` bytes on (bc 4,2).
+fn bne(off: i32) -> u32 {
+    (16 << 26) | (4 << 21) | (2 << 16) | (off as u32 & 0xFFFC)
+}
+
+/// A disc whose apploader is written the way Nintendo's are: its globals (the report function,
+/// how far it got) live in the boot ROM's small-data area, through r13, and it prints a line.
+/// It asks for one piece of the game (16 bytes of code at disc offset 0x10000, loaded at
+/// 0x80003100), then hands over to it. The game stores 0x77 at 0x80002000 and waits.
+fn sdk_style_disc(region: u32) -> Vec<u8> {
+    const APP: u32 = 0x8120_0000;
+    let mut app = vec![
+        // entry(&init, &main, &close)
+        lis(6, APP >> 16), ori(6, 6, 0x40), stw(6, 3, 0),
+        lis(6, APP >> 16), ori(6, 6, 0x80), stw(6, 4, 0),
+        lis(6, APP >> 16), ori(6, 6, 0xE0), stw(6, 5, 0),
+        BLR,
+    ];
+    app.resize(0x40 / 4, NOP);
+    // init(report): remember it, clear the state, report a line.
+    app.extend([
+        stw(3, 13, -0x7FF0), li(0, 0), stw(0, 13, -0x7FEC),
+        0x7C08_02A6, // mflr r0
+        stw(0, 1, 4), d(37, 1, 1, -16), // stwu r1,-16(r1)
+        mtctr(3), lis(3, APP >> 16), ori(3, 3, 0x100),
+        0x4E80_0421, // bctrl
+        lwz(0, 1, 20), 0x7C08_03A6, addi(1, 1, 16), BLR,
+    ]);
+    app.resize(0x80 / 4, NOP);
+    // main(&dst, &len, &offset): one request, then done.
+    app.extend([
+        lwz(6, 13, -0x7FEC), cmpwi(6, 0), bne(0xBC - 0x88),
+        lis(7, 0x8000), ori(7, 7, 0x3100), stw(7, 3, 0),
+        li(7, 16), stw(7, 4, 0),
+        lis(7, 1), ori(7, 7, 0), stw(7, 5, 0),
+        li(6, 1), stw(6, 13, -0x7FEC),
+        li(3, 1), BLR,
+        li(3, 0), BLR,
+    ]);
+    app.resize(0xE0 / 4, NOP);
+    // close(): the game's entry point.
+    app.extend([lis(3, 0x8000), ori(3, 3, 0x3100), BLR]);
+    app.resize(0x100 / 4, NOP);
+    let mut code: Vec<u8> = app.iter().flat_map(|w| w.to_be_bytes()).collect();
+    code.extend(b"Apploader test\0\0");
+    code.resize(0x120, 0);
+
+    let mut img = vec![0u8; 0x10100];
+    img[0..6].copy_from_slice(b"GTSE01");
+    img[0x1C..0x20].copy_from_slice(&0xC233_9F3Du32.to_be_bytes());
+    img[0x20..0x2A].copy_from_slice(b"Boot test\0");
+    img[0x458..0x45C].copy_from_slice(&region.to_be_bytes());
+    img[0x2440..0x244A].copy_from_slice(b"2002/01/01");
+    img[0x2450..0x2454].copy_from_slice(&(APP).to_be_bytes());
+    img[0x2454..0x2458].copy_from_slice(&(code.len() as u32).to_be_bytes());
+    img[0x2460..0x2460 + code.len()].copy_from_slice(&code);
+    let game = [li(3, 0x77), lis(4, 0x8000), stw(3, 4, 0x2000), HANG];
+    for (k, w) in game.iter().enumerate() {
+        img[0x10000 + 4 * k..0x10004 + 4 * k].copy_from_slice(&w.to_be_bytes());
+    }
+    img
+}
+
+#[test]
+fn a_disc_boots_through_an_apploader_that_keeps_its_globals_in_small_data() {
+    use continuum_gc::bus::Bus;
+    let mut m = Machine::new(Console::GameCube);
+    let disc = continuum_gc::disc::MemoryImage(sdk_style_disc(1));
+    let header = m.boot_disc(Box::new(disc)).expect("the disc boots");
+    assert_eq!(header.game_id, "GTSE01");
+    assert_eq!(m.cpu.pc, 0x8000_3100);
+    assert_eq!(m.apploader_log, vec!["Apploader test".to_string()]);
+    // What the boot ROM leaves: the disc ID, the console type, rfi at three vectors, the IPL's
+    // stack and small-data pointers; the arena is the game's own business.
+    assert_eq!(&m.hw.mem1[0..6], b"GTSE01");
+    assert_eq!(m.hw.read32(0x2C), continuum_gc::machine::DISC_CONSOLE_TYPE);
+    for v in [0x300, 0x800, 0xC00] {
+        assert_eq!(m.hw.read32(v), RFI);
+    }
+    assert_eq!(m.hw.read32(0x34), 0);
+    assert_eq!((m.cpu.gpr[1], m.cpu.gpr[2], m.cpu.gpr[13]), (0x8156_6550, 0x8146_5CC0, 0x8146_5320));
+    m.run_field(2_000_000);
+    assert_eq!(m.hw.read32(0x2000), 0x77, "the game ran");
+}
+
+#[test]
+fn a_pal_disc_gets_the_pal_boot_rom_pointers_and_video_mode() {
+    use continuum_gc::bus::Bus;
+    let mut m = Machine::new(Console::GameCube);
+    m.boot_disc(Box::new(continuum_gc::disc::MemoryImage(sdk_style_disc(2)))).expect("boots");
+    assert_eq!((m.cpu.gpr[1], m.cpu.gpr[2], m.cpu.gpr[13]), (0x815E_DCA8, 0x814B_5B20, 0x814B_4FC0));
+    assert_eq!(m.hw.read32(0xCC), 1);
+}
+
+#[test]
+fn an_apploader_that_faults_is_refused_at_once_saying_where() {
+    let mut img = sdk_style_disc(1);
+    // entry's first instruction: lwz r6, 0(0), an access to unmapped memory.
+    img[0x2460..0x2464].copy_from_slice(&lwz(6, 0, 0).to_be_bytes());
+    let mut m = Machine::new(Console::GameCube);
+    let t = std::time::Instant::now();
+    let err = m.boot_disc(Box::new(continuum_gc::disc::MemoryImage(img))).unwrap_err();
+    assert!(err.contains("apploader entry faulted") && err.contains("81200000"), "{err}");
+    assert!(t.elapsed().as_secs() < 2, "refused at once");
+    let line = continuum_gc::libretro::refusal(&err);
+    assert!(line.starts_with("Continuum GC could not start the game: this game's start-up program stopped."), "{line}");
+}

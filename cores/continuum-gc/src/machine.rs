@@ -18,6 +18,8 @@ const STUB: u32 = 0x8130_0000;
 const STUB_REPORT: u32 = STUB + 0x10;
 const APPLOADER_BASE: u32 = 0x8120_0000;
 const BOOT_STACK: u32 = 0x816F_FFF0;
+/// The console type a disc boots with: the latest development hardware (see `disc_lowmem`).
+pub const DISC_CONSOLE_TYPE: u32 = 0x1000_0006;
 
 /// Code memory asked for the JIT: room for the compiled code of a whole game (it is address
 /// space until written; when full, everything is compiled again as it runs).
@@ -31,6 +33,11 @@ pub struct Machine {
     /// CPU cycles since the last video line.
     line_cycles: u64,
     pub cpu_hz: u64,
+    /// What the disc's apploader printed while it loaded the game (development aid, and part of
+    /// the reason given when a disc does not start).
+    pub apploader_log: Vec<String>,
+    /// The game's ID and title (from the disc), for the status screen.
+    pub title: String,
 }
 
 /// Everything a save state holds (the disc is not part of it).
@@ -65,6 +72,8 @@ impl Machine {
             fast: Some(cpu::fast::FastCpu::new()),
             line_cycles: 0,
             cpu_hz: if wii { WII_CPU_HZ } else { GC_CPU_HZ },
+            apploader_log: Vec::new(),
+            title: String::new(),
         }
     }
 
@@ -167,6 +176,43 @@ impl Machine {
         }
     }
 
+    /// What the boot ROM (IPL) leaves in low memory before it runs a disc's apploader: the disc's
+    /// ID, the boot magic, memory and ARAM sizes, the console type, the video mode, the clocks,
+    /// and an `rfi` at the DSI, FPU and system call vectors. Nothing else: the apploader and the
+    /// game's own OS set the rest (the FST, the arena, the bi2 pointer). The same set as Dolphin's
+    /// boot ROM stand-in, which countless commercial games boot with.
+    fn disc_lowmem(&mut self, boot: &[u8], pal: bool) {
+        self.hw.dma_write(0, &boot[..0x20]);
+        self.w32(0x8000_0020, 0x0D15_EA5E); // boot magic: booted normally
+        self.w32(0x8000_0024, 1);
+        self.w32(0x8000_0028, crate::hw::MEM1_SIZE as u32);
+        // A development console's type, as Dolphin uses: with a retail type some games take
+        // other paths through the expansion bus and stop (Dolphin names Ikaruga).
+        self.w32(0x8000_002C, DISC_CONSOLE_TYPE);
+        self.w32(0x8000_00CC, pal as u32); // video mode: 0 NTSC, 1 PAL
+        self.w32(0x8000_00D0, crate::hw::ARAM_SIZE as u32);
+        self.w32(0x8000_00F8, (self.cpu_hz / 3) as u32); // bus clock
+        self.w32(0x8000_00FC, self.cpu_hz as u32);
+        for vector in [0x8000_0300, 0x8000_0800, 0x8000_0C00] {
+            self.w32(vector, 0x4C00_0064); // rfi
+        }
+        // The last three post-transform matrices are the identity, as the boot ROM leaves them
+        // (some discs use dual texture-coordinate transforms without setting them).
+        self.hw.gx.xf_write(0x500 + 0x3D * 4, 1.0f32.to_bits());
+        self.hw.gx.xf_write(0x500 + 0x3E * 4 + 1, 1.0f32.to_bits());
+        self.hw.gx.xf_write(0x500 + 0x3F * 4 + 2, 1.0f32.to_bits());
+    }
+
+    /// The registers the boot ROM runs an apploader with: its own stack and its two small-data
+    /// pointers (r2, r13), which apploaders use for their globals (Luigi's Mansion's does).
+    /// With them 0, an apploader's first global is an access to unmapped memory.
+    fn ipl_registers(&mut self, pal: bool) {
+        let (sp, sda2, sda) = if pal { (0x815E_DCA8, 0x814B_5B20, 0x814B_4FC0) } else { (0x8156_6550, 0x8146_5CC0, 0x8146_5320) };
+        self.cpu.gpr[1] = sp;
+        self.cpu.gpr[2] = sda2;
+        self.cpu.gpr[13] = sda;
+    }
+
     /// Starts a GameCube disc: its apploader runs on our CPU and loads the game.
     pub fn boot_disc(&mut self, mut disc: Box<dyn Disc>) -> Result<Header, String> {
         let header = Header::read(disc.as_mut())?;
@@ -180,34 +226,34 @@ impl Machine {
             self.hw.vi.regs[crate::hw::VI_DTV / 2] |= 2;
             self.hw.insert_blank_card(self.cpu.tb);
         }
+        let pal = header.region == 2;
+        self.title = format!("{} {}", header.game_id, header.title);
         let mut boot = vec![0u8; 0x440];
         disc.read(0, &mut boot).map_err(|e| e.to_string())?;
-        let mut bi2 = vec![0u8; 0x2000];
-        disc.read(0x440, &mut bi2).map_err(|e| e.to_string())?;
         let apploader = Apploader::read(disc.as_mut())?;
         self.hw.disc = Some(disc);
         self.ipl_cpu_state();
-        self.lowmem(Some(&boot));
-        self.hw.dma_write(0x017F_E000, &bi2);
-        self.w32(0x8000_00F4, 0x817F_E000);
+        self.ipl_registers(pal);
+        self.disc_lowmem(&boot, pal);
         // The stub: "b ." to park on, and "blr" for the report function.
         self.w32(STUB, 0x4800_0000);
         self.w32(STUB_REPORT, 0x4E80_0020);
         self.hw.dma_write(APPLOADER_BASE & 0x1FFF_FFFF, &apploader.code);
+        self.apploader_log.clear();
         // entry(&init, &main, &close)
         let ptrs = STUB + 0x100;
-        self.call(apploader.entry, &[ptrs, ptrs + 4, ptrs + 8])?;
+        self.call(apploader.entry, &[ptrs, ptrs + 4, ptrs + 8], "entry")?;
         let init = self.hw.read32((ptrs) & 0x1FFF_FFFF);
         let main = self.hw.read32((ptrs + 4) & 0x1FFF_FFFF);
         let close = self.hw.read32((ptrs + 8) & 0x1FFF_FFFF);
-        self.call(init, &[STUB_REPORT])?;
+        self.call(init, &[STUB_REPORT], "init")?;
         let req = STUB + 0x200;
         for _ in 0..10_000 {
-            let more = self.call(main, &[req, req + 4, req + 8])?;
+            let more = self.call(main, &[req, req + 4, req + 8], "main")?;
             let dst = self.hw.read32(req & 0x1FFF_FFFF);
             let len = self.hw.read32((req + 4) & 0x1FFF_FFFF);
             let off = self.hw.read32((req + 8) & 0x1FFF_FFFF);
-            if len > 0 {
+            if len > 0 && len < (32 << 20) {
                 let mut buf = vec![0u8; len as usize];
                 self.hw.disc.as_mut().unwrap().read(off as u64, &mut buf).map_err(|e| e.to_string())?;
                 self.hw.dma_write(dst & 0x1FFF_FFFF, &buf);
@@ -217,28 +263,146 @@ impl Machine {
                 break;
             }
         }
-        let entry = self.call(close, &[])?;
+        let entry = self.call(close, &[], "close")?;
         self.hw.stall = 0;
-        // The IPL hands over with a fresh stack and translation as it left it.
+        // The IPL hands over with translation as it left it; the game's own start code sets its
+        // stack and small-data pointers.
         self.ipl_cpu_state();
+        self.ipl_registers(pal);
         self.cpu.pc = entry;
         Ok(header)
     }
 
-    /// Calls a function on our CPU and runs it until it returns to the stub. Returns r3.
-    fn call(&mut self, func: u32, args: &[u32]) -> Result<u32, String> {
+    /// Calls an apploader function on our CPU and runs it until it returns to the stub. Returns
+    /// r3. Lines it prints through the report function are kept (`apploader_log`). Fails at once,
+    /// saying where, if the code faults: nothing an apploader does should (interrupts are off).
+    fn call(&mut self, func: u32, args: &[u32], what: &str) -> Result<u32, String> {
         for (k, a) in args.iter().enumerate() {
             self.cpu.gpr[3 + k] = *a;
         }
         self.cpu.lr = STUB;
         self.cpu.pc = func;
+        let faults = self.cpu.fault_log.len();
         for _ in 0..200_000_000u64 {
             if self.cpu.pc == STUB {
                 return Ok(self.cpu.gpr[3]);
             }
+            if self.cpu.pc == STUB_REPORT {
+                let line = self.report_line();
+                if self.apploader_log.len() < 64 && !line.is_empty() {
+                    self.apploader_log.push(line);
+                }
+            }
             self.cpu.step(&mut self.hw);
+            if self.cpu.fault_log.len() > faults {
+                let (vector, at, addr) = self.cpu.fault_log[faults];
+                return Err(format!("apploader {what} faulted: vector {vector:X} at {at:08X}, address {addr:08X}"));
+            }
         }
-        Err(format!("the disc's loader never finished (stuck at {:08X})", self.cpu.pc))
+        Err(format!("apploader {what} never finished (at {:08X})", self.cpu.pc))
+    }
+
+    /// What the machine is doing, in short lines for the status screen a game that shows
+    /// nothing gets (notice.rs): where the CPU is, what it has asked of the hardware.
+    /// `hot` is where the CPU was at the end of recent fields, most often first.
+    pub fn status_lines(&mut self, seconds: u64, hot: &[(u32, u32)]) -> Vec<String> {
+        let mut l = vec![
+            "CONTINUUM GC: NO PICTURE FROM THE GAME YET".to_string(),
+            format!("AFTER {seconds} SECONDS. PLEASE SEND KIRO A"),
+            "SCREENSHOT OF THIS SCREEN.".to_string(),
+            String::new(),
+        ];
+        l.extend(crate::notice::wrap(&self.title, 50));
+        let c = &self.cpu;
+        l.push(format!("PC {:08X} LR {:08X} MSR {:08X}", c.pc, c.lr, c.msr));
+        l.push(format!("SRR0 {:08X} DEC {:08X} TB {:X}", c.srr0, c.dec, c.tb));
+        let ex: Vec<String> = c.exceptions.iter().enumerate().filter(|(_, n)| **n > 0).map(|(v, n)| format!("{v:X}00:{n}")).collect();
+        l.extend(crate::notice::wrap(&format!("EXC {}", ex.join(" ")), 50));
+        for (v, at, addr) in c.fault_log.iter().take(2) {
+            l.push(format!("FAULT {v:X} AT {at:08X} ADDR {addr:08X}"));
+        }
+        let hot: Vec<String> = hot.iter().take(4).map(|(pc, n)| format!("{pc:08X}:{n}")).collect();
+        l.push(format!("HOT {}", hot.join(" ")));
+        let h = &self.hw;
+        let di: Vec<String> = h.di_commands.iter().map(|(k, n)| format!("{k:02X}:{n}")).collect();
+        l.extend(crate::notice::wrap(&format!("DISC {}", di.join(" ")), 50));
+        l.push(format!("DSP {:?} {:08X} CSR {:04X}", h.dsp.hle.kind, h.dsp.hle.crc, h.dsp.csr));
+        l.push(format!("AI {:08X} DI {:08X} SI {:08X}", h.ai.cr, h.di.sr, h.si.comcsr));
+        l.push(format!("EXI {:08X} {:08X} {:08X}", h.exi.ch[0].csr, h.exi.ch[1].csr, h.exi.ch[2].csr));
+        l.push(format!("VI {:04X} PI {:08X} CAUSE {:08X}", h.vi.regs[1], h.pi.mask, h.cause()));
+        let g = &h.gx.stats;
+        l.push(format!("GX PRIM {} EFB {} XFB {}", g.primitives, g.efb_copies, g.xfb_copies));
+        let unknown: Vec<String> = h.unknown.iter().take(6).map(|(a, n)| format!("{a:08X}:{n}")).collect();
+        if !unknown.is_empty() {
+            l.extend(crate::notice::wrap(&format!("UNKNOWN {}", unknown.join(" ")), 50));
+        }
+        if let Some(last) = self.apploader_log.last() {
+            l.extend(crate::notice::wrap(&format!("LOADER: {last}"), 50));
+        }
+        l
+    }
+
+    /// The line an apploader's report call prints: its printf-style format (r3) filled from the
+    /// integer arguments (r4-r10): %d %i %u %x %X %c %s %p and %%, widths and zero padding.
+    fn report_line(&mut self) -> String {
+        let fmt: Vec<char> = self.c_string(self.cpu.gpr[3]).chars().collect();
+        let mut out = String::new();
+        let mut arg = 4;
+        let mut i = 0;
+        while i < fmt.len() {
+            let c = fmt[i];
+            i += 1;
+            if c != '%' {
+                out.push(c);
+                continue;
+            }
+            let zero = fmt.get(i) == Some(&'0');
+            let mut width = 0usize;
+            while let Some(d) = fmt.get(i).and_then(|c| c.to_digit(10)) {
+                width = width * 10 + d as usize;
+                i += 1;
+            }
+            while matches!(fmt.get(i), Some('l' | 'h')) {
+                i += 1;
+            }
+            let Some(&conv) = fmt.get(i) else { break };
+            i += 1;
+            if conv == '%' {
+                out.push('%');
+                continue;
+            }
+            let v = if arg <= 10 { self.cpu.gpr[arg] } else { 0 };
+            arg += 1;
+            let text = match conv {
+                'd' | 'i' => (v as i32).to_string(),
+                'u' => v.to_string(),
+                'x' => format!("{v:x}"),
+                'X' => format!("{v:X}"),
+                'p' => format!("{v:08x}"),
+                'c' => ((v & 0xFF) as u8 as char).to_string(),
+                's' => self.c_string(v),
+                _ => String::new(),
+            };
+            let pad = if zero { '0' } else { ' ' };
+            for _ in text.chars().count()..width {
+                out.push(pad);
+            }
+            out.push_str(&text);
+        }
+        out.trim().to_string()
+    }
+
+    /// A NUL-terminated string in memory (at most 200 bytes), for the apploader's report lines.
+    fn c_string(&mut self, ea: u32) -> String {
+        let mut bytes = Vec::new();
+        for k in 0..200 {
+            let b = self.hw.read8((ea + k) & 0x01FF_FFFF);
+            if b == 0 {
+                break;
+            }
+            bytes.push(b);
+        }
+        String::from_utf8_lossy(&bytes).trim().to_string()
     }
 
     /// Sets the console's clock to `seconds` since 1 January 2000 (the phone's own local time:

@@ -68,8 +68,9 @@ pub fn line_for(game_name: &str, core_name: &str, reason: &str, graphics: bool) 
 /// Cores whose refusals are already the sentence a player should read. cArcade, Continuum's own
 /// arcade emulator, says which games it plays, or which zip would fix the copy ("This one needs
 /// mspacman.zip next to it."), and its words ("missing a piece", "chip") would otherwise read as
-/// a missing BIOS file.
-const SPEAKS_FOR_ITSELF: [&str; 1] = ["continuum_arcade"];
+/// a missing BIOS file. Continuum GC, the GameCube emulator (experimental), says what stopped
+/// and adds the detail needed to fix it, so a tester's screenshot carries the cause.
+const SPEAKS_FOR_ITSELF: [&str; 2] = ["continuum_arcade", "continuum_gc"];
 
 /// What the engine says when a core refused a game without saying why (`native_core.rs`).
 const UNEXPLAINED: &str = "retro_load_game rejected the content";

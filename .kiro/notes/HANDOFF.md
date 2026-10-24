@@ -12,7 +12,20 @@ Paste this to start a new chat:
   Link and test steps given to the owner at 2:15 PM; waiting for his report. At about 2:35 PM, while testing, he
   sent only "Nope." (no details). Not clear what failed, so the GPU drawer work was paused before any code was
   written (only reading and fetching wgpu 30.0.1 into .scratch/vkprobe) and he was asked what it refers to.
-  Owner rule: fix nothing until he says he is done testing; record what he reports here. (Run 40118325908, started by hand
+  Owner rule: fix nothing until he says he is done testing; record what he reports here.
+- OWNER REPORT, build 216 (2:40 PM, three screenshots): the unlock works; Animal Crossing (USA) imports with its
+  cover, but both copies (.nkit.iso and .rvz) say "won't start on Continuum GC" (the core's load_game refused).
+  He is done testing ("games won't even load"). Cause found by reading Dolphin's boot ROM stand-in: our disc boot
+  left r13 and r2 at 0, and Nintendo's apploaders keep their globals in the boot ROM's small-data area through
+  r13 (Dolphin names Luigi's Mansion), so the first global was an access to 0xFFFF8xxx: a fault, then 200 million
+  steps of nothing, then the refusal. Fixed (Machine::ipl_registers: r1/r2/r13 as the real IPL, NTSC and PAL),
+  plus Dolphin's low-memory set exactly (devkit console type 0x10000006, rfi at 0x300/0x800/0xC00, the identity
+  post-matrices; no arena/bi2/FST presets for discs). A test disc whose apploader works through r13 fails the old
+  way and boots now. A faulting apploader is refused at once, and the core's refusal now reaches the screen as
+  a sentence with the detail ("cGC: " log line; engine refusal_from_log + launch_failure SPEAKS_FOR_ITSELF).
+  If a game boots but shows nothing for 15 seconds, the core shows a status screen (notice.rs: PC, LR,
+  exceptions, faults, disc commands, sound program, registers, GX counters, the apploader's last line) so his
+  screenshot carries the state. (Run 40118325908, started by hand
   1:55 PM from af13640, which adds the drive's streamed music that Ikaruga uses; 215 was cancelled for it.) It is
   the one experimental GameCube build the owner agreed to. Build 214 (ac4deec, the wiring) built and verified its .ipa (continuum_gc dylib inside) but
   FAILED at "Upload the .ipa": GitHub's own network (ENOTFOUND creating the artifact), not our code. Its cores were

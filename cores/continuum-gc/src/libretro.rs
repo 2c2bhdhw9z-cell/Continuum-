@@ -89,6 +89,47 @@ struct Core {
     machine: Machine,
     frame: Vec<u32>,
     size: (u32, u32),
+    /// When the game was loaded, and whether it has sent a picture to the screen yet (an EFB
+    /// copy to the XFB). Until it has, after `NOTICE_AFTER`, the status screen is shown instead
+    /// of a black picture (notice.rs).
+    started: std::time::Instant,
+    pictured: bool,
+    /// Where the CPU was at the end of each field (by 256-byte block), while there is no picture.
+    hot: std::collections::HashMap<u32, u32>,
+}
+
+/// How long a game may show nothing before the status screen replaces the black picture.
+const NOTICE_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
+
+impl Core {
+    fn new(machine: Machine) -> Core {
+        Core { machine, frame: vec![0; 640 * 480], size: (640, 480), started: std::time::Instant::now(), pictured: false, hot: Default::default() }
+    }
+
+    /// After a field: the status screen while the game has shown nothing for a while.
+    fn notice(&mut self) {
+        if self.pictured {
+            return;
+        }
+        if self.machine.hw.gx.stats.xfb_copies > 0 {
+            self.pictured = true;
+            self.hot = Default::default();
+            return;
+        }
+        if self.hot.len() < 4096 {
+            *self.hot.entry(self.machine.cpu.pc & !0xFF).or_default() += 1;
+        }
+        let waited = self.started.elapsed();
+        if waited < NOTICE_AFTER {
+            return;
+        }
+        let mut hot: Vec<(u32, u32)> = self.hot.iter().map(|(a, n)| (*a, *n)).collect();
+        hot.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+        let lines = self.machine.status_lines(waited.as_secs(), &hot);
+        self.frame.resize(640 * 480, 0);
+        crate::notice::draw(&mut self.frame, 640, 480, &lines);
+        self.size = (640, 480);
+    }
 }
 
 static CORE: Mutex<Option<Core>> = Mutex::new(None);
@@ -160,6 +201,40 @@ pub extern "C" fn retro_deinit() {
 #[no_mangle]
 pub extern "C" fn retro_set_controller_port_device(_port: u32, _device: u32) {}
 
+/// libretro's log callback (printf-style, variadic).
+type LogFn = unsafe extern "C" fn(level: u32, fmt: *const c_char, ...);
+#[repr(C)]
+struct RetroLogCallback {
+    log: Option<LogFn>,
+}
+const ENV_GET_LOG_INTERFACE: u32 = 27;
+static LOG: Mutex<Option<LogFn>> = Mutex::new(None);
+
+/// One line to the frontend's log, prefixed "cGC: ". The app shows the last such line as the
+/// reason when a game does not start, so a refusal is always a sentence.
+fn log_line(line: &str) {
+    let Some(log) = LOG.lock().ok().and_then(|l| *l) else { return };
+    let Ok(text) = std::ffi::CString::new(format!("cGC: {line}\n").replace('\0', " ")) else { return };
+    // SAFETY: the frontend's log callback, with a "%s" format and one C string.
+    unsafe { log(1, c"%s".as_ptr(), text.as_ptr()) };
+}
+
+/// Why a game did not start, for the player: what failed in plain words, then the technical
+/// detail for whoever fixes it.
+pub fn refusal(detail: &str) -> String {
+    let lower = detail.to_ascii_lowercase();
+    let what = if lower.contains("wii disc") {
+        "Wii games don't play yet."
+    } else if lower.contains("not a gamecube") || lower.contains("no apploader") {
+        "this file isn't a GameCube game, or the copy is damaged."
+    } else if lower.contains("apploader") {
+        "this game's start-up program stopped."
+    } else {
+        "this file could not be read."
+    };
+    format!("Continuum GC could not start the game: {what} Details for Kiro: {detail}")
+}
+
 fn env(cmd: u32, data: *mut c_void) -> bool {
     let f = cb().env;
     // SAFETY: the frontend's callback, with a pointer of the type the command defines.
@@ -203,6 +278,12 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
         return false;
     }
     let path = CStr::from_ptr((*game).path).to_string_lossy().into_owned();
+    let mut cb = RetroLogCallback { log: None };
+    if env(ENV_GET_LOG_INTERFACE, &mut cb as *mut RetroLogCallback as *mut c_void) {
+        if let Ok(mut l) = LOG.lock() {
+            *l = cb.log;
+        }
+    }
     let mut fmt = PIXEL_FORMAT_XRGB8888;
     if !env(ENV_SET_PIXEL_FORMAT, &mut fmt as *mut u32 as *mut c_void) {
         return false;
@@ -217,10 +298,13 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
                 machine.enable_jit();
             }
             machine.hw.gx.set_draw_threads(draw_helpers());
-            *core() = Some(Core { machine, frame: vec![0; 640 * 480], size: (640, 480) });
+            *core() = Some(Core::new(machine));
             true
         }
-        Err(_) => false,
+        Err(e) => {
+            log_line(&refusal(&e));
+            false
+        }
     }
 }
 
@@ -291,6 +375,7 @@ pub extern "C" fn retro_run() {
         core.frame = px;
         core.size = (w, h);
     }
+    core.notice();
     if let Some(video) = video {
         let (w, h) = core.size;
         // SAFETY: `frame` holds w*h pixels of 4 bytes, and lives until the call returns.
