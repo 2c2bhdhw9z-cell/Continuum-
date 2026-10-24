@@ -30,13 +30,20 @@ fn main() {
     eprintln!("{fields} fields in {:.1}s", t.elapsed().as_secs_f64());
     let report = guard.report().build().unwrap();
     let mut selft: HashMap<String, usize> = HashMap::new();
+    // For the hottest leaves, the first frame of ours above them (where inlined helpers live).
+    let mut parents: HashMap<(String, String), usize> = HashMap::new();
     let mut incl: HashMap<String, usize> = HashMap::new();
     let mut total = 0;
     for (frames, count) in report.data.iter() {
         let count = *count as usize;
         total += count;
         let names: Vec<String> = frames.frames.iter().flat_map(|f| f.iter().map(|s| s.name())).collect();
-        if let Some(first) = names.first() { *selft.entry(first.clone()).or_default() += count; }
+        if let Some(first) = names.first() {
+            *selft.entry(first.clone()).or_default() += count;
+            if let Some(p) = names.iter().skip(1).find(|n| n.contains("continuum_gc") && !n.contains("{{closure}}")) {
+                *parents.entry((first.clone(), p.clone())).or_default() += count;
+            }
+        }
         let mut seen = std::collections::HashSet::new();
         for n in &names { if seen.insert(n.clone()) { *incl.entry(n.clone()).or_default() += count; } }
     }
@@ -44,6 +51,9 @@ fn main() {
     let mut v: Vec<_> = selft.into_iter().collect(); v.sort_by_key(|x| std::cmp::Reverse(x.1));
     eprintln!("self time ({total} samples):");
     for (n, c) in v.iter().take(28) { eprintln!("  {:5.1}%  {}", *c as f64 * 100.0 / total as f64, short(n)); }
+    let mut pv: Vec<_> = parents.into_iter().collect(); pv.sort_by_key(|x| std::cmp::Reverse(x.1));
+    eprintln!("hottest leaves by caller:");
+    for ((leaf, p), c) in pv.iter().take(16) { eprintln!("  {:5.1}%  {}  <-  {}", *c as f64 * 100.0 / total as f64, short(leaf), short(p)); }
     let mut v: Vec<_> = incl.into_iter().collect(); v.sort_by_key(|x| std::cmp::Reverse(x.1));
     eprintln!("inclusive:");
     for (n, c) in v.iter().filter(|(n, _)| n.contains("continuum_gc")).take(25) { eprintln!("  {:5.1}%  {}", *c as f64 * 100.0 / total as f64, short(n)); }

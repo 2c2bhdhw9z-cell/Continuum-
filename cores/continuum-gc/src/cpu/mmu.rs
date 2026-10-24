@@ -27,6 +27,10 @@ struct Entry {
 #[derive(Clone)]
 pub struct Tlb {
     pub(crate) gen: u32,
+    /// The generation `win` was worked out for (0: never).
+    win_gen: u32,
+    /// See [`data_window`].
+    win: u32,
     read: Vec<Entry>,
     write: Vec<Entry>,
     fetch: Vec<Entry>,
@@ -34,7 +38,7 @@ pub struct Tlb {
 
 impl Default for Tlb {
     fn default() -> Self {
-        Tlb { gen: 1, read: vec![Entry::default(); TLB_SETS], write: vec![Entry::default(); TLB_SETS], fetch: vec![Entry::default(); TLB_SETS] }
+        Tlb { gen: 1, win_gen: 0, win: 0, read: vec![Entry::default(); TLB_SETS], write: vec![Entry::default(); TLB_SETS], fetch: vec![Entry::default(); TLB_SETS] }
     }
 }
 
@@ -46,6 +50,7 @@ impl Tlb {
                 t.iter_mut().for_each(|e| *e = Entry::default());
             }
             self.gen = 1;
+            self.win_gen = 0;
         }
     }
     /// The MSR changed (exception, rfi, mtmsr): translations depend only on the privilege
@@ -70,6 +75,35 @@ impl Tlb {
             Access::Fetch => &mut self.fetch,
         }
     }
+}
+
+/// The data window: with data translation on, an effective address from 0x80000000 up to
+/// 0x80000000 + this value is in main memory at (address - 0x80000000), for reads and writes
+/// alike, and any access of up to 8 bytes starting there stays inside main memory. 0 when there
+/// is no such window.
+///
+/// It is exactly what `translate` answers there: the MMU uses the first BAT that matches, and
+/// the window is only set when the first data BAT is valid at both privilege levels, starts at
+/// 0x80000000, maps it to physical 0 and allows reading and writing (as every game's set-up
+/// does). It depends only on that BAT, and every BAT change bumps the generation, so it is
+/// worked out again whenever the BATs change.
+#[inline(always)]
+pub fn data_window(cpu: &mut Cpu) -> u32 {
+    if cpu.tlb.win_gen != cpu.tlb.gen {
+        work_out_window(cpu);
+    }
+    cpu.tlb.win
+}
+
+#[cold]
+#[inline(never)]
+fn work_out_window(cpu: &mut Cpu) {
+    let [u, l] = cpu.dbat[0];
+    let bl = (u >> 2) & 0x7FF;
+    let mask = !(bl << 17) & 0xFFFE_0000;
+    let ok = u & 3 == 3 && bl & (bl + 1) == 0 && u & mask == 0x8000_0000 && l & mask == 0 && l & 3 == 2;
+    cpu.tlb.win = if ok { ((bl + 1) << 17).min(crate::hw::MEM1_SIZE as u32) - 7 } else { 0 };
+    cpu.tlb.win_gen = cpu.tlb.gen;
 }
 
 /// Translates an effective address. None means the access faults (the caller raises DSI or ISI).

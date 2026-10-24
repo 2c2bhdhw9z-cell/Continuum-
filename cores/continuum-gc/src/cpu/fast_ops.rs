@@ -72,10 +72,31 @@ fn set_ov(cpu: &mut Cpu, ov: bool) {
 
 // ---------------------------------------------------------------------- memory
 
-/// A load of `N` bytes: straight from main memory when the translation cache knows the page,
-/// otherwise the plain interpreter's path (faults, hardware registers, page crossings).
+/// Where an access of `N` bytes lands in main memory when it is inside the data window (see
+/// `mmu::data_window`) and inside one 4 KB page: the common case, decided with two compares.
+#[inline(always)]
+fn in_window<const N: u32>(cpu: &mut Cpu, ea: u32) -> Option<usize> {
+    let off = ea.wrapping_sub(0x8000_0000);
+    if cpu.msr & MSR_DR != 0 && off < mmu::data_window(cpu) && (ea & 0xFFF) + N <= 0x1000 {
+        Some(off as usize)
+    } else {
+        None
+    }
+}
+
+/// A load of `N` bytes: straight from main memory inside the data window or when the
+/// translation cache knows the page, otherwise the plain interpreter's path (faults, hardware
+/// registers, page crossings).
 #[inline(always)]
 fn load<const N: u32>(cpu: &mut Cpu, hw: &mut Hw, ea: u32) -> Option<u32> {
+    if let Some(p) = in_window::<N>(cpu, ea) {
+        let m = &hw.mem1[p..p + N as usize];
+        return Some(match N {
+            1 => m[0] as u32,
+            2 => u16::from_be_bytes([m[0], m[1]]) as u32,
+            _ => u32::from_be_bytes([m[0], m[1], m[2], m[3]]),
+        });
+    }
     if (ea & 0xFFF) + N <= 0x1000 {
         let pa = if cpu.msr & MSR_DR != 0 { mmu::translate(cpu, ea, Access::Read, hw) } else { Some(ea) };
         if let Some(pa) = pa {
@@ -114,6 +135,9 @@ fn after_slow(cpu: &mut Cpu, hw: &Hw) {
 /// An 8-byte load (lfd, psq).
 #[inline(always)]
 fn load64(cpu: &mut Cpu, hw: &mut Hw, ea: u32) -> Option<u64> {
+    if let Some(p) = in_window::<8>(cpu, ea) {
+        return Some(u64::from_be_bytes(hw.mem1[p..p + 8].try_into().unwrap()));
+    }
     if (ea & 0xFFF) + 8 <= 0x1000 {
         let pa = if cpu.msr & MSR_DR != 0 { mmu::translate(cpu, ea, Access::Read, hw) } else { Some(ea) };
         if let Some(pa) = pa {
@@ -132,6 +156,14 @@ fn load64(cpu: &mut Cpu, hw: &mut Hw, ea: u32) -> Option<u64> {
 
 #[inline(always)]
 fn store64(cpu: &mut Cpu, hw: &mut Hw, ea: u32, v: u64) -> bool {
+    if let Some(p) = in_window::<8>(cpu, ea) {
+        hw.mem1[p..p + 8].copy_from_slice(&v.to_be_bytes());
+        if hw.touch_page((p >> 12) as u32) {
+            cpu.exit = true;
+            cpu.pc = cpu.cur_pc.wrapping_add(4);
+        }
+        return true;
+    }
     if (ea & 0xFFF) + 8 <= 0x1000 {
         let pa = if cpu.msr & MSR_DR != 0 { mmu::translate(cpu, ea, Access::Write, hw) } else { Some(ea) };
         if let Some(pa) = pa {
@@ -155,6 +187,19 @@ fn store64(cpu: &mut Cpu, hw: &mut Hw, ea: u32, v: u64) -> bool {
 
 #[inline(always)]
 fn store<const N: u32>(cpu: &mut Cpu, hw: &mut Hw, ea: u32, v: u32) -> bool {
+    if let Some(p) = in_window::<N>(cpu, ea) {
+        let m = &mut hw.mem1[p..p + N as usize];
+        match N {
+            1 => m[0] = v as u8,
+            2 => m.copy_from_slice(&(v as u16).to_be_bytes()),
+            _ => m.copy_from_slice(&v.to_be_bytes()),
+        }
+        if hw.touch_page((p >> 12) as u32) {
+            cpu.exit = true;
+            cpu.pc = cpu.cur_pc.wrapping_add(4);
+        }
+        return true;
+    }
     if (ea & 0xFFF) + N <= 0x1000 {
         let pa = if cpu.msr & MSR_DR != 0 { mmu::translate(cpu, ea, Access::Write, hw) } else { Some(ea) };
         if let Some(pa) = pa {
