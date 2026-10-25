@@ -81,6 +81,19 @@ NEXT CHAT, IN ORDER:
 6. Then: interpreter speed (dispatch loop, superinstructions, stmw/lmw/cr ops), the GPU drawer, the
    Neverball plain-vs-fast compare difference after field 33 (pre-existing since 0d4edda).
 
+TOOLS (a new sandbox has none of /projects/sandbox/.scratch; get them back like this):
+- Cargo: the default cargo home is read-only; use CARGO_HOME=/projects/sandbox/.scratch/cargo-home
+  cargo +1.92.0 test (GameCube JIT tests: --features unicorn).
+- cores/continuum-gc/scripts/acsym.py (Animal Crossing address -> function name; needs ac-decomp's
+  config/GAFE01_00/symbols.txt from github.com/ACreTeam/ac-decomp, path in AC_SYMBOLS) and mkfat.py
+  (FAT32 SD image for the SD adapter tests; pip install pyfatfs).
+- Homebrew used for tests (download again): FCEUGX (fceugx-gc.dol), Swiss r2119, Neverball (GameCube).
+- StikJIT source: scripts/fetch-stikjit.sh. Its INTEGRATION.md is the guide followed for the helper.
+- Examples in cores/continuum-gc/examples: mips, fpbench (CGC_WRITE, CGC_MODES, CGC_SECS), profile
+  (CGC_THREAD, CGC_DRAW_THREADS, CGC_LINES), vibench (TV picture conversion), drawcheck, compare.
+- Swift can be syntax-checked here (swiftc -parse file.swift, Swift 6.3 on Linux); it cannot be
+  compiled for iOS here. Only CI compiles it.
+
 ## Earlier (25 October 2026, about 6:15 AM Eastern): GameCube game gone after the reinstall
 
 OWNER ON 224 (6 AM, furious): GameCube "isn't showing". Two screenshots: Settings, About shows 0.8.0 (224)
