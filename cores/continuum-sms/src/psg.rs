@@ -34,11 +34,24 @@ pub struct Psg {
     frac: f64,
     #[serde(default)]
     carry: f64,
+    /// Each channel's volume and the whole chip's, percent (settings; not saved).
+    #[serde(skip, default = "full")]
+    pub chan_vol: [u8; 4],
+    #[serde(skip, default = "hundred")]
+    pub volume: u8,
+}
+
+fn full() -> [u8; 4] {
+    [100; 4]
+}
+
+fn hundred() -> u8 {
+    100
 }
 
 impl Default for Psg {
     fn default() -> Psg {
-        Psg { tone: [0; 4], att: [15; 4], counter: [0; 4], out: [true; 4], lfsr: 0x8000, latched: 0, stereo: 0xFF, frac: 0.0, carry: 0.0 }
+        Psg { tone: [0; 4], att: [15; 4], counter: [0; 4], out: [true; 4], lfsr: 0x8000, latched: 0, stereo: 0xFF, frac: 0.0, carry: 0.0, chan_vol: [100; 4], volume: 100 }
     }
 }
 
@@ -106,7 +119,8 @@ impl Psg {
 
     fn channel(&self, ch: usize) -> f32 {
         let high = if ch == 3 { self.lfsr & 1 != 0 } else { self.out[ch] };
-        if high { level(self.att[ch]) } else { -level(self.att[ch]) }
+        let v = level(self.att[ch]) * f32::from(self.chan_vol[ch]) / 100.0;
+        if high { v } else { -v }
     }
 
     /// Runs `cpu_cycles` of the chip and appends the stereo samples they make at `rate`, for a
@@ -134,7 +148,7 @@ impl Psg {
                     }
                 }
             }
-            let k = 8191.0 / n.max(1) as f32;
+            let k = 8191.0 / n.max(1) as f32 * f32::from(self.volume) / 100.0;
             out.push((l * k) as i16);
             out.push((r * k) as i16);
         }

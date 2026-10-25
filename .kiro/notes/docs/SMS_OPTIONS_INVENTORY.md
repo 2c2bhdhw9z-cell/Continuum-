@@ -16,6 +16,17 @@ already does it for every core; "n/a": not about these consoles. Sources, at the
 - Emulicious publishes no settings list, only features (adjustable turbo and speed, IPS patching, save
   states) and debugging tools ([emulicious.net](https://emulicious.net/)): turbo is planned, the rest is the app's or n/a.
 
+## In cGear so far (25 October)
+
+14 settings (`cores/continuum-sms/src/options.rs`): console (Auto, Master System, Game Gear, SG-1000),
+region (export or Japan, which games read through port $3F), refresh rate (60 or 50 Hz), cartridge
+wiring (Auto, Sega, Codemasters, Korean), eight sprites a line, hide the left column, Game Gear screen
+ghosting, volume, each of the four sound channels' volume, mono, and opposite directions. Covers these
+rows below: gearsystem_system, _region, _timing, _mapper, _hide_left_bar, _no_sprite_limit,
+_psg_volume, _up_down_allowed; genesis_plus_gx_system_hw, _region_detect, _vdp_mode, _left_border,
+_lcd_filter, _no_sprite_limit, _psg_preamp, _psg_channel_0-3_volume, _sound_output; picodrive_region,
+_smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_border.
+
 ## Our own, on top (the cBoy way)
 
 - Every console and revision as its own choice: SG-1000, SG-1000 II, SC-3000, Mark III, Master System

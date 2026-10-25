@@ -17,6 +17,7 @@ pub mod z80;
 
 pub mod bus;
 pub mod libretro;
+pub mod options;
 pub mod psg;
 pub mod sms;
 pub mod vdp;

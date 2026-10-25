@@ -14,8 +14,32 @@ struct Out {
 static OUT: Mutex<Out> = Mutex::new(Out { frames: Vec::new(), samples: 0 });
 static HELD: Mutex<Option<u32>> = Mutex::new(None);
 
-unsafe extern "C" fn env(cmd: u32, _d: *mut c_void) -> bool {
-    cmd == 10
+/// The settings the app answers with: (key, value).
+static OPTS: Mutex<Vec<(&'static str, std::ffi::CString)>> = Mutex::new(Vec::new());
+
+#[repr(C)]
+struct Var {
+    key: *const std::ffi::c_char,
+    value: *const std::ffi::c_char,
+}
+
+unsafe extern "C" fn env(cmd: u32, d: *mut c_void) -> bool {
+    match cmd {
+        10 => true,
+        15 => {
+            let v = &mut *(d as *mut Var);
+            let key = std::ffi::CStr::from_ptr(v.key).to_string_lossy().into_owned();
+            let opts = OPTS.lock().unwrap();
+            match opts.iter().find(|(k, _)| *k == key) {
+                Some((_, val)) => {
+                    v.value = val.as_ptr();
+                    true
+                }
+                None => false,
+            }
+        }
+        _ => false,
+    }
 }
 unsafe extern "C" fn video(d: *const c_void, w: u32, h: u32, pitch: usize) {
     assert_eq!(pitch, w as usize * 4);
@@ -49,8 +73,58 @@ fn cartridge() -> Vec<u8> {
     rom
 }
 
+/// Loads the cartridge with `opts`, runs `n` frames; returns the last picture's size and pixels,
+/// and the samples made.
+fn run_with(opts: &[(&'static str, &str)], n: usize) -> (u32, u32, Vec<u32>, usize) {
+    *OPTS.lock().unwrap() = opts.iter().map(|(k, v)| (*k, std::ffi::CString::new(*v).unwrap())).collect();
+    {
+        let mut o = OUT.lock().unwrap();
+        o.frames.clear();
+        o.samples = 0;
+    }
+    let rom = cartridge();
+    unsafe {
+        retro_set_environment(env);
+        retro_set_video_refresh(video);
+        retro_set_audio_sample_batch(audio);
+        retro_set_input_poll(poll);
+        retro_set_input_state(input);
+        retro_init();
+        let info = RetroGameInfo { path: std::ptr::null(), data: rom.as_ptr() as *const c_void, size: rom.len(), meta: std::ptr::null() };
+        assert!(retro_load_game(&info));
+        for _ in 0..n {
+            retro_run();
+        }
+        retro_unload_game();
+        retro_deinit();
+    }
+    let mut o = OUT.lock().unwrap();
+    let (w, h, px) = o.frames.pop().unwrap();
+    *OPTS.lock().unwrap() = Vec::new();
+    (w, h, px, o.samples)
+}
+
+static TURN: Mutex<()> = Mutex::new(());
+
+#[test]
+fn settings_reach_the_game() {
+    let _t = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let (w, h, px, _) = run_with(&[("cgear_hide_left", "on")], 5);
+    assert_eq!((w, h, px.len()), (248, 192, 248 * 192), "the left column cut off");
+    let (_, _, _, fifty) = run_with(&[("cgear_refresh", "50")], 50);
+    let (_, _, _, sixty) = run_with(&[], 50);
+    assert!(fifty > sixty * 115 / 100, "a 50 Hz frame is longer, so it makes more sound: {fifty} {sixty}");
+}
+
 #[test]
 fn a_cartridge_through_the_entry_points() {
+    let _t = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    *OPTS.lock().unwrap() = Vec::new();
+    {
+        let mut o = OUT.lock().unwrap();
+        o.frames.clear();
+        o.samples = 0;
+    }
     let rom = cartridge();
     unsafe {
         retro_set_environment(env);

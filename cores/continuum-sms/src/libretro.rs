@@ -9,6 +9,7 @@
 use std::ffi::{c_char, c_void};
 use std::sync::Mutex;
 
+use crate::options::{Console, Settings};
 use crate::sms::Sms;
 
 #[repr(C)]
@@ -73,7 +74,64 @@ struct Callbacks {
 }
 
 static CB: Mutex<Callbacks> = Mutex::new(Callbacks { env: None, video: None, audio_batch: None, poll: None, input: None });
-static CORE: Mutex<Option<Box<Sms>>> = Mutex::new(None);
+static CORE: Mutex<Option<Core>> = Mutex::new(None);
+
+/// The machine and its settings: `s` as the player has them now, `at_start` as they were when
+/// the game opened (the ones that say "next start" keep those until it is opened again).
+struct Core {
+    m: Box<Sms>,
+    s: Settings,
+    at_start: Settings,
+    /// The last picture shown, for the Game Gear's ghosting.
+    prev: Vec<u32>,
+}
+
+impl std::ops::Deref for Core {
+    type Target = Sms;
+    fn deref(&self) -> &Sms {
+        &self.m
+    }
+}
+
+impl std::ops::DerefMut for Core {
+    fn deref_mut(&mut self) -> &mut Sms {
+        &mut self.m
+    }
+}
+
+impl Core {
+    /// The settings that apply to a running game.
+    fn apply(&mut self) {
+        let s = self.s.clone();
+        self.m.bus.vdp.sprite_limit = s.sprite_limit;
+        self.m.bus.psg.chan_vol = s.chan_vol;
+        self.m.bus.psg.volume = s.volume;
+    }
+}
+
+/// A new machine for `rom` as the settings ask.
+unsafe fn machine(rom: Vec<u8>, s: &Settings, path: *const c_char) -> Box<Sms> {
+    let console = match s.console {
+        Console::Auto if is_game_gear(&rom, path) => Console::GameGear,
+        Console::Auto if has_extension(path, &[".sg", ".sc"]) => Console::Sg1000,
+        Console::Auto => Console::Sms,
+        c => c,
+    };
+    let mut m = Box::new(Sms::new(rom));
+    m.rate = RATE;
+    match console {
+        Console::GameGear => m.bus.set_game_gear(),
+        Console::Sg1000 => m.bus.set_sg1000(),
+        _ => {}
+    }
+    m.bus.export = !s.japan;
+    m.bus.vdp.pal = s.pal && console != Console::GameGear;
+    if let Some(mapper) = s.mapper {
+        m.bus.mapper = mapper;
+        m.bus.banks = if mapper == crate::bus::Mapper::Codemasters { [0, 1, 0] } else { [0, 1, 2] };
+    }
+    m
+}
 
 #[no_mangle]
 pub extern "C" fn retro_api_version() -> u32 {
@@ -99,9 +157,16 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
     if info.is_null() {
         return;
     }
-    let (pal, gg) = CORE.lock().ok().and_then(|c| c.as_ref().map(|m| (m.bus.vdp.pal, m.bus.gg))).unwrap_or((false, false));
-    // A Master System on a TV: 256 x 192 shown 4:3. A Game Gear's own screen: 160 x 144, 10:9.
-    let (w, h, aspect) = if gg { (160, 144, 10.0 / 9.0) } else { (256, 192, 4.0 / 3.0) };
+    let (pal, gg, cut) = CORE.lock().ok().and_then(|c| c.as_ref().map(|m| (m.bus.vdp.pal, m.bus.gg, m.at_start.hide_left))).unwrap_or((false, false, false));
+    // A Master System on a TV: 256 x 192 shown 4:3 (248 wide without its left column). A Game
+    // Gear's own screen: 160 x 144, 10:9.
+    let (w, h, aspect) = if gg {
+        (160, 144, 10.0 / 9.0)
+    } else if cut {
+        (248, 192, 4.0 / 3.0 * 248.0 / 256.0)
+    } else {
+        (256, 192, 4.0 / 3.0)
+    };
     *info = RetroSystemAvInfo {
         geometry: RetroGameGeometry { base_width: w, base_height: h, max_width: 256, max_height: 240, aspect_ratio: aspect },
         timing: RetroSystemTiming {
@@ -116,6 +181,7 @@ pub extern "C" fn retro_set_environment(cb: EnvFn) {
     if let Ok(mut c) = CB.lock() {
         c.env = Some(cb);
     }
+    unsafe { crate::options::declare(cb) };
 }
 #[no_mangle]
 pub extern "C" fn retro_set_video_refresh(cb: VideoFn) {
@@ -171,17 +237,12 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
             return false;
         }
     }
-    let gg = is_game_gear(&rom, (*game).path);
-    let sg = has_extension((*game).path, &[".sg", ".sc"]);
-    let mut m = Box::new(Sms::new(rom));
-    m.rate = RATE;
-    if gg {
-        m.bus.set_game_gear();
-    } else if sg {
-        m.bus.set_sg1000();
-    }
+    let s = env.map(|e| crate::options::read(e)).unwrap_or_default();
+    let m = machine(rom, &s, (*game).path);
+    let mut core = Core { m, s: s.clone(), at_start: s, prev: Vec::new() };
+    core.apply();
     if let Ok(mut c) = CORE.lock() {
-        *c = Some(m);
+        *c = Some(core);
         return true;
     }
     false
@@ -210,16 +271,20 @@ pub extern "C" fn retro_reset() {
         if let Some(m) = c.as_mut() {
             let rom = std::mem::take(&mut m.bus.rom);
             let cart_ram = std::mem::take(&mut m.bus.cart_ram);
-            let (gg, sg) = (m.bus.gg, m.bus.sg);
+            let (gg, sg, export, pal, mapper) = (m.bus.gg, m.bus.sg, m.bus.export, m.bus.vdp.pal, m.bus.mapper);
             let mut fresh = Sms::new(rom);
             if gg {
                 fresh.bus.set_game_gear();
             } else if sg {
                 fresh.bus.set_sg1000();
             }
+            fresh.bus.export = export;
+            fresh.bus.vdp.pal = pal;
+            fresh.bus.mapper = mapper;
             fresh.bus.cart_ram = cart_ram;
             fresh.rate = m.rate;
-            **m = fresh;
+            *m.m = fresh;
+            m.apply();
         }
     }
 }
@@ -253,8 +318,16 @@ unsafe fn is_game_gear(rom: &[u8], path: *const c_char) -> bool {
 /// The pads as the console's ports read them, from the two players' buttons: $DC holds the
 /// first pad and the second's Up and Down, $DD the second's other buttons. A held button reads 0.
 /// Start on either pad is the console's Pause button.
-unsafe fn read_pads(input: InputFn) -> (u8, u8, bool) {
-    let held = |port: u32, id: u32| input(port, DEVICE_JOYPAD, 0, id) != 0;
+unsafe fn read_pads(input: InputFn, opposing: bool) -> (u8, u8, bool) {
+    let held = |port: u32, id: u32| {
+        let on = |i: u32| input(port, DEVICE_JOYPAD, 0, i) != 0;
+        // A real pad's rocker cannot press both ways at once.
+        match id {
+            4 | 5 if !opposing && on(4) && on(5) => false,
+            6 | 7 if !opposing && on(6) && on(7) => false,
+            _ => on(id),
+        }
+    };
     // libretro: B 0, Y 1, Select 2, Start 3, Up 4, Down 5, Left 6, Right 7, A 8. Button 1 is B,
     // button 2 is A, as on a Master System pad held the usual way.
     let pad = |p: u32| -> u8 {
@@ -269,8 +342,8 @@ unsafe fn read_pads(input: InputFn) -> (u8, u8, bool) {
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_run() {
-    let (video, audio, poll, input) = match CB.lock() {
-        Ok(c) => (c.video, c.audio_batch, c.poll, c.input),
+    let (video, audio, poll, input, env) = match CB.lock() {
+        Ok(c) => (c.video, c.audio_batch, c.poll, c.input, c.env),
         Err(_) => return,
     };
     if let Some(poll) = poll {
@@ -278,8 +351,14 @@ pub unsafe extern "C" fn retro_run() {
     }
     let Ok(mut slot) = CORE.lock() else { return };
     let Some(m) = slot.as_mut() else { return };
+    if let Some(env) = env {
+        if crate::options::changed(env) {
+            m.s = crate::options::read(env);
+            m.apply();
+        }
+    }
     if let Some(input) = input {
-        let (dc, dd, pause) = read_pads(input);
+        let (dc, dd, pause) = read_pads(input, m.s.opposing);
         m.bus.pad_dc = dc;
         m.bus.pad_dd = dd;
         if m.bus.gg {
@@ -292,11 +371,29 @@ pub unsafe extern "C" fn retro_run() {
     m.run_frame();
     if let Some(video) = video {
         let mut shown = std::mem::take(&mut m.shown);
-        let (w, h) = m.bus.vdp.shown(&mut shown);
+        let (mut w, h) = m.bus.vdp.shown(&mut shown);
+        if m.at_start.hide_left && !m.bus.gg {
+            shown = shown.chunks(w).flat_map(|row| row[8..].iter().copied()).collect();
+            w -= 8;
+        }
+        if m.s.gg_ghosting && m.bus.gg {
+            if m.prev.len() == shown.len() {
+                for (p, q) in shown.iter_mut().zip(&m.prev) {
+                    *p = ((*p & 0xFEFEFE) >> 1) + ((*q & 0xFEFEFE) >> 1);
+                }
+            }
+            m.prev.clone_from(&shown);
+        }
         video(shown.as_ptr() as *const c_void, w as u32, h as u32, w * 4);
         m.shown = shown;
     }
-    let samples = std::mem::take(&mut m.samples);
+    let mut samples = std::mem::take(&mut m.samples);
+    if m.s.mono {
+        for pair in samples.chunks_mut(2) {
+            let v = ((i32::from(pair[0]) + i32::from(pair[1])) / 2) as i16;
+            pair.fill(v);
+        }
+    }
     if let Some(audio) = audio {
         let mut off = 0;
         while off < samples.len() / 2 {

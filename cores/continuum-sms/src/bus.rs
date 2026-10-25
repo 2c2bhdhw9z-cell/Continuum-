@@ -119,6 +119,22 @@ impl Bus {
         }
     }
 
+    /// Port $DD: the second pad's buttons, then the two TH pins. An export console reads back
+    /// what port $3F drives on a TH pin set to output, which is how games tell it from a
+    /// Japanese one, whose pins read as their input level (SMS Power, "Region detection").
+    fn port_dd(&self) -> u8 {
+        let mut v = self.pad_dd;
+        if self.export && !self.sg {
+            if self.io_ctrl & 0x02 == 0 {
+                v = (v & !0x40) | (self.io_ctrl & 0x20) << 1;
+            }
+            if self.io_ctrl & 0x08 == 0 {
+                v = (v & !0x80) | (self.io_ctrl & 0x80);
+            }
+        }
+        v
+    }
+
     /// Makes this an SG-1000.
     pub fn set_sg1000(&mut self) {
         self.sg = true;
@@ -245,7 +261,7 @@ impl z80::Bus for Bus {
             0x80 => self.vdp.read_data(),
             0x81 => self.vdp.read_status(),
             0xC0 => self.pad_dc,
-            _ => self.pad_dd,
+            _ => self.port_dd(),
         }
     }
 
@@ -351,6 +367,18 @@ mod tests {
         assert_eq!(b.read(0x8000), 2, "no mapper");
         b.write(0xC000, 0x55);
         assert_eq!((b.read(0xC400), b.read(0xFC00)), (0x55, 0x55));
+    }
+
+    #[test]
+    fn an_export_console_reads_back_its_th_pins_and_a_japanese_one_does_not() {
+        let mut b = Bus::new(rom(2));
+        b.output(0x3F, 0x55); // both TH pins outputs, driven low
+        assert_eq!(b.input(0xDD) & 0xC0, 0x00);
+        b.output(0x3F, 0xF5); // driven high
+        assert_eq!(b.input(0xDD) & 0xC0, 0xC0);
+        b.export = false;
+        b.output(0x3F, 0x55);
+        assert_eq!(b.input(0xDD) & 0xC0, 0xC0, "a Japanese console reads its inputs");
     }
 
     #[test]

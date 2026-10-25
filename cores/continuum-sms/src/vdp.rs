@@ -19,6 +19,10 @@ pub const WIDTH: usize = 256;
 
 /// The TMS9918's sixteen colours (0 is see-through, shown as black), as commonly measured from
 /// its video output (the values MAME and openMSX use for the TMS9918A).
+fn yes() -> bool {
+    true
+}
+
 pub const TMS_RGB: [u32; 16] = [
     0x000000, 0x000000, 0x21C842, 0x5EDC78, 0x5455ED, 0x7D76FC, 0xD4524D, 0x42EBF5,
     0xFC5554, 0xFF7978, 0xD4C154, 0xE6CE80, 0x21B03B, 0xC95BBA, 0xCCCCCC, 0xFFFFFF,
@@ -52,6 +56,9 @@ pub struct Vdp {
     /// An SG-1000's TMS9918: none of the Master System's mode 4, taller modes or line interrupt.
     #[serde(default)]
     pub tms: bool,
+    /// Draw only as many sprites a line as the console can (a setting; not saved).
+    #[serde(skip, default = "yes")]
+    pub sprite_limit: bool,
     #[serde(default)]
     cram_latch: u8,
     /// The vertical scroll, taken from register 9 once a frame, at its top.
@@ -80,6 +87,7 @@ impl Default for Vdp {
             pal: false,
             gg: false,
             tms: false,
+            sprite_limit: true,
             cram_latch: 0,
             vscroll: 0,
             frame: vec![0; WIDTH * 240],
@@ -321,7 +329,9 @@ impl Vdp {
             }
             if found == 8 {
                 self.status |= 0x40;
-                break;
+                if self.sprite_limit {
+                    break;
+                }
             }
             found += 1;
             let x0 = i32::from(self.vram[sat + 0x80 + n * 2]) - if self.regs[0] & 0x08 != 0 { 8 } else { 0 };
@@ -438,7 +448,9 @@ impl Vdp {
                 if self.status & 0x40 == 0 {
                     self.status = (self.status & 0xE0) | 0x40 | n as u8;
                 }
-                break;
+                if self.sprite_limit {
+                    break;
+                }
             }
             found += 1;
             let attr = self.vram[(at + 3) & 0x3FFF];
