@@ -77,11 +77,8 @@ enum JitPairingFile {
 
     static var isPresent: Bool { data() != nil }
 
-    /// Stores a file the player picked (a security-scoped URL from the file picker).
-    static func importFile(from source: URL) throws {
-        let scoped = source.startAccessingSecurityScopedResource()
-        defer { if scoped { source.stopAccessingSecurityScopedResource() } }
-        let data = try Data(contentsOf: source)
+    /// Stores the bytes of a file the player picked (read by `FilePicker` inside its callback).
+    static func importData(_ data: Data) throws {
         guard looksLikePairingFile(data) else {
             throw NSError(domain: "Continuum", code: 1, userInfo: [NSLocalizedDescriptionKey:
                 "That isn't a pairing file. Export one from StikPair (or idevice_pair) and pick that."])
@@ -284,15 +281,19 @@ final class BuiltInJIT: ObservableObject {
     /// Tries that already failed this run, so a game does not wait on every start for LocalDevVPN.
     private var failedThisRun = 0
 
-    func importPairingFile(_ url: URL) {
+    func importPairingFile(_ data: Data) {
         do {
-            try JitPairingFile.importFile(from: url)
+            try JitPairingFile.importData(data)
             pairingPresent = true
             failedThisRun = 0
             line = "Pairing file imported. JIT turns on when a game starts."
         } catch {
             line = error.localizedDescription
         }
+    }
+
+    func reportImportFailure(_ reason: String) {
+        line = "Couldn't read that file: " + reason
     }
 
     func forgetPairingFile() {
@@ -458,7 +459,6 @@ final class BuiltInJIT: ObservableObject {
 struct BuiltInJITRows: View {
     @ObservedObject var host: EngineHost
     @ObservedObject private var jit = BuiltInJIT.shared
-    @State private var picking = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -471,7 +471,13 @@ struct BuiltInJITRows: View {
             if jit.method == .builtIn {
                 SettingsReadout(label: "Pairing file", value: jit.pairingPresent ? "Imported" : "Not imported")
                 SettingsButton(title: jit.pairingPresent ? "Import a new pairing file" : "Import pairing file", role: .normal) {
-                    picking = true
+                    // UIKit's picker, not SwiftUI's .fileImporter: on the owner's phone (build 225)
+                    // .fileImporter showed the file but tapping it did nothing, the same failure
+                    // every other import in this app already avoids through FilePicker.
+                    FilePicker.shared.present(
+                        onPick: { data, _ in jit.importPairingFile(data) },
+                        onFailure: { reason in jit.reportImportFailure(reason) }
+                    )
                 }
                 Toggle(isOn: $jit.onGameStart) {
                     Text("Turn JIT on when a game starts")
@@ -500,9 +506,6 @@ struct BuiltInJITRows: View {
                     jit.resetDiskImage()
                 }
             }
-        }
-        .fileImporter(isPresented: $picking, allowedContentTypes: [.item]) { result in
-            if case .success(let url) = result { jit.importPairingFile(url) }
         }
     }
 }
