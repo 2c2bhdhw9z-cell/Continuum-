@@ -271,7 +271,7 @@ Emulicious is closed source and publishes no settings list (https://emulicious.n
 | mgba | `threadedVideo` | n/a |  | desktop threading | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
 | mgba | `threadedVideo.flushScanline` | n/a |  |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
 | mgba | `vbaBugCompat` | yes | `cboy_vba_compat` | unpacking stops at the declared size, which old ROM hacks depend on | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
-| mgba | `camera` | gap |  | which camera feeds the Game Boy Camera. cBoy runs Camera cartridges now, but the phone's camera isn't connected to them yet | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/3ds/main.c |
+| mgba | `camera` | app |  | which camera feeds the Game Boy Camera: the app's Settings, Microphone, camera and Amiibo, Camera (Back / Front), with Allow camera in games; its frames reach cBoy's Camera cartridge (options_e2e `the_phones_camera_reaches_the_game_boy_camera`) | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/3ds/main.c |
 | mgba | `darkenMode` | yes | `cboy_dark_filter` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/3ds/main.c |
 | mgba | `logLevel` | app |  |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/example/client-server/server.c |
 | mgba | `filtering` | app |  |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/psp2/psp2-context.c |
@@ -355,5 +355,5 @@ Emulicious is closed source and publishes no settings list (https://emulicious.n
 | bgb | `Waitloop detection` | yes | `cboy_gb_idle_skip` | Skip waiting loops (Game Boy and Color): exact, nothing a game can tell changes | https://bgb.bircd.org/manual.html |
 | bgb | `boot roms` | yes | `cboy_boot_rom` |  | https://bgb.bircd.org/manual.html |
 
-Standalone settings: **181**. In cBoy: 81. App: 79. Gaps: 2. Not applicable: 19.
+Standalone settings: **181**. In cBoy: 81. App: 80. Gaps: 1. Not applicable: 19.
 

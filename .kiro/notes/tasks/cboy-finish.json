@@ -56,9 +56,10 @@
     },
     {
       "id": "B6",
-      "done": false,
+      "done": true,
       "title": "Game Boy Camera: the phone's camera feeds a Camera cartridge",
-      "notes": "cBoy runs Camera cartridges already (cart.rs); the app already hands camera frames to cores through RETRO_ENVIRONMENT_GET_CAMERA_INTERFACE (crates/emulator-bridge/src/peripherals, used for the 3DS). Add the setting for which camera (mgba's 'camera' gap in the inventory)."
+      "notes": "cBoy runs Camera cartridges already (cart.rs); the app already hands camera frames to cores through RETRO_ENVIRONMENT_GET_CAMERA_INTERFACE (crates/emulator-bridge/src/peripherals, used for the 3DS). Add the setting for which camera (mgba's 'camera' gap in the inventory).",
+      "result": "Nothing to add: the app already has the choice (Settings, Microphone, camera and Amiibo: Allow camera in games, Camera Back / Front, Peripherals.swift), and its frames reach cBoy's Camera cartridge (options_e2e the_phones_camera_reaches_the_game_boy_camera). Inventory row mgba camera moved from gap to app. Phone check at B9: a Game Boy Camera ROM with the camera allowed."
     },
     {
       "id": "B7",
