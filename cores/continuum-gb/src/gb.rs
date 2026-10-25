@@ -21,10 +21,48 @@ pub struct GameBoy {
     /// comes back in them on a Color instead of blank. Settings, not state, so not saved.
     #[serde(skip)]
     pub compat: Option<compat::Palettes>,
+    /// The console it was started as (settings, not state).
+    #[serde(skip)]
+    pub console: Model,
+    /// Skipping the game's waiting loops (core option), and what it has spotted. Not saved.
+    #[serde(skip)]
+    pub wait: WaitLoop,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// A game waiting for something to happen, in a loop that reads only memory nothing but the
+/// CPU's own writes can change (cartridge ROM, work RAM, high RAM, the interrupt switches) and
+/// writes nothing: `wait: ld a,(flag) / and a / jr z,wait` until an interrupt handler sets the
+/// flag. Once two turns of it in a row have gone exactly the same way - the same instructions,
+/// the same cycles, the CPU in the same state at each - every later turn must go that way too
+/// until an interrupt is taken, so the turns are not run instruction by instruction any more:
+/// the rest of the machine is clocked through each instruction's cycles, and at every point
+/// between instructions where the CPU would take an interrupt, it is handed back to the CPU in
+/// exactly the state it would have had there. Nothing a game, a picture or a sound can tell
+/// changes; only the work of running the CPU is saved (what bgb calls waitloop detection).
+#[derive(Clone, Default)]
+pub struct WaitLoop {
+    pub on: bool,
+    /// The loop being watched: the address a backward jump went to.
+    head: Option<u16>,
+    /// The turn being recorded: the CPU before each instruction, and its cycles.
+    turn: Vec<(Cpu, u32)>,
+    recording: bool,
+    /// The last whole turn, kept to compare the next one with.
+    last: Vec<(Cpu, u32)>,
+    /// The CPU's writes when that turn was recorded: any write since and it may not hold.
+    writes: u64,
+    /// Two turns matched: skip turns starting from `last[0]`'s state.
+    armed: bool,
+    /// M-cycles skipped (for tests).
+    pub skipped: u64,
+}
+
+/// The longest loop watched, in instructions.
+const WAIT_LOOP_MAX: usize = 16;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Model {
+    #[default]
     Auto,
     Dmg,
     /// The first DMG revision (different boot ROM: registers and DIV differ).
@@ -66,6 +104,7 @@ impl GameBoy {
             model
         };
         let cgb = colour_cart && matches!(model, Model::Cgb | Model::Agb);
+        let console = model;
         // A Color's own start-up file runs in colour mode whatever the cartridge is, and puts the
         // console into Game Boy mode itself at the end (KEY0) when the cartridge is a
         // black-and-white one, after writing the colours it picked.
@@ -145,6 +184,7 @@ impl GameBoy {
             gb.bus.sgb = sgb;
             gb.bus.ppu.lcdc = 0;
         }
+        gb.console = console;
         Ok(gb)
     }
 
@@ -206,7 +246,7 @@ impl GameBoy {
         } else {
             Cpu::default()
         };
-        GameBoy { cpu, bus, compat: None }
+        GameBoy { cpu, bus, compat: None, console: Model::Auto, wait: WaitLoop::default() }
     }
 
     /// Runs until the PPU finishes a frame (or one frame's worth of cycles with the LCD off).
@@ -214,11 +254,97 @@ impl GameBoy {
         let start = self.bus.cycles;
         self.bus.ppu.frame_ready = false;
         while !self.bus.ppu.frame_ready && self.bus.cycles - start < FRAME_CYCLES * 2 {
-            self.cpu.step(&mut self.bus);
+            if self.wait.on {
+                self.step_watching(start);
+            } else {
+                self.cpu.step(&mut self.bus);
+            }
             if !self.bus.ppu.on() && self.bus.cycles - start >= FRAME_CYCLES {
                 break;
             }
         }
+    }
+
+    /// One instruction, or a run of skipped turns of a waiting loop (see `WaitLoop`).
+    fn step_watching(&mut self, start: u64) {
+        let w = &self.wait;
+        let ready = w.armed && w.writes == self.bus.loop_writes && w.last.first().is_some_and(|(c, _)| c.same_state(&self.cpu));
+        if ready && self.skip_turns(start) > 0 {
+            return;
+        }
+        let recording = self.wait.recording;
+        let before = if recording { Some(self.cpu.clone()) } else { None };
+        let (pc0, plain0) = (self.cpu.pc, self.cpu.plain());
+        let cycles = self.bus.cycles;
+        self.bus.loop_unstable = false;
+        let writes = self.bus.loop_writes;
+        self.cpu.step(&mut self.bus);
+        let back = self.cpu.pc < pc0 && pc0 - self.cpu.pc <= 64;
+        if before.is_none() && !back {
+            return;
+        }
+        let pure = !self.bus.loop_unstable && self.bus.loop_writes == writes && plain0 && self.cpu.plain() && {
+            let op = self.bus.raw_read(pc0);
+            op != 0x10 && op != 0x76
+        };
+        let w = &mut self.wait;
+        if let Some(before) = before {
+            let spent = ((self.bus.cycles - cycles) / 4) as u32;
+            if !pure || w.turn.len() >= WAIT_LOOP_MAX {
+                w.recording = false;
+                w.turn.clear();
+                w.last.clear();
+                w.armed = false;
+            } else {
+                w.turn.push((before, spent));
+                if Some(self.cpu.pc) == w.head {
+                    // A whole turn: the same as the one before it?
+                    let same = w.turn.len() == w.last.len()
+                        && w.turn.iter().zip(&w.last).all(|(a, b)| a.1 == b.1 && a.0.same_state(&b.0));
+                    w.last = std::mem::take(&mut w.turn);
+                    w.writes = self.bus.loop_writes;
+                    w.armed = same;
+                    w.recording = !same;
+                }
+            }
+            return;
+        }
+        // A short jump backwards: watch the loop it closes.
+        let still_armed = w.armed && w.head == Some(self.cpu.pc) && w.writes == self.bus.loop_writes;
+        if pure && back && !still_armed {
+            w.head = Some(self.cpu.pc);
+            w.recording = true;
+            w.turn.clear();
+            w.last.clear();
+            w.armed = false;
+        }
+    }
+
+    /// Clocks the machine through turns of the loop without running the CPU, until the CPU
+    /// would take an interrupt between two of its instructions or the frame is done. Returns
+    /// the M-cycles skipped: none means the CPU has something to do right away.
+    fn skip_turns(&mut self, start: u64) -> u64 {
+        let turn = std::mem::take(&mut self.wait.last);
+        let mut skipped = 0;
+        'turns: loop {
+            for (cpu, m) in &turn {
+                let irq = cpu.ime && self.bus.ie & self.bus.iflag & 0x1F != 0;
+                let frame_done = self.bus.ppu.frame_ready
+                    || self.bus.cycles - start >= FRAME_CYCLES * 2
+                    || (!self.bus.ppu.on() && self.bus.cycles - start >= FRAME_CYCLES);
+                if irq || frame_done {
+                    self.cpu = cpu.clone();
+                    break 'turns;
+                }
+                for _ in 0..*m {
+                    self.bus.tick();
+                }
+                skipped += u64::from(*m);
+            }
+        }
+        self.wait.last = turn;
+        self.wait.skipped += skipped;
+        skipped
     }
 
     pub fn frame_xrgb(&self, out: &mut [u32]) {
@@ -254,6 +380,8 @@ impl GameBoy {
         next.bus.ppu.cgb_hardware = self.bus.ppu.cgb_hardware;
         next.bus.boot_buttons = self.bus.boot_buttons;
         next.compat = self.compat;
+        next.console = self.console;
+        next.wait.on = self.wait.on;
         // A state from before this game was in colour carries palette memory nothing ever wrote,
         // which every start-up code on a Color does write (its high bytes are never $FF). On a
         // Color it comes back in the colours the game would have had from the start.

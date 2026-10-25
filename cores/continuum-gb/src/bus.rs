@@ -96,6 +96,13 @@ pub struct Bus {
     /// Interrupts taken, by bit (VBlank, STAT, timer, serial, joypad); for the lockup log.
     #[serde(default)]
     pub irq_taken: [u32; 5],
+    /// The CPU read something since this was last cleared that can change without it writing
+    /// (an I/O register, video memory, cartridge RAM). Not saved.
+    #[serde(skip)]
+    pub loop_unstable: bool,
+    /// The CPU's writes so far. Not saved.
+    #[serde(skip)]
+    pub loop_writes: u64,
     /// The Super Game Boy, when running as one (core option).
     #[serde(default)]
     pub sgb: Option<Box<crate::sgb::Sgb>>,
@@ -209,6 +216,8 @@ impl Bus {
             events: Vec::new(),
             log_count: 0,
             irq_taken: [0; 5],
+            loop_unstable: false,
+            loop_writes: 0,
             last_mode: 0,
             trace_pc: 0,
             trace_bank: 0,
@@ -553,6 +562,10 @@ impl Bus {
     }
 
     pub fn read(&mut self, addr: u16) -> u8 {
+        // For spotting a waiting loop (gb::WaitLoop): memory only the CPU's own writes change.
+        if !((addr < 0x8000 && !self.boot_on) || (0xC000..0xFE00).contains(&addr) || addr >= 0xFF80) {
+            self.loop_unstable = true;
+        }
         self.tick();
         if self.dma_active && (self.dma_delay == 0 || self.dma_prev_block) && (0xFE00..0xFF00).contains(&addr) {
             return 0xFF;
@@ -566,6 +579,7 @@ impl Bus {
     }
 
     pub fn write(&mut self, addr: u16, v: u8) {
+        self.loop_writes = self.loop_writes.wrapping_add(1);
         if (0xFF40..=0xFF4B).contains(&addr) {
             // A picture register: the picture hardware sees the write on the dots `landing`
             // gives, and the register itself changes at the end of the M-cycle as before.

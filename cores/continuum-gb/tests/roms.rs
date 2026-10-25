@@ -997,3 +997,43 @@ fn samesuite_sound() {
     assert_eq!(total, 70, "SameSuite's 70 sound tests");
     assert!(failed.is_empty(), "sound tests that passed no longer do: {failed:?}");
 }
+
+/// Skipping a game's waiting loops changes nothing it can tell. A loop that waits for a flag in
+/// work RAM (set by the VBlank interrupt handler, cleared again by the loop) runs for 600 frames
+/// with the skip and without: the same machine at the end, byte for byte, frame after frame,
+/// and nearly all of it skipped. A loop that reads the screen's line counter instead (an I/O
+/// register, which changes by itself) is never skipped.
+#[test]
+fn skipping_waiting_loops_changes_nothing() {
+    let mk = |code: &[u8], handler: &[u8]| {
+        let mut r = vec![0u8; 0x8000];
+        r[0x100..0x100 + code.len()].copy_from_slice(code);
+        r[0x40..0x40 + handler.len()].copy_from_slice(handler);
+        r
+    };
+    let flag = mk(&[0x3E, 0x01, 0xE0, 0xFF, 0xFB,          // ld a,1; ldh (IE),a; ei
+                    0xFA, 0x00, 0xC0, 0xA7, 0x28, 0xFA,    // wait: ld a,(C000); and a; jr z,wait
+                    0xAF, 0xEA, 0x00, 0xC0, 0x18, 0xF3],   // xor a; ld (C000),a; jr wait
+                  &[0x3E, 0x01, 0xEA, 0x00, 0xC0, 0xD9]);  // ld a,1; ld (C000),a; reti
+    let ly = mk(&[0xF0, 0x44, 0xFE, 0x90, 0x20, 0xFA, 0x18, 0xF8], &[]); // wait for line 144
+    for (rom, should_skip) in [(flag, true), (ly, false)] {
+        for cgb in [false, true] {
+            let mut a = GameBoy::new_mode(rom.clone(), cgb).unwrap();
+            let mut b = GameBoy::new_mode(rom.clone(), cgb).unwrap();
+            b.wait.on = true;
+            for f in 0..600 {
+                a.run_frame();
+                b.run_frame();
+                assert!(a.cpu.same_state(&b.cpu) && a.bus.cycles == b.bus.cycles, "frame {f}: the machines parted");
+                assert_eq!(a.bus.ppu.frame, b.bus.ppu.frame, "frame {f}");
+            }
+            assert!(a.save_state() == b.save_state(), "the whole machine is the same");
+            let frames = b.bus.cycles / 4;
+            if should_skip {
+                assert!(b.wait.skipped > frames * 9 / 10, "skipped {} of {frames}", b.wait.skipped);
+            } else {
+                assert_eq!(b.wait.skipped, 0);
+            }
+        }
+    }
+}

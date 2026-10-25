@@ -912,3 +912,118 @@ fn a_game_with_no_camera_still_runs_and_an_ordinary_game_never_asks() {
     let c = CAMERA.lock().unwrap();
     assert_eq!((c.requests, c.starts), (0, 0), "an ordinary game asked for the camera");
 }
+
+/// Loads a ROM with `opts`, runs `before` frames, resets, runs `after` frames.
+fn drive_with_reset(data: &[u8], opts: &[(&str, &str)], before: usize, after: usize) -> Out {
+    *OPTS.lock().unwrap() = Some(opts.iter().map(|(k, v)| (k.to_string(), CString::new(*v).unwrap())).collect());
+    {
+        let mut o = OUT.lock().unwrap();
+        o.frames.clear();
+        o.samples.clear();
+    }
+    unsafe {
+        retro_set_environment(env);
+        retro_set_video_refresh(video);
+        retro_set_audio_sample_batch(audio);
+        retro_set_input_poll(poll);
+        retro_set_input_state(input);
+        retro_init();
+        let info = RetroGameInfo { path: std::ptr::null(), data: data.as_ptr() as *const c_void, size: data.len(), meta: std::ptr::null() };
+        assert!(retro_load_game(&info));
+        for _ in 0..before {
+            retro_run();
+        }
+        retro_reset();
+        for _ in 0..after {
+            retro_run();
+        }
+        retro_unload_game();
+        retro_deinit();
+    }
+    let mut o = OUT.lock().unwrap();
+    Out { frames: std::mem::take(&mut o.frames), samples: std::mem::take(&mut o.samples), held: u32::MAX, rumble: Vec::new() }
+}
+
+fn brightness(px: &[u32]) -> u64 {
+    px.iter().map(|p| u64::from((p >> 16) & 0xFF) + u64::from((p >> 8) & 0xFF) + u64::from(p & 0xFF)).sum()
+}
+
+/// With the console on Advance and the Game Boy Player reset on, a reset first lets the game play
+/// on while the picture fades to black (35 frames: full for the first few, black for the last
+/// few), then holds the console dark and silent (94 frames), then the game starts again. Without
+/// the setting, a reset is at once.
+#[test]
+fn a_game_boy_player_reset_fades_out_and_pauses() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(data) = rom("cgb-acid2.gbc") else { return };
+    let opts = [("cboy_gb_model", "agb"), ("cboy_gbp_reset", "on")];
+    let o = drive_with_reset(&data, &opts, 60, 35 + 94 + 60);
+    let shown: Vec<&Vec<u32>> = o.frames.iter().filter(|f| f.0).map(|f| &f.3).collect();
+    assert_eq!(shown.len(), 60 + 35 + 94 + 60);
+    let full = brightness(shown[59]);
+    assert!(full > 0);
+    let fade: Vec<u64> = shown[60..95].iter().map(|f| brightness(f)).collect();
+    assert_eq!(fade[0], full, "the fade starts at full brightness");
+    assert!(fade.windows(2).all(|w| w[1] <= w[0]), "and only ever gets darker: {fade:?}");
+    assert!(fade[17] < full * 3 / 4 && fade[17] > full / 4, "half way it is half dark");
+    assert_eq!(fade[34], 0, "and it ends black");
+    assert!(shown[95..95 + 94].iter().all(|f| brightness(f) == 0), "then the console is held, dark");
+    assert!(brightness(shown[shown.len() - 1]) > 0, "and the game starts again");
+    // Without the setting, the reset is at once: no frame after it is dark.
+    let o = drive_with_reset(&data, &[("cboy_gb_model", "agb")], 60, 60);
+    let shown: Vec<&Vec<u32>> = o.frames.iter().filter(|f| f.0).map(|f| &f.3).collect();
+    assert!(shown[60..].iter().all(|f| brightness(f) > 0));
+}
+
+/// The real Super Game Boy runs a little fast, the Super Game Boy 2 and the setting's other
+/// choice at a Game Boy's speed: the frame rate the frontend is told says which.
+#[test]
+fn the_super_game_boy_speed() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(data) = rom("dmg-acid2.gb") else { return };
+    let fps = |opts: &[(&str, &str)]| -> f64 {
+        *OPTS.lock().unwrap() = Some(opts.iter().map(|(k, v)| (k.to_string(), CString::new(*v).unwrap())).collect());
+        unsafe {
+            retro_set_environment(env);
+            retro_set_video_refresh(video);
+            retro_set_audio_sample_batch(audio);
+            retro_set_input_poll(poll);
+            retro_set_input_state(input);
+            retro_init();
+            let info = RetroGameInfo { path: std::ptr::null(), data: data.as_ptr() as *const c_void, size: data.len(), meta: std::ptr::null() };
+            assert!(retro_load_game(&info));
+            let mut av: RetroSystemAvInfo = std::mem::zeroed();
+            retro_get_system_av_info(&mut av);
+            retro_unload_game();
+            retro_deinit();
+            av.timing.fps
+        }
+    };
+    let gb = 4_194_304.0 / 70_224.0;
+    assert!((fps(&[("cboy_gb_model", "sgb")]) - 21_477_272.0 / 5.0 / 70_224.0).abs() < 1e-6, "a real Super Game Boy");
+    assert!((fps(&[("cboy_gb_model", "sgb2")]) - gb).abs() < 1e-6, "the Super Game Boy 2 has a Game Boy's clock");
+    assert!((fps(&[("cboy_gb_model", "sgb"), ("cboy_sgb_speed", "normal")]) - gb).abs() < 1e-6, "or the player asks for it");
+    assert!((fps(&[("cboy_gb_model", "dmg")]) - gb).abs() < 1e-6);
+}
+
+/// "Automatic (Pocket colours on a Pocket)": a Pocket shows its own colours, any other Game Boy
+/// stays grey.
+#[test]
+fn the_pocket_shows_its_own_colours_when_asked() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(data) = rom("dmg-acid2.gb") else { return };
+    let colours = |opts: &[(&str, &str)]| -> std::collections::BTreeSet<u32> {
+        last(&run_data(&data, opts, 30)).3.iter().copied().collect()
+    };
+    let pocket = colours(&[("cboy_gb_model", "mgb"), ("cboy_dmg_palette", "auto")]);
+    assert!(pocket.contains(&0xC4CFA1), "the Pocket's lightest colour: {pocket:X?}");
+    let grey = colours(&[("cboy_gb_model", "dmg"), ("cboy_dmg_palette", "auto")]);
+    assert_eq!(grey, colours(&[("cboy_gb_model", "dmg")]), "a Game Boy stays as it was");
+    // Through "Let games see a newer console", a Game Boy game on Auto becomes a Pocket game.
+    let newer = colours(&[("cboy_newer_console", "pocket"), ("cboy_dmg_palette", "auto")]);
+    assert_eq!(newer, pocket);
+}
+
+fn run_data(data: &[u8], opts: &[(&str, &str)], n: usize) -> Out {
+    drive(data, opts, n, None)
+}

@@ -21,21 +21,21 @@ gambatte	gambatte_dark_filter_level	yes	cboy_dark_filter
 gambatte	gambatte_gb_bootloader	yes	cboy_boot_rom
 gambatte	gambatte_gb_colorization	yes	cboy_dmg_colorize
 gambatte	gambatte_gb_hwmode	yes	cboy_gb_model
-gambatte	gambatte_gb_internal_palette	yes	cboy_dmg_palette,cboy_dmg_colorize	own presets; Nintendo's built-in GBC/SGB tables are not reproduced
-gambatte	gambatte_gb_link_mode	gap		network link between phones: in progress (cboy_link has unplugged/loopback)
-gambatte	gambatte_gb_link_network_port	gap		part of network link
-gambatte	gambatte_gb_link_network_server_ip_1	gap		part of network link (IP digit)
-gambatte	gambatte_gb_link_network_server_ip_2	gap		part of network link (IP digit)
-gambatte	gambatte_gb_link_network_server_ip_3	gap		part of network link (IP digit)
-gambatte	gambatte_gb_link_network_server_ip_4	gap		part of network link (IP digit)
-gambatte	gambatte_gb_link_network_server_ip_5	gap		part of network link (IP digit)
-gambatte	gambatte_gb_link_network_server_ip_6	gap		part of network link (IP digit)
-gambatte	gambatte_gb_link_network_server_ip_7	gap		part of network link (IP digit)
-gambatte	gambatte_gb_link_network_server_ip_8	gap		part of network link (IP digit)
-gambatte	gambatte_gb_link_network_server_ip_9	gap		part of network link (IP digit)
-gambatte	gambatte_gb_link_network_server_ip_10	gap		part of network link (IP digit)
-gambatte	gambatte_gb_link_network_server_ip_11	gap		part of network link (IP digit)
-gambatte	gambatte_gb_link_network_server_ip_12	gap		part of network link (IP digit)
+gambatte	gambatte_gb_internal_palette	yes	cboy_dmg_palette,cboy_dmg_colorize	own presets, plus the Game Boy Color's own table and its twelve button schemes; the Super Game Boy's built-in palettes are not reproduced
+gambatte	gambatte_gb_link_mode	n/a		the app links two phones itself: the ... menu's Link cable to a second phone (Host, Join or Nearby)
+gambatte	gambatte_gb_link_network_port	n/a		the app's Host shows the address and Join types it in or finds it nearby
+gambatte	gambatte_gb_link_network_server_ip_1	n/a		the app's Host shows the address and Join types it in or finds it nearby
+gambatte	gambatte_gb_link_network_server_ip_2	n/a		the app's Host shows the address and Join types it in or finds it nearby
+gambatte	gambatte_gb_link_network_server_ip_3	n/a		the app's Host shows the address and Join types it in or finds it nearby
+gambatte	gambatte_gb_link_network_server_ip_4	n/a		the app's Host shows the address and Join types it in or finds it nearby
+gambatte	gambatte_gb_link_network_server_ip_5	n/a		the app's Host shows the address and Join types it in or finds it nearby
+gambatte	gambatte_gb_link_network_server_ip_6	n/a		the app's Host shows the address and Join types it in or finds it nearby
+gambatte	gambatte_gb_link_network_server_ip_7	n/a		the app's Host shows the address and Join types it in or finds it nearby
+gambatte	gambatte_gb_link_network_server_ip_8	n/a		the app's Host shows the address and Join types it in or finds it nearby
+gambatte	gambatte_gb_link_network_server_ip_9	n/a		the app's Host shows the address and Join types it in or finds it nearby
+gambatte	gambatte_gb_link_network_server_ip_10	n/a		the app's Host shows the address and Join types it in or finds it nearby
+gambatte	gambatte_gb_link_network_server_ip_11	n/a		the app's Host shows the address and Join types it in or finds it nearby
+gambatte	gambatte_gb_link_network_server_ip_12	n/a		the app's Host shows the address and Join types it in or finds it nearby
 gambatte	gambatte_gb_palette_pixelshift_1	no		third-party palette pack (PixelShift); its colour data is someone else's work. Custom palette file covers it
 gambatte	gambatte_gb_palette_twb64_1	no		third-party palette pack (TWB64); same reason
 gambatte	gambatte_gb_palette_twb64_2	no		third-party palette pack (TWB64); same reason
@@ -125,7 +125,7 @@ gpsp	gpsp_sound_rate	yes	cboy_sample_rate
 gpsp	gpsp_sprlim	yes	cboy_gba_sprite_limit
 gpsp	gpsp_turbo_period	yes	cboy_turbo
 tgbdual	tgbdual_audio_output	gap		comes with the two-console link
-tgbdual	tgbdual_gblink_enable	gap		two-console link: in progress
+tgbdual	tgbdual_gblink_enable	gap		two consoles on one phone: not built yet (two phones link through the app)
 tgbdual	tgbdual_screen_placement	gap		comes with the two-console link
 tgbdual	tgbdual_single_screen_mp	gap		comes with the two-console link
 tgbdual	tgbdual_switch_screens	gap		comes with the two-console link

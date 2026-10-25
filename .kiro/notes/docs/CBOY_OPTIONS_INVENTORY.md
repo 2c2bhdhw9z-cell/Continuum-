@@ -16,7 +16,7 @@ edit `.kiro/notes/docs/option-sources/mapping.tsv` and rerun.
 | tgbdual | https://github.com/libretro/tgbdual-libretro | `0392c9c469e653205e471114c7949c07c83bfce9` | 5 |
 | vbam | https://github.com/libretro/vbam-libretro | `115defb3a318258ab84746d45258a1aec19d0b4b` | 32 |
 
-Extracted keys: **132**. Covered by cBoy: 103. Gaps: 22. Deliberately not done: 4. Not applicable: 3. cBoy options: **67**.
+Extracted keys: **132**. Covered by cBoy: 103. Gaps: 8. Deliberately not done: 4. Not applicable: 17. cBoy options: **71**.
 
 ## Libretro core options, key by key
 
@@ -44,21 +44,21 @@ Extracted keys: **132**. Covered by cBoy: 103. Gaps: 22. Deliberately not done: 
 | gambatte | `gambatte_gb_bootloader` | yes | `cboy_boot_rom` |  |
 | gambatte | `gambatte_gb_colorization` | yes | `cboy_dmg_colorize` |  |
 | gambatte | `gambatte_gb_hwmode` | yes | `cboy_gb_model` |  |
-| gambatte | `gambatte_gb_internal_palette` | yes | `cboy_dmg_palette`, `cboy_dmg_colorize` | own presets; Nintendo's built-in GBC/SGB tables are not reproduced |
-| gambatte | `gambatte_gb_link_mode` | gap |  | network link between phones: in progress (cboy_link has unplugged/loopback) |
-| gambatte | `gambatte_gb_link_network_port` | gap |  | part of network link |
-| gambatte | `gambatte_gb_link_network_server_ip_1` | gap |  | part of network link (IP digit) |
-| gambatte | `gambatte_gb_link_network_server_ip_2` | gap |  | part of network link (IP digit) |
-| gambatte | `gambatte_gb_link_network_server_ip_3` | gap |  | part of network link (IP digit) |
-| gambatte | `gambatte_gb_link_network_server_ip_4` | gap |  | part of network link (IP digit) |
-| gambatte | `gambatte_gb_link_network_server_ip_5` | gap |  | part of network link (IP digit) |
-| gambatte | `gambatte_gb_link_network_server_ip_6` | gap |  | part of network link (IP digit) |
-| gambatte | `gambatte_gb_link_network_server_ip_7` | gap |  | part of network link (IP digit) |
-| gambatte | `gambatte_gb_link_network_server_ip_8` | gap |  | part of network link (IP digit) |
-| gambatte | `gambatte_gb_link_network_server_ip_9` | gap |  | part of network link (IP digit) |
-| gambatte | `gambatte_gb_link_network_server_ip_10` | gap |  | part of network link (IP digit) |
-| gambatte | `gambatte_gb_link_network_server_ip_11` | gap |  | part of network link (IP digit) |
-| gambatte | `gambatte_gb_link_network_server_ip_12` | gap |  | part of network link (IP digit) |
+| gambatte | `gambatte_gb_internal_palette` | yes | `cboy_dmg_palette`, `cboy_dmg_colorize` | own presets, plus the Game Boy Color's own table and its twelve button schemes; the Super Game Boy's built-in palettes are not reproduced |
+| gambatte | `gambatte_gb_link_mode` | n/a |  | the app links two phones itself: the ... menu's Link cable to a second phone (Host, Join or Nearby) |
+| gambatte | `gambatte_gb_link_network_port` | n/a |  | the app's Host shows the address and Join types it in or finds it nearby |
+| gambatte | `gambatte_gb_link_network_server_ip_1` | n/a |  | the app's Host shows the address and Join types it in or finds it nearby |
+| gambatte | `gambatte_gb_link_network_server_ip_2` | n/a |  | the app's Host shows the address and Join types it in or finds it nearby |
+| gambatte | `gambatte_gb_link_network_server_ip_3` | n/a |  | the app's Host shows the address and Join types it in or finds it nearby |
+| gambatte | `gambatte_gb_link_network_server_ip_4` | n/a |  | the app's Host shows the address and Join types it in or finds it nearby |
+| gambatte | `gambatte_gb_link_network_server_ip_5` | n/a |  | the app's Host shows the address and Join types it in or finds it nearby |
+| gambatte | `gambatte_gb_link_network_server_ip_6` | n/a |  | the app's Host shows the address and Join types it in or finds it nearby |
+| gambatte | `gambatte_gb_link_network_server_ip_7` | n/a |  | the app's Host shows the address and Join types it in or finds it nearby |
+| gambatte | `gambatte_gb_link_network_server_ip_8` | n/a |  | the app's Host shows the address and Join types it in or finds it nearby |
+| gambatte | `gambatte_gb_link_network_server_ip_9` | n/a |  | the app's Host shows the address and Join types it in or finds it nearby |
+| gambatte | `gambatte_gb_link_network_server_ip_10` | n/a |  | the app's Host shows the address and Join types it in or finds it nearby |
+| gambatte | `gambatte_gb_link_network_server_ip_11` | n/a |  | the app's Host shows the address and Join types it in or finds it nearby |
+| gambatte | `gambatte_gb_link_network_server_ip_12` | n/a |  | the app's Host shows the address and Join types it in or finds it nearby |
 | gambatte | `gambatte_gb_palette_pixelshift_1` | no |  | third-party palette pack (PixelShift); its colour data is someone else's work. Custom palette file covers it |
 | gambatte | `gambatte_gb_palette_twb64_1` | no |  | third-party palette pack (TWB64); same reason |
 | gambatte | `gambatte_gb_palette_twb64_2` | no |  | third-party palette pack (TWB64); same reason |
@@ -148,7 +148,7 @@ Extracted keys: **132**. Covered by cBoy: 103. Gaps: 22. Deliberately not done: 
 | gpsp | `gpsp_sprlim` | yes | `cboy_gba_sprite_limit` |  |
 | gpsp | `gpsp_turbo_period` | yes | `cboy_turbo` |  |
 | tgbdual | `tgbdual_audio_output` | gap |  | comes with the two-console link |
-| tgbdual | `tgbdual_gblink_enable` | gap |  | two-console link: in progress |
+| tgbdual | `tgbdual_gblink_enable` | gap |  | two consoles on one phone: not built yet (two phones link through the app) |
 | tgbdual | `tgbdual_screen_placement` | gap |  | comes with the two-console link |
 | tgbdual | `tgbdual_single_screen_mp` | gap |  | comes with the two-console link |
 | tgbdual | `tgbdual_switch_screens` | gap |  | comes with the two-console link |
@@ -157,7 +157,7 @@ Extracted keys: **132**. Covered by cBoy: 103. Gaps: 22. Deliberately not done: 
 
 ## cBoy options no libretro core above has
 
-`cboy_contrast`, `cboy_gba_model`, `cboy_gba_music`, `cboy_gba_save_type`, `cboy_gyro_source`, `cboy_hybrid_model`, `cboy_layer_bg`, `cboy_layer_window`, `cboy_renderer`, `cboy_rtc_offset`, `cboy_run_ahead`, `cboy_sprite_limit`, `cboy_stick_dpad`, `cboy_tilt_source`, `cboy_vba_compat`, `cboy_volume`
+`cboy_contrast`, `cboy_gb_idle_skip`, `cboy_gba_model`, `cboy_gba_music`, `cboy_gba_save_type`, `cboy_gbp_reset`, `cboy_gyro_source`, `cboy_hybrid_model`, `cboy_layer_bg`, `cboy_layer_window`, `cboy_newer_console`, `cboy_renderer`, `cboy_rtc_offset`, `cboy_run_ahead`, `cboy_sgb_speed`, `cboy_sprite_limit`, `cboy_stick_dpad`, `cboy_tilt_source`, `cboy_vba_compat`, `cboy_volume`
 
 ## Standalone emulators
 
@@ -263,7 +263,7 @@ Emulicious is closed source and publishes no settings list (https://emulicious.n
 | mgba | `sgb.bios` | yes | `cboy_boot_rom` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
 | mgba | `sgb.borders` | yes | `cboy_sgb_border` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
 | mgba | `sgb.model` | yes | `cboy_gb_model` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
-| mgba | `useCgbColors` | yes | `cboy_dmg_colorize` | own schemes, not Nintendo's table | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
+| mgba | `useCgbColors` | yes | `cboy_dmg_colorize` | the Game Boy Color's own table (Automatic), and cBoy's own schemes | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
 | mgba | `volume` | yes | `cboy_volume` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gb/core.c |
 | mgba | `gba.bios` | yes | `cboy_gba_bios` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
 | mgba | `gba.forceGbp` | yes | `cboy_gbp` | Game Boy Player rumble for Advance games | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/gba/core.c |
@@ -335,7 +335,7 @@ Emulicious is closed source and publishes no settings list (https://emulicious.n
 | bgb | `framerate` | app |  |  | https://bgb.bircd.org/manual.html |
 | bgb | `59.72 fps adjust sound speed` | app |  |  | https://bgb.bircd.org/manual.html |
 | bgb | `fast forward speed` | app |  |  | https://bgb.bircd.org/manual.html |
-| bgb | `MGB auto border/colors` | gap |  | pick Pocket colours automatically for Pocket-aware games | https://bgb.bircd.org/manual.html |
+| bgb | `MGB auto border/colors` | yes | `cboy_dmg_palette` | Game Boy palette "Automatic (Pocket colours on a Pocket)" | https://bgb.bircd.org/manual.html |
 | bgb | `frame blend` | yes | `cboy_blend` |  | https://bgb.bircd.org/manual.html |
 | bgb | `doubler` | app |  | shaders | https://bgb.bircd.org/manual.html |
 | bgb | `SGB if set` | yes | `cboy_sgb_border` |  | https://bgb.bircd.org/manual.html |
@@ -347,13 +347,13 @@ Emulicious is closed source and publishes no settings list (https://emulicious.n
 | bgb | `stretching fullscreen pageflipped` | n/a |  |  | https://bgb.bircd.org/manual.html |
 | bgb | `prefer GBC` | yes | `cboy_gb_model` |  | https://bgb.bircd.org/manual.html |
 | bgb | `Rewind enabled` | app |  |  | https://bgb.bircd.org/manual.html |
-| bgb | `detect GB pocket / SGB2` | gap |  | see MGB auto | https://bgb.bircd.org/manual.html |
-| bgb | `detect GBA` | gap |  | auto-pick Advance for games that check for it | https://bgb.bircd.org/manual.html |
-| bgb | `GB player` | gap |  | the Game Boy Player's fade and pause on a reset (cBoy's Game Boy Player option is the rumble only) | https://bgb.bircd.org/manual.html |
-| bgb | `a Gameboy Player SGB faster as in reality` | gap |  | faster-than-real SGB packet transfers | https://bgb.bircd.org/manual.html |
-| bgb | `ding sound being sharp fast SGB transfers` | gap |  | same setting group | https://bgb.bircd.org/manual.html |
-| bgb | `Waitloop detection` | gap |  | idle skip is Advance-only in cBoy | https://bgb.bircd.org/manual.html |
+| bgb | `detect GB pocket / SGB2` | yes | `cboy_newer_console` | Let games see a newer console: Pocket and Super Game Boy 2 | https://bgb.bircd.org/manual.html |
+| bgb | `detect GBA` | yes | `cboy_newer_console` | Let games see a newer console: Advance (Color games) | https://bgb.bircd.org/manual.html |
+| bgb | `GB player` | yes | `cboy_gbp_reset` | Game Boy Player reset: the fade and pause on a reset, with the console on Advance | https://bgb.bircd.org/manual.html |
+| bgb | `a Gameboy Player SGB faster as in reality` | yes | `cboy_sgb_speed` | Super Game Boy speed: Real (a little fast) or Same as a Game Boy; the Super Game Boy 2 has its own clock | https://bgb.bircd.org/manual.html |
+| bgb | `ding sound being sharp fast SGB transfers` | yes | `cboy_sgb_speed` | the sound is sharp at the real speed; there is no loading time to skip, cBoy's Super Game Boy starts the game at once | https://bgb.bircd.org/manual.html |
+| bgb | `Waitloop detection` | yes | `cboy_gb_idle_skip` | Skip waiting loops (Game Boy and Color): exact, nothing a game can tell changes | https://bgb.bircd.org/manual.html |
 | bgb | `boot roms` | yes | `cboy_boot_rom` |  | https://bgb.bircd.org/manual.html |
 
-Standalone settings: **181**. In cBoy: 74. App: 79. Gaps: 9. Not applicable: 19.
+Standalone settings: **181**. In cBoy: 81. App: 79. Gaps: 2. Not applicable: 19.
 

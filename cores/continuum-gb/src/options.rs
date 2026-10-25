@@ -101,6 +101,16 @@ const SPECS: &[Spec] = &[
      c"Only used when the console above is on Auto; changes apply at the next start.",
      &[(c"cgb", c"Game Boy Color"), (c"dmg", c"Game Boy"), (c"sgb", c"Super Game Boy"), (c"agb", c"Game Boy Advance")],
      c"cgb"),
+    (c"system", c"cboy_newer_console", c"Let games see a newer console",
+     c"Some games add extras on a Pocket or an Advance; only used with the console on Auto, from the next start.",
+     &[(c"off", c"Off"), (c"pocket", c"Pocket and Super Game Boy 2"), (c"advance", c"Advance (Color games)"), (c"both", c"Both")],
+     c"off"),
+    (c"system", c"cboy_sgb_speed", c"Super Game Boy speed",
+     c"A real one runs a little fast, sound and all, unlike the Super Game Boy 2; changes apply at the next start.",
+     &[(c"real", c"Real (a little fast)"), (c"normal", c"Same as a Game Boy")], c"real"),
+    (c"system", c"cboy_gbp_reset", c"Game Boy Player reset",
+     c"With the console on Advance, a reset fades out and pauses for a moment the way a Game Boy Player does.",
+     OFF_ON, c"off"),
     (c"system", c"cboy_gba_model", c"Advance console",
      c"Only Game Boy Player is different, letting games made for it shake the phone; changes apply at the next start.",
      &[(c"gba", c"Game Boy Advance"), (c"sp", c"Game Boy Advance SP"), (c"gbp", c"Game Boy Player")], c"gba"),
@@ -141,7 +151,8 @@ const SPECS: &[Spec] = &[
     // Picture
     (c"video", c"cboy_dmg_palette", c"Game Boy palette",
      c"For Custom, write four colours, lightest first, in a palette.txt and add it with Install a BIOS in Settings.",
-     &[(c"grayscale", c"Grayscale"), (c"green", c"Original green"), (c"pocket", c"Pocket"), (c"light", c"Light (backlit)"),
+     &[(c"grayscale", c"Grayscale"), (c"green", c"Original green"), (c"pocket", c"Pocket"),
+       (c"auto", c"Automatic (Pocket colours on a Pocket)"), (c"light", c"Light (backlit)"),
        (c"kiosk", c"Kiosk"), (c"sepia", c"Sepia"), (c"ice", c"Ice"), (c"custom", c"Custom")], c"grayscale"),
     (c"video", c"cboy_dmg_colorize", c"Colour for black-and-white games",
      c"Automatic and the ones with buttons need the console on Auto or a Color, and change at the next start.",
@@ -260,6 +271,9 @@ const SPECS: &[Spec] = &[
      &[(c"0", c"Off"), (c"1", c"1 frame"), (c"2", c"2 frames")], c"0"),
     (c"performance", c"cboy_idle_skip", c"Skip idle loops (Advance)",
      c"Saves battery in Advance games, though a few may run at the wrong speed.",
+     OFF_ON, c"off"),
+    (c"performance", c"cboy_gb_idle_skip", c"Skip waiting loops (Game Boy and Color)",
+     c"Saves a little battery in games that wait in a loop, without changing anything they do.",
      OFF_ON, c"off"),
     // Debug. Every option in this category is hidden from the settings page (see `hide_debug`).
     (c"debug", c"cboy_layer_bg", c"Background", c"For Game Boy and Color games.", ON_OFF, c"on"),
@@ -408,6 +422,19 @@ pub struct Settings {
     pub frameskip: u32,
     pub run_ahead: u32,
     pub idle_skip: bool,
+    /// Skip the Game Boy's own waiting loops (exact: see `gb::WaitLoop`).
+    pub gb_idle_skip: bool,
+    /// Let games see a Pocket (and a Super Game Boy 2) instead of a Game Boy (and a Super Game
+    /// Boy), with the console on Auto.
+    pub newer_pocket: bool,
+    /// Let Color games see an Advance, with the console on Auto.
+    pub newer_advance: bool,
+    /// The Pocket's colours when the console is a Pocket, Grayscale otherwise.
+    pub palette_auto: bool,
+    /// A Super Game Boy (not the 2) runs from the SNES clock, a little fast.
+    pub sgb_fast: bool,
+    /// A reset on the Advance console fades out and pauses like a Game Boy Player.
+    pub gbp_reset: bool,
     pub gb_layers: u8,
     pub gba_layers: u8,
     pub gba_bios_skip_logo: bool,
@@ -485,7 +512,8 @@ impl Default for Settings {
             chan_vol: [100; 4], fifo_vol: [100; 2], lowpass: 0, highpass: true, gba_smooth: false,
             gba_music_hq: false,
             sample_rate: 48_000, turbo_period: 0, rumble: true, tilt: Source::Phone, gyro: Source::Phone,
-            solar: Some(128), link_loopback: false, frameskip: 0, run_ahead: 0, idle_skip: false,
+            solar: Some(128), link_loopback: false, frameskip: 0, run_ahead: 0, idle_skip: false, gb_idle_skip: false,
+            newer_pocket: false, newer_advance: false, palette_auto: false, sgb_fast: true, gbp_reset: false,
             gb_layers: 7, gba_layers: 0xFF, gba_bios_skip_logo: false, border_always: false, color_temp: 0,
             contrast: 0, dark: 0, highpass_hz: 28.0, audio_hq: false, rumble_strength: 100, motion_scale: 1.0,
             opposing: false, stick_dpad: false, sprite_limit: true, sgb_pal: false, auto_sgb: false, cgb_rev0: false, stick_deadzone: 0.15, swap_stick: false,
@@ -503,13 +531,28 @@ impl Settings {
         let colour = cgb_flag & 0x80 != 0;
         let both = cgb_flag & 0xC0 == 0x80;
         match self.model {
-            Model::Auto if both => self.hybrid_model,
-            Model::Auto if colour => Model::Cgb,
-            Model::Auto if self.auto_sgb && sgb_cart => Model::Sgb,
-            // A black-and-white game the player wants in a Game Boy Color's colours goes on the
-            // console that has them.
-            Model::Auto if self.gbc_colours() => Model::Cgb,
-            Model::Auto => Model::Dmg,
+            Model::Auto => {
+                let m = if both {
+                    self.hybrid_model
+                } else if colour {
+                    Model::Cgb
+                } else if self.auto_sgb && sgb_cart {
+                    Model::Sgb
+                } else if self.gbc_colours() {
+                    // A black-and-white game the player wants in a Game Boy Color's colours goes
+                    // on the console that has them.
+                    Model::Cgb
+                } else {
+                    Model::Dmg
+                };
+                // A newer console, for the games that look for one and add extras on it.
+                match m {
+                    Model::Dmg if self.newer_pocket => Model::Mgb,
+                    Model::Sgb if self.newer_pocket => Model::Sgb2,
+                    Model::Cgb if self.newer_advance => Model::Agb,
+                    m => m,
+                }
+            }
             m => m,
         }
     }
@@ -636,6 +679,11 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     s.gbp = on(c"cboy_gbp", false);
     s.gbc_light = match get(c"cboy_gbc_light").as_deref() { Some("above") => 1, Some("below") => -1, _ => 0 };
     s.sgb_pal = get(c"cboy_gb_model").is_some_and(|v| v == "sgb_pal");
+    let newer = get(c"cboy_newer_console");
+    s.newer_pocket = newer.as_deref().is_some_and(|v| v == "pocket" || v == "both");
+    s.newer_advance = newer.as_deref().is_some_and(|v| v == "advance" || v == "both");
+    s.sgb_fast = get(c"cboy_sgb_speed").is_none_or(|v| v != "normal");
+    s.gbp_reset = on(c"cboy_gbp_reset", false);
     s.boot_rom = on(c"cboy_boot_rom", false);
     s.gba_bios_file = get(c"cboy_gba_bios").is_some_and(|v| v == "file" || v == "file_skip");
     s.gba_bios_skip_logo = get(c"cboy_gba_bios").is_some_and(|v| v == "file_skip");
@@ -650,6 +698,7 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     });
     s.rtc_mode = match get(c"cboy_rtc").as_deref() { Some("game") => RtcMode::Game, Some("phone") => RtcMode::Phone, _ => RtcMode::Real };
     s.rtc_offset_hours = get(c"cboy_rtc_offset").and_then(|v| v.parse().ok()).unwrap_or(0);
+    s.palette_auto = get(c"cboy_dmg_palette").is_some_and(|v| v == "auto");
     if let Some(v) = get(c"cboy_dmg_palette") {
         if v == "custom" {
             let file = system_dir.and_then(|d| std::fs::read_to_string(format!("{d}/cboy/palette.txt")).ok());
@@ -713,6 +762,7 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     s.interference = get(c"cboy_interference").and_then(|v| v.parse().ok()).unwrap_or(0).min(100);
     s.run_ahead = get(c"cboy_run_ahead").and_then(|v| v.parse().ok()).unwrap_or(0).min(2);
     s.idle_skip = on(c"cboy_idle_skip", false);
+    s.gb_idle_skip = on(c"cboy_gb_idle_skip", false);
     s.exact_renderer = get(c"cboy_renderer").is_some_and(|v| v == "exact");
     s.gb_layers = u8::from(on(c"cboy_layer_bg", true)) | u8::from(on(c"cboy_layer_window", true)) << 1
         | u8::from(on(c"cboy_layer_obj", true)) << 2;
@@ -984,7 +1034,8 @@ mod tests {
     #[test]
     fn settings_that_wait_for_the_next_start_say_so() {
         for key in [c"cboy_gb_model", c"cboy_cgb_revision", c"cboy_hybrid_model", c"cboy_gba_model", c"cboy_force_color",
-            c"cboy_gba_save_type", c"cboy_gba_hardware", c"cboy_gbp", c"cboy_dmg_colorize"] {
+            c"cboy_gba_save_type", c"cboy_gba_hardware", c"cboy_gbp", c"cboy_dmg_colorize", c"cboy_newer_console",
+            c"cboy_sgb_speed"] {
             let info = SPECS.iter().find(|s| s.1 == key).unwrap().3.to_str().unwrap();
             assert!(info.contains("next start"), "{key:?}: \"{info}\"");
         }
@@ -1183,6 +1234,30 @@ mod tests {
     /// the twelve button schemes are a Game Boy Color's colours, which put a black-and-white game
     /// on a Color when the console is Auto and leave every other choice of console alone; cBoy's
     /// own looks are what they always were.
+    /// "Let games see a newer console": with the console on Auto, a Game Boy game gets a Pocket,
+    /// a Super Game Boy one a Super Game Boy 2, a Color one an Advance; a console the player
+    /// picked is kept.
+    #[test]
+    fn a_newer_console_for_games_that_look_for_one() {
+        let at = |pairs: &[(&str, &str)], flag: u8, sgb: bool| settings(pairs).console_for(flag, sgb);
+        let pocket = [("cboy_newer_console", "pocket")];
+        assert_eq!(at(&pocket, 0, false), Model::Mgb);
+        assert_eq!(at(&[("cboy_newer_console", "pocket"), ("cboy_gb_model", "auto_sgb")], 0, true), Model::Sgb2);
+        assert_eq!(at(&pocket, 0xC0, false), Model::Cgb, "a Color game is not moved by the Pocket choice");
+        let advance = [("cboy_newer_console", "advance")];
+        assert_eq!(at(&advance, 0xC0, false), Model::Agb);
+        assert_eq!(at(&advance, 0x80, false), Model::Agb, "nor are games that run on both");
+        assert_eq!(at(&advance, 0, false), Model::Dmg);
+        let both = [("cboy_newer_console", "both")];
+        assert_eq!((at(&both, 0, false), at(&both, 0xC0, false)), (Model::Mgb, Model::Agb));
+        assert_eq!(at(&[("cboy_newer_console", "both"), ("cboy_gb_model", "dmg")], 0, false), Model::Dmg, "a picked console stays");
+        assert_eq!(at(&[], 0, false), Model::Dmg, "off by default");
+        let s = settings(&[("cboy_sgb_speed", "normal"), ("cboy_gbp_reset", "on"), ("cboy_dmg_palette", "auto"), ("cboy_gb_idle_skip", "on")]);
+        assert!(!s.sgb_fast && s.gbp_reset && s.palette_auto && s.gb_idle_skip);
+        let d = settings(&[]);
+        assert!(d.sgb_fast && !d.gbp_reset && !d.palette_auto && !d.gb_idle_skip);
+    }
+
     #[test]
     fn the_colour_choices_for_black_and_white_games() {
         assert_eq!(Settings::default().colorize, Colorize::Off);

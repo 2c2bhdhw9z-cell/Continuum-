@@ -36,9 +36,10 @@
     },
     {
       "id": "B3",
-      "done": false,
+      "done": true,
       "title": "The small setting gaps",
-      "notes": "Pick Pocket/SGB2 and Advance mode automatically for games that check (bgb gaps), the Game Boy Player's fade and pause, faster-than-real SGB transfers, Waitloop detection on Game Boy (idle skip is Advance-only now), and the network-link rows (gambatte_gb_link_*) mapped to the two-phone link. Regenerate the inventory."
+      "notes": "Pick Pocket/SGB2 and Advance mode automatically for games that check (bgb gaps), the Game Boy Player's fade and pause, faster-than-real SGB transfers, Waitloop detection on Game Boy (idle skip is Advance-only now), and the network-link rows (gambatte_gb_link_*) mapped to the two-phone link. Regenerate the inventory.",
+      "result": "Done 25 October. New cBoy settings: 'Let games see a newer console' (System; Off / Pocket and Super Game Boy 2 / Advance (Color games) / Both; with the console on Auto a Game Boy game gets a Pocket, a Super Game Boy one a Super Game Boy 2, a Color one an Advance; default Off); Game Boy palette 'Automatic (Pocket colours on a Pocket)'; 'Super Game Boy speed' (Real, a little fast, default / Same as a Game Boy; the Super Game Boy 2 now runs at a Game Boy's speed, as the real one has its own clock); 'Game Boy Player reset' (Off default; on the Advance console a reset fades out over 35 frames and holds dark and silent for 94, as speedrunners measured the real Player and GSE does); 'Skip waiting loops (Game Boy and Color)' (Performance, Off default): exact, a loop that reads only memory nothing but the CPU's writes changes is clocked through without running the CPU and handed back at the exact point an interrupt would be taken; checked identical over 600 frames of test loops and 6000 frames of Pokemon Red and Crystal (built from pret here); it saves about 9% while a game busy-waits, nothing for games that use HALT (Pokemon does), so it stays off by default. Fast SGB transfers: nothing to add, cBoy's Super Game Boy starts the game at once. The network-link rows are now n/a (the app links phones). Inventory regenerated: libretro gaps 22 -> 8, all of them the two-consoles-on-one-phone link (B7) and the Advance link (B8); standalone gaps left: camera (B6) and the second player's save (B7)."
     },
     {
       "id": "B4",

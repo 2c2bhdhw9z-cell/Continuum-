@@ -307,7 +307,32 @@ struct Core {
     behind: bool,
     /// Frames skipped in a row by auto frame skip.
     skipped_run: u32,
+    /// A Game Boy Player style reset under way (see `PlayerReset`).
+    player_reset: Option<PlayerReset>,
+    /// Fractions of a sample left over from the silent frames of a held reset.
+    held_frac: u64,
     buzz_phase: u32,
+}
+
+/// A reset on a Game Boy Player: the game plays on while the picture fades out, then the
+/// console starts again but is held for a moment, dark and silent, before the game begins. As
+/// measured by speedrunners on the real thing (GSE, the speedrun emulator, does the same): the
+/// fade lasts about 0.59 s (full brightness for its first ninth, black for its last), the hold
+/// about 1.58 s.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum PlayerReset {
+    Fading(u32),
+    Held(u32),
+}
+
+const PLAYER_FADE_FRAMES: u32 = 35;
+const PLAYER_HOLD_FRAMES: u32 = 94;
+
+/// How bright frame `left` of the fade is, from 1 down to 0.
+fn player_fade(left: u32) -> f32 {
+    let total = PLAYER_FADE_FRAMES as f32;
+    let part = total / 9.0;
+    ((left as f32 - part) / (total - 2.0 * part)).clamp(0.0, 1.0)
 }
 
 /// The options whose text promises "Next start". The app asks the core for the sound rate and
@@ -483,6 +508,13 @@ impl Core {
     /// Settings that apply to a running machine. Called on load, on every option change and
     /// after a state is loaded (the state does not carry them).
     fn apply_live(&mut self) {
+        if self.settings.palette_auto {
+            self.settings.dmg_palette = if self.gb.console == crate::gb::Model::Mgb {
+                crate::options::palette("pocket")
+            } else {
+                crate::ppu::SHADES
+            };
+        }
         let s = &self.settings;
         if let Some(g) = self.gba.as_mut() {
             g.bus.ppu.layers = s.gba_layers;
@@ -503,6 +535,7 @@ impl Core {
         } else {
             self.gb.bus.ppu.layers = s.gb_layers;
             self.gb.bus.apu.chan_vol = s.chan_vol;
+            self.gb.wait.on = s.gb_idle_skip;
             self.gb.bus.link_loopback = s.link_loopback;
             self.gb.bus.apu.out_hz = s.sample_rate;
             self.gb.bus.apu.hq = s.audio_hq;
@@ -744,8 +777,10 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
         return;
     }
     let (is_gba, sgb_border, rate, sgb_clock) = CORE.lock().ok().and_then(|c| c.as_ref().map(|c| {
-        // A Super Game Boy runs from the SNES clock: about 2.4% fast (NTSC) or 1.5% (PAL).
-        let clock = match (c.gb.bus.sgb.is_some(), c.settings.sgb_pal) {
+        // A Super Game Boy runs from the SNES clock: about 2.4% fast (NTSC) or 1.5% (PAL). The
+        // Super Game Boy 2 has a clock of its own, a Game Boy's.
+        let real_sgb = c.gb.bus.sgb.is_some() && c.gb.console != crate::gb::Model::Sgb2 && c.settings.sgb_fast;
+        let clock = match (real_sgb, c.settings.sgb_pal) {
             (true, false) => 21_477_272.0 / 5.0,
             (true, true) => 21_281_370.0 / 5.0,
             _ => 4_194_304.0,
@@ -995,7 +1030,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
         stuck_frames: 0, stuck_reports: 0, settings, post: crate::options::Post::default(), system_dir,
         frame_no: 0, rumble, sensors, sensors_started: false, light_sensor: false, next_start,
         camera, camera_started: false,
-        last_motor: None, behind: false, skipped_run: 0, buzz_phase: 0,
+        last_motor: None, behind: false, skipped_run: 0, buzz_phase: 0, player_reset: None, held_frac: 0,
     };
     core.apply_live();
     core.write_rtc_block();
@@ -1044,6 +1079,23 @@ pub extern "C" fn retro_get_region() -> u32 {
 pub extern "C" fn retro_reset() {
     if let Ok(mut slot) = CORE.lock() {
         if let Some(core) = slot.as_mut() {
+            if core.gba.is_none() && core.settings.gbp_reset && core.gb.console == crate::gb::Model::Agb {
+                // A Game Boy Player fades out first; the reset itself comes at the end of it.
+                if core.player_reset.is_none() {
+                    core.player_reset = Some(PlayerReset::Fading(PLAYER_FADE_FRAMES));
+                }
+                return;
+            }
+            core.restart();
+        }
+    }
+}
+
+impl Core {
+    /// The console starting again: the same cartridge, its saves and clock kept.
+    fn restart(&mut self) {
+        let core = self;
+        {
             let dir = core.system_dir.clone();
             if let Some(g) = core.gba.as_mut() {
                 let rom = std::mem::take(&mut g.bus.rom);
@@ -1104,6 +1156,30 @@ pub unsafe extern "C" fn retro_run() {
         }
     }
     let inputs = core.read_inputs(input);
+    if let Some(PlayerReset::Held(left)) = core.player_reset {
+        // Held after a Game Boy Player reset: nothing runs, the screen is dark, no sound.
+        core.player_reset = if left > 1 { Some(PlayerReset::Held(left - 1)) } else { None };
+        let rate = u64::from(core.settings.sample_rate);
+        let all = rate * 70_224 + core.held_frac;
+        core.held_frac = all % 4_194_304;
+        let silence = vec![0i16; (all / 4_194_304) as usize * 2];
+        core.out.clear();
+        core.out.resize(W * H, 0);
+        if let Some(video) = video {
+            video(core.out.as_ptr() as *const c_void, W as u32, H as u32, W * 4);
+        }
+        if let Some(audio) = audio {
+            let mut off = 0;
+            while off < silence.len() / 2 {
+                let n = audio(silence[off * 2..].as_ptr(), silence.len() / 2 - off);
+                if n == 0 {
+                    break;
+                }
+                off += n;
+            }
+        }
+        return;
+    }
     core.feed(&inputs);
     if core.gba.is_none() && !core.rtc_synced {
         core.rtc_synced = true;
@@ -1185,6 +1261,13 @@ pub unsafe extern "C" fn retro_run() {
             } else {
                 core.compose()
             };
+            if let Some(PlayerReset::Fading(left)) = core.player_reset {
+                let a = player_fade(left);
+                for p in core.out.iter_mut() {
+                    let ch = |sh: u32| ((((*p >> sh) & 0xFF) as f32 * a) as u32) << sh;
+                    *p = ch(16) | ch(8) | ch(0);
+                }
+            }
             video(core.out.as_ptr() as *const c_void, w as u32, h as u32, w * 4);
         }
     }
@@ -1199,6 +1282,14 @@ pub unsafe extern "C" fn retro_run() {
         }
     }
     core.give_samples(samples);
+    if let Some(PlayerReset::Fading(left)) = core.player_reset {
+        if left > 1 {
+            core.player_reset = Some(PlayerReset::Fading(left - 1));
+        } else {
+            core.restart();
+            core.player_reset = Some(PlayerReset::Held(PLAYER_HOLD_FRAMES));
+        }
+    }
     // Auto frame skip: behind when emulating took most of a 60 Hz frame.
     core.behind = started.elapsed() > std::time::Duration::from_micros(16_667 * u64::from(s.frameskip_threshold) / 100);
 }

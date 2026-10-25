@@ -37,6 +37,22 @@ pub struct Cpu {
     pub ld_b_b: bool,
 }
 
+impl Cpu {
+    /// Everything that decides what the CPU does next (for spotting a loop that repeats itself
+    /// exactly, gb::WaitLoop).
+    pub fn same_state(&self, o: &Cpu) -> bool {
+        (self.a, self.f, self.b, self.c, self.d, self.e, self.h, self.l, self.sp, self.pc)
+            == (o.a, o.f, o.b, o.c, o.d, o.e, o.h, o.l, o.sp, o.pc)
+            && (self.ime, self.ei_pending, self.halted, self.halt_bug, self.ei_now, self.locked)
+                == (o.ime, o.ei_pending, o.halted, o.halt_bug, o.ei_now, o.locked)
+    }
+
+    /// Not waiting on anything: running instructions one after another.
+    pub fn plain(&self) -> bool {
+        !self.halted && !self.locked && !self.ei_pending && !self.halt_bug && !self.ld_b_b
+    }
+}
+
 impl Default for Cpu {
     /// The DMG's registers as its boot ROM leaves them.
     fn default() -> Self {

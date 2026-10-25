@@ -89,7 +89,7 @@ std_mgba	mute	app
 std_mgba	sgb.bios	yes	cboy_boot_rom	
 std_mgba	sgb.borders	yes	cboy_sgb_border	
 std_mgba	sgb.model	yes	cboy_gb_model	
-std_mgba	useCgbColors	yes	cboy_dmg_colorize	own schemes, not Nintendo's table
+std_mgba	useCgbColors	yes	cboy_dmg_colorize	the Game Boy Color's own table (Automatic), and cBoy's own schemes	
 std_mgba	volume	yes	cboy_volume	
 std_mgba	gba.bios	yes	cboy_gba_bios	
 std_mgba	gba.forceGbp	yes	cboy_gbp	Game Boy Player rumble for Advance games
@@ -161,7 +161,7 @@ std_bgb	use fast open files dialog	n/a
 std_bgb	framerate	app		
 std_bgb	59.72 fps adjust sound speed	app		
 std_bgb	fast forward speed	app		
-std_bgb	MGB auto border/colors	gap		pick Pocket colours automatically for Pocket-aware games
+std_bgb	MGB auto border/colors	yes	cboy_dmg_palette	Game Boy palette "Automatic (Pocket colours on a Pocket)"	
 std_bgb	frame blend	yes	cboy_blend	
 std_bgb	doubler	app		shaders
 std_bgb	SGB if set	yes	cboy_sgb_border	
@@ -173,10 +173,10 @@ std_bgb	stretch	app
 std_bgb	stretching fullscreen pageflipped	n/a		
 std_bgb	prefer GBC	yes	cboy_gb_model	
 std_bgb	Rewind enabled	app		
-std_bgb	detect GB pocket / SGB2	gap		see MGB auto
-std_bgb	detect GBA	gap		auto-pick Advance for games that check for it
-std_bgb	GB player	gap		the Game Boy Player's fade and pause on a reset (cBoy's Game Boy Player option is the rumble only)
-std_bgb	a Gameboy Player SGB faster as in reality	gap		faster-than-real SGB packet transfers
-std_bgb	ding sound being sharp fast SGB transfers	gap		same setting group
-std_bgb	Waitloop detection	gap		idle skip is Advance-only in cBoy
+std_bgb	detect GB pocket / SGB2	yes	cboy_newer_console	Let games see a newer console: Pocket and Super Game Boy 2	
+std_bgb	detect GBA	yes	cboy_newer_console	Let games see a newer console: Advance (Color games)	
+std_bgb	GB player	yes	cboy_gbp_reset	Game Boy Player reset: the fade and pause on a reset, with the console on Advance	
+std_bgb	a Gameboy Player SGB faster as in reality	yes	cboy_sgb_speed	Super Game Boy speed: Real (a little fast) or Same as a Game Boy; the Super Game Boy 2 has its own clock	
+std_bgb	ding sound being sharp fast SGB transfers	yes	cboy_sgb_speed	the sound is sharp at the real speed; there is no loading time to skip, cBoy's Super Game Boy starts the game at once	
+std_bgb	Waitloop detection	yes	cboy_gb_idle_skip	Skip waiting loops (Game Boy and Color): exact, nothing a game can tell changes	
 std_bgb	boot roms	yes	cboy_boot_rom	
