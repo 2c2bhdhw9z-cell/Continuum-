@@ -35,6 +35,11 @@ development (JIT) certificate; Manic's JIT page: built-in debugger, pairing file
 StikPair (github.com/StikDebug/StikPair/releases/download/v1.2.0/StikPair.ipa) -> pairing file, LocalDevVPN,
 import into Manic, Prepare JIT, Enable JIT. Continuum has no built-in debugger: it needs StikDebug
 (github.com/StikDebug/StikDebug/releases, 3.1.15) with the same pairing file.
+7:12 AM: JIT WORKS ON THE OWNER'S PHONE, no computer: StikPair paired (iPhone18,2), LocalDevVPN connected,
+Manic's JIT page "JIT Available, Active Debugger: Built-in Debugger"; Rogue Leader plays in Manic (HUD
+~60 fps on its select screen). Next: StikDebug + Continuum signed with the development cert and
+get-task-allow.plist, then Technical details, "Turn on JIT with StikDebug" (checked: StikDebug 3.1.15
+takes stikdebug://enable-jit with pid, bundle-id and script-name, and bundles universal.js).
 
 ## Earlier (24 October 2026, about 9 PM Eastern): the read-out's answer, build 224
 
