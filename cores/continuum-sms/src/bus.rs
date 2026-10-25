@@ -15,6 +15,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::psg::Psg;
 use crate::vdp::Vdp;
 use crate::z80;
 
@@ -32,6 +33,7 @@ pub struct Bus {
     /// Port $3E. Bit 6 off: the cartridge answers; bit 4 off: work RAM answers.
     pub mem_ctrl: u8,
     pub vdp: Vdp,
+    pub psg: Psg,
     /// The pads, as their ports read (a bit is 0 while its button is held): $DC and $DD.
     pub pad_dc: u8,
     pub pad_dd: u8,
@@ -58,6 +60,7 @@ impl Bus {
             // work RAM on, the BIOS, card and expansion slots off.
             mem_ctrl: 0xAB,
             vdp: Vdp::default(),
+            psg: Psg::default(),
             pad_dc: 0xFF,
             pad_dd: 0xFF,
             io_ctrl: 0xFF,
@@ -156,7 +159,7 @@ impl z80::Bus for Bus {
         match p & 0xC1 {
             0x00 => self.mem_ctrl = v,
             0x01 => self.io_ctrl = v,
-            0x40 | 0x41 => {}
+            0x40 | 0x41 => self.psg.write(v),
             0x80 => self.vdp.write_data(v),
             0x81 => self.vdp.write_control(v),
             _ => {}

@@ -7,13 +7,14 @@
 //!
 //! Done so far: the Z80 on the Master System's real memory map, the Sega mapper with cartridge
 //! RAM, the memory control port, the picture chip's ports, registers, memory, line counter,
-//! interrupts and counters (no drawing yet), the pads, and the SDSC debug console that test
-//! programs print to. Not yet: drawing, the sound chips, the other mappers, the Game Gear and
+//! interrupts and counters, the Master System picture (mode 4), the SN76489 sound chip, the pads,
+//! and the SDSC debug console that test programs print to. Not yet: the YM2413 FM chip, the other mappers, the Game Gear and
 //! SG-1000 differences, the libretro entry points.
 
 #[path = "../../continuum-arcade/src/z80.rs"]
 pub mod z80;
 
 pub mod bus;
+pub mod psg;
 pub mod sms;
 pub mod vdp;
