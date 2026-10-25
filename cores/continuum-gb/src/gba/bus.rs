@@ -302,6 +302,7 @@ impl Bus {
     pub fn new(rom: Vec<u8>) -> Bus {
         let save = Save::detect(&rom);
         let mut apu = Apu::default();
+        apu.agb = true;
         apu.write(0xFF26, 0); // the GBA starts with sound off
         let mp2k = super::mp2k::Mp2k::new(&rom);
         Bus {
@@ -1168,10 +1169,18 @@ impl Bus {
     fn sound(&mut self, cycles: u32) {
         // The PSG runs at the Game Boy clock (a quarter of the GBA's); its frame sequencer is
         // clocked at 512 Hz.
+        // The sequencer's clock rises half way through each period and falls at its end.
+        let before = self.seq_acc;
         self.seq_acc += cycles;
+        if before < 16384 && self.seq_acc >= 16384 {
+            self.apu.frame_rise();
+        }
         while self.seq_acc >= 32768 {
             self.seq_acc -= 32768;
             self.apu.frame_step();
+            if self.seq_acc >= 16384 {
+                self.apu.frame_rise();
+            }
         }
         self.gb_acc += cycles;
         let t = self.gb_acc / 4;

@@ -123,13 +123,43 @@ fn state_layout_is_pinned() {
     assert_eq!(&sa[..8], b"CGBASTA2");
     eprintln!("state sizes: gb {} gba {}", st.len(), sa.len());
     // The Advance state is the layout fixed under CGBASTA2, then the timing added after it
-    // (the CPU's pipeline, the prefetch buffer, the timers), which an older state lacks.
-    assert_eq!((st.len(), sa.len()), (GB_STATE_LEN, GBA_STATE_LEN + GBA_TIMING_LEN),
+    // (the CPU's pipeline, the prefetch buffer, the timers) and the sound chip, which an
+    // older state lacks.
+    // The Game Boy state is the same, then the sound chip modelled tick by tick after it.
+    assert_eq!((st.len(), sa.len()), (GB_STATE_LEN + SOUND_CHIP_LEN, GBA_STATE_LEN + GBA_TIMING_LEN + SOUND_CHIP_LEN),
                "the state layout changed: bump CGBSTAT/CGBASTA and update these sizes");
 }
 const GB_STATE_LEN: usize = 221_310;
 const GBA_STATE_LEN: usize = 550_530;
 const GBA_TIMING_LEN: usize = 114;
+const SOUND_CHIP_LEN: usize = 96;
+
+/// A Game Boy state made before the sound chip was modelled tick by tick (the layout fixed under
+/// CGBSTAT3 and nothing after it) still loads, its channels carried over, and plays on.
+#[test]
+fn a_game_boy_state_from_before_the_new_sound_chip_still_loads() {
+    let mut rom = vec![0u8; 0x8000];
+    rom[0x147] = 0x1B;
+    rom[0x149] = 3;
+    // At $100: start channel 2 at full volume and loop.
+    rom[0x100..0x10C].copy_from_slice(&[0x3E, 0xF0, 0xE0, 0x17, 0x3E, 0x80, 0xE0, 0x19, 0x18, 0xFE, 0x00, 0x00]);
+    let mut g = GameBoy::new(rom.clone()).unwrap();
+    for _ in 0..3 {
+        g.run_frame();
+    }
+    let full = g.save_state();
+    let old = &full[..GB_STATE_LEN];
+    let mut h = GameBoy::new(rom).unwrap();
+    h.load_state(old).expect("an older state must still load");
+    assert_eq!(h.bus.cycles, g.bus.cycles);
+    // The registers come back as they were (which channels play comes from what older states
+    // saved about the channels; apu.rs tests that carrying-over).
+    for reg in (0xFF10..0xFF26u16).chain(0xFF30..0xFF40) {
+        assert_eq!(h.bus.apu.read(reg), g.bus.apu.read(reg), "sound register {reg:04X}");
+    }
+    h.run_frame();
+    assert!(h.bus.cycles > g.bus.cycles);
+}
 
 /// A state made before the Advance timing was saved (the layout fixed under CGBASTA2 and
 /// nothing after it) still loads, and the machine runs on from it.

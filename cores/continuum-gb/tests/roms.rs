@@ -904,3 +904,96 @@ fn scx_low_bits_take_effect_on_line_72() {
     let x_at = |y: usize| (0..160).find(|x| frame[y * 160 + x] & 0xFF == 0).unwrap_or(999);
     assert_eq!((x_at(0), x_at(71), x_at(72)), (152, 152, 150));
 }
+
+/// Blargg's sound tests, one at a time: the Game Boy ones on a Game Boy, the Color ones on a
+/// Color. Each reports through cartridge RAM ($A000 status, $DE $B0 $61 after it, text from $A004).
+#[test]
+fn blargg_sound() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/sound");
+    let Ok(rd) = std::fs::read_dir(&dir) else {
+        eprintln!("SKIPPED: Blargg's sound tests not fetched");
+        return;
+    };
+    let mut names: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "gb")).collect();
+    names.sort();
+    let mut failed = vec![];
+    for p in &names {
+        let name = p.file_name().unwrap().to_string_lossy().to_string();
+        let mut gb = GameBoy::new_mode(std::fs::read(p).unwrap(), name.starts_with("cgb")).unwrap();
+        let mut res = Err("never finished".to_string());
+        for _ in 0..3600 {
+            gb.run_frame();
+            let c = &gb.bus.cart;
+            if [c.read_ram(0xA001), c.read_ram(0xA002), c.read_ram(0xA003)] == [0xDE, 0xB0, 0x61] && c.read_ram(0xA000) != 0x80 {
+                let text: String = (0xA004..0xA200u16).map(|a| c.read_ram(a)).take_while(|b| *b != 0).map(char::from).collect();
+                res = if c.read_ram(0xA000) == 0 { Ok(()) } else { Err(text.replace('\n', " ")) };
+                break;
+            }
+        }
+        if let Err(e) = res {
+            failed.push(format!("{name}: {e}"));
+        }
+    }
+    assert_eq!(names.len(), 24, "all 24 sound tests fetched");
+    assert!(failed.is_empty(), "{failed:?}");
+}
+
+/// SameSuite's sound tests, which read the channels back a sample at a time on a Color (revision
+/// E, the one cBoy's sound chip models). These 57 pass; SameBoy itself, built from its source and
+/// run on the same files, passes exactly these 57 and fails the other 13 with the same results,
+/// byte for byte: seven are written for other revisions (the -A, -cgb0, -cgbB, -cgb0B and
+/// -cgb0BC ones), and six it gets wrong too (both stop_div, both volume_div, sweep and
+/// sweep_restart).
+const SAMESUITE_SOUND_PASS: &[&str] = &[
+    "channel_1_align", "channel_1_align_cpu", "channel_1_delay", "channel_1_duty", "channel_1_duty_delay",
+    "channel_1_freq_change", "channel_1_freq_change_timing-cgbDE", "channel_1_nrx2_glitch",
+    "channel_1_nrx2_speed_change", "channel_1_restart", "channel_1_restart_nrx2_glitch", "channel_1_stop_restart",
+    "channel_1_sweep_restart_2", "channel_1_volume", "channel_2_align", "channel_2_align_cpu", "channel_2_delay",
+    "channel_2_duty", "channel_2_duty_delay", "channel_2_freq_change", "channel_2_nrx2_glitch",
+    "channel_2_nrx2_speed_change", "channel_2_restart", "channel_2_restart_nrx2_glitch", "channel_2_stop_restart",
+    "channel_2_volume", "channel_3_and_glitch", "channel_3_delay", "channel_3_first_sample",
+    "channel_3_freq_change_delay", "channel_3_restart_delay", "channel_3_restart_during_delay",
+    "channel_3_restart_stop_delay", "channel_3_shift_delay", "channel_3_shift_skip_delay", "channel_3_stop_delay",
+    "channel_3_stop_div", "channel_3_wave_ram_dac_on_rw", "channel_3_wave_ram_locked_write",
+    "channel_3_wave_ram_sync", "channel_4_align", "channel_4_delay", "channel_4_equivalent_frequencies",
+    "channel_4_freq_change", "channel_4_frequency_alignment", "channel_4_lfsr", "channel_4_lfsr15",
+    "channel_4_lfsr_15_7", "channel_4_lfsr_7_15", "channel_4_lfsr_restart", "channel_4_lfsr_restart_fast",
+    "channel_4_volume_div", "div_trigger_volume_10", "div_write_trigger", "div_write_trigger_10",
+    "div_write_trigger_volume", "div_write_trigger_volume_10",
+];
+
+#[test]
+fn samesuite_sound() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/samesuite-apu");
+    if !dir.is_dir() {
+        eprintln!("SKIPPED: SameSuite not built (run scripts/fetch-test-roms.sh)");
+        return;
+    }
+    let (mut failed, mut also) = (vec![], vec![]);
+    let mut total = 0;
+    for e in std::fs::read_dir(&dir).unwrap().flatten() {
+        let p = e.path();
+        let Some(name) = p.file_stem().map(|s| s.to_string_lossy().to_string()) else { continue };
+        total += 1;
+        let mut gb = GameBoy::new_mode(std::fs::read(&p).unwrap(), true).unwrap();
+        let mut passed = false;
+        for _ in 0..600 {
+            gb.run_frame();
+            if gb.cpu.ld_b_b {
+                let c = &gb.cpu;
+                passed = [c.b, c.c, c.d, c.e, c.h, c.l] == [3, 5, 8, 13, 21, 34];
+                break;
+            }
+        }
+        match (passed, SAMESUITE_SOUND_PASS.contains(&name.as_str())) {
+            (false, true) => failed.push(name),
+            (true, false) => also.push(name),
+            _ => {}
+        }
+    }
+    if !also.is_empty() {
+        eprintln!("also passing now (add them to SAMESUITE_SOUND_PASS): {also:?}");
+    }
+    assert_eq!(total, 70, "SameSuite's 70 sound tests");
+    assert!(failed.is_empty(), "sound tests that passed no longer do: {failed:?}");
+}

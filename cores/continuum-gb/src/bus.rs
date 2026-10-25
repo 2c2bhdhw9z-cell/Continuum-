@@ -452,10 +452,15 @@ impl Bus {
         let dots = if self.double_speed { 2 } else { 4 };
         let mask = if self.double_speed { 0x2000 } else { 0x1000 };
         let bit = self.timer.counter & mask != 0;
+        self.apu.cgb = self.cgb_hardware;
+        self.apu.double_speed = self.double_speed;
         if self.apu_div_bit && !bit {
             self.apu.frame_step();
+        } else if !self.apu_div_bit && bit {
+            self.apu.frame_rise();
         }
         self.apu_div_bit = bit;
+        self.apu.div_high = bit;
         self.apu.tick(dots);
         for dot in 1..=dots {
             let irq = self.ppu.tick();
@@ -695,12 +700,23 @@ impl Bus {
                     self.serial_waiting = false;
                 }
             }
-            0xFF04 => self.timer.write_div(),
+            0xFF04 => {
+                self.timer.write_div();
+                // DIV going to 0 drops the sequencer's bit at once if it was high.
+                if self.apu_div_bit {
+                    self.apu.frame_step();
+                    self.apu_div_bit = false;
+                    self.apu.div_high = false;
+                }
+            }
             0xFF05 => self.timer.write_tima(v),
             0xFF06 => self.timer.write_tma(v),
             0xFF07 => self.timer.write_tac(v),
             0xFF0F => self.iflag = v & 0x1F,
-            0xFF10..=0xFF3F => self.apu.write(addr, v),
+            0xFF10..=0xFF3F => {
+                self.apu.addr_bus = addr;
+                self.apu.write(addr, v);
+            }
             0xFF40 => {
                 if self.ppu.write_lcdc(v) {
                     self.iflag |= INT_STAT;

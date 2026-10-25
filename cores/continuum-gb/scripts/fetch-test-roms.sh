@@ -14,6 +14,17 @@ done
 fetch $B/instr_timing/instr_timing.gb instr_timing.gb
 fetch $B/mem_timing/mem_timing.gb mem_timing.gb
 fetch $B/halt_bug.gb halt_bug.gb
+# Blargg's sound tests, each on its own (dmg_sound on a Game Boy, cgb_sound on a Color).
+mkdir -p sound
+for n in 01-registers "02-len ctr" 03-trigger 04-sweep "05-sweep details" "06-overflow on trigger" \
+         "07-len sweep period sync" "08-len ctr during power" "09-wave read while on" \
+         "10-wave trigger while on" "11-regs after power"; do
+  enc=$(printf '%s' "$n" | sed 's/ /%20/g')
+  fetch "$B/dmg_sound/rom_singles/$enc.gb" "sound/dmg_sound_$n.gb"
+  fetch "$B/cgb_sound/rom_singles/$enc.gb" "sound/cgb_sound_$n.gb"
+done
+fetch "$B/dmg_sound/rom_singles/12-wave%20write%20while%20on.gb" "sound/dmg_sound_12-wave write while on.gb"
+fetch "$B/cgb_sound/rom_singles/12-wave.gb" "sound/cgb_sound_12-wave.gb"
 fetch https://github.com/mattcurrie/dmg-acid2/releases/download/v1.0/dmg-acid2.gb dmg-acid2.gb
 fetch https://raw.githubusercontent.com/mattcurrie/dmg-acid2/master/img/reference-dmg.png dmg-acid2-reference.png
 # The same test on a Game Boy Color in Game Boy mode, in the colours its start-up code picks.
@@ -52,6 +63,16 @@ ls
 # Pinned: the pass list in tests/gba.rs belongs to this commit.
 if [ ! -d alyosha ]; then
   fetch_repo alyosha-tas/gba-tests 66f5f1d60cd7030b600606886c76f5c821ecaf9d alyosha || echo "alyosha gba-tests download failed (optional)"
+fi
+# SameSuite's sound tests (MIT): built from source with rgbds (its release for Linux), both pinned.
+# They read the channels back a sample at a time on a Color. Optional, like the rest.
+if [ ! -d samesuite-apu ]; then
+  (set -e
+   fetch_repo LIJI32/SameSuite f15645fb049a47ea235f6d2c9a033e72d8087901 samesuite-src
+   mkdir -p rgbds && curl -fsSL https://github.com/gbdev/rgbds/releases/download/v1.0.4/rgbds-linux-x86_64.tar.xz | tar xJ -C rgbds
+   PATH="$PWD/rgbds:$PATH" make -s -C samesuite-src >/dev/null
+   mkdir -p samesuite-apu && find samesuite-src/apu -name '*.gb' -exec cp {} samesuite-apu/ \;
+   rm -rf samesuite-src) || { rm -rf samesuite-apu samesuite-src; echo "SameSuite build failed (optional)"; }
 fi
 # Mealybug Tearoom tests (MIT): mid-scanline register changes, for the exact (pixel-by-pixel)
 # drawer. Pinned: the expected pictures and the pass list in tests/roms.rs belong to this commit.

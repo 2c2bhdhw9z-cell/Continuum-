@@ -29,9 +29,10 @@
     },
     {
       "id": "B2",
-      "done": false,
+      "done": true,
       "title": "Sound accuracy: SameSuite's APU tests",
-      "notes": "STATUS: SameSuite's APU tests mostly fail; normal game sound is fine. Follow SameBoy's APU model."
+      "notes": "STATUS: SameSuite's APU tests mostly fail; normal game sound is fine. Follow SameBoy's APU model.",
+      "result": "Done 25 October. cBoy's sound chip rewritten to run at its own 2 MHz clock the way SameBoy models it (behaviour followed, code written from scratch): countdowns that reload a tick late, trigger delays, envelope clocks that lock, zombie-mode volume nudges, the sweep's delayed recalculation and its NR10 glitches, the noise channel's 14-bit counter and its NR43 write glitches, the DIV event on the falling edge and the envelope set-up on the rising edge, wave memory access while playing, revision E of the Color (the Game Boy's own differences where known; the Advance's PSG uses it too). SameSuite's 70 sound tests: 9 -> 57. SameBoy itself, built here from source and run on the same files, passes exactly the same 57 and fails the other 13 with byte-identical results (7 are for other revisions, 6 SameBoy also gets wrong). Blargg's dmg_sound and cgb_sound: 17 -> 24 of 24. Both pinned in tests/roms.rs (blargg_sound, samesuite_sound); scripts/fetch-test-roms.sh fetches Blargg's and builds SameSuite with rgbds. Older save states still load (the chip is saved after the fixed layout; an old state's channels carry over). Speed: within a few percent of before."
     },
     {
       "id": "B3",

@@ -228,6 +228,9 @@ impl GameBoy {
     pub fn save_state(&self) -> Vec<u8> {
         let mut out = STATE_MAGIC.to_vec();
         out.extend(bincode::serialize(self).unwrap_or_default());
+        // Added after the layout above was fixed, so it comes after it and a state made before
+        // it still loads: the sound chip, modelled tick by tick.
+        out.extend(bincode::serialize(&self.bus.apu.chip).unwrap_or_default());
         out
     }
 
@@ -236,6 +239,12 @@ impl GameBoy {
             return Err("not a cBoy Game Boy state".into());
         }
         let mut next: GameBoy = crate::state_decode(&data[8..])?;
+        let used = 8 + bincode::serialized_size(&next).map_err(|e| e.to_string())? as usize;
+        match data.get(used..).filter(|rest| !rest.is_empty()) {
+            Some(rest) => next.bus.apu.chip = crate::state_decode(rest)?,
+            // An older state: the sound channels carry over from the way they were saved then.
+            None => next.bus.apu.adopt_legacy(),
+        }
         next.bus.cart.rom = std::mem::take(&mut self.bus.cart.rom);
         next.bus.link_loopback = self.bus.link_loopback;
         next.bus.link_connected = self.bus.link_connected;
@@ -474,8 +483,14 @@ mod tests {
         b.raw_write(0xFF30, 0x9C); // the first two samples of the wave channel
         b.raw_write(0xFF1A, 0x80); // channel 3 on
         b.raw_write(0xFF1C, 0x20); // at full volume
-        b.raw_write(0xFF1E, 0x80); // start it
-        assert_eq!(b.raw_read(0xFF77), 0x09, "channel 3 is the low four bits");
+        b.raw_write(0xFF1D, 0xFF); // the shortest period
+        b.raw_write(0xFF1E, 0x87); // start it
+        // It starts reading three ticks late, and the first sample it reads is the second one
+        // (the low half of $9C); until then it still puts out what it had before.
+        assert_eq!(b.raw_read(0xFF77), 0x00, "nothing read yet");
+        b.tick();
+        b.tick();
+        assert_eq!(b.raw_read(0xFF77), 0x0C, "channel 3 is the low four bits");
         assert_eq!(b.raw_read(0xFF76), 0x00, "channels 1 and 2 are still silent");
         b.raw_write(0xFF26, 0x00); // sound off
         assert_eq!((b.raw_read(0xFF76), b.raw_read(0xFF77)), (0x00, 0x00));
