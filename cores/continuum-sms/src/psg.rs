@@ -29,13 +29,16 @@ pub struct Psg {
     latched: u8,
     /// Game Gear stereo: bit n sends channel n to the right, bit n+4 to the left.
     pub stereo: u8,
-    /// Clock steps (CPU clock / 16) left over between samples, in output-sample units.
+    /// The chip's steps (the CPU clock / 16) not yet turned into samples, and the fraction of a
+    /// step the last sample left over.
     frac: f64,
+    #[serde(default)]
+    carry: f64,
 }
 
 impl Default for Psg {
     fn default() -> Psg {
-        Psg { tone: [0; 4], att: [15; 4], counter: [0; 4], out: [true; 4], lfsr: 0x8000, latched: 0, stereo: 0xFF, frac: 0.0 }
+        Psg { tone: [0; 4], att: [15; 4], counter: [0; 4], out: [true; 4], lfsr: 0x8000, latched: 0, stereo: 0xFF, frac: 0.0, carry: 0.0 }
     }
 }
 
@@ -109,13 +112,17 @@ impl Psg {
     /// Runs `cpu_cycles` of the chip and appends the stereo samples they make at `rate`, for a
     /// CPU clock of `cpu_hz`.
     pub fn run(&mut self, cpu_cycles: u32, cpu_hz: f64, rate: u32, out: &mut Vec<i16>) {
-        let steps_per_sample = cpu_hz / 16.0 / f64::from(rate);
-        let mut steps = f64::from(cpu_cycles) / 16.0 + self.frac;
-        while steps >= steps_per_sample {
-            let n = steps_per_sample.floor() as u32;
-            // Averaged over the steps a sample covers, so high tones do not alias into noise.
+        let per_sample = cpu_hz / 16.0 / f64::from(rate);
+        self.frac += f64::from(cpu_cycles) / 16.0;
+        while self.frac >= per_sample {
+            self.frac -= per_sample;
+            // Each sample covers four or five of the chip's steps, so that over a second they
+            // add up to exactly the chip's clock; averaged, so high tones do not alias into noise.
+            self.carry += per_sample;
+            let n = self.carry.floor() as u32;
+            self.carry -= f64::from(n);
             let (mut l, mut r) = (0.0f32, 0.0f32);
-            for _ in 0..n.max(1) {
+            for _ in 0..n {
                 self.clock();
                 for ch in 0..4 {
                     let v = self.channel(ch);
@@ -130,9 +137,7 @@ impl Psg {
             let k = 8191.0 / n.max(1) as f32;
             out.push((l * k) as i16);
             out.push((r * k) as i16);
-            steps -= f64::from(n.max(1));
         }
-        self.frac = steps;
     }
 }
 
