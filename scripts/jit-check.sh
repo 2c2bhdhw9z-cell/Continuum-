@@ -112,8 +112,41 @@ dynarmic() {
   return $status
 }
 
+telemetry() { # the crash catcher and the frame watchdog (crates/emulator-bridge/src/telemetry.c)
+  cat > "$WORK/tel.c" <<'EOF'
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
+void continuum_tel_open(const char *dir);
+void continuum_tel_core_log(int level, const char *text);
+void continuum_tel_note(const char *text);
+void continuum_tel_frame_begin(void);
+void continuum_tel_frame_end(void);
+__attribute__((noinline)) static void busy(unsigned ms) { usleep(ms * 1000); }
+__attribute__((noinline)) static void crash_here(void) { *(volatile int *)16 = 1; }
+int main(int argc, char **argv) {
+    continuum_tel_open(argv[2]);
+    continuum_tel_core_log(1, "a core line");
+    continuum_tel_core_log(3, "an error line");
+    continuum_tel_frame_begin(); busy(120); continuum_tel_frame_end();
+    if (strcmp(argv[1], "stuck") == 0) { continuum_tel_frame_begin(); busy(5500); continuum_tel_frame_end(); }
+    if (strcmp(argv[1], "crash") == 0) { continuum_tel_frame_begin(); crash_here(); }
+    return 0;
+}
+EOF
+  clang -O1 -g -fno-omit-frame-pointer "$ROOT/crates/emulator-bridge/src/telemetry.c" "$WORK/tel.c" -o "$WORK/tel"
+  rm -rf "$WORK/tel-out" && mkdir -p "$WORK/tel-out"
+  "$WORK/tel" stuck "$WORK/tel-out"
+  "$WORK/tel" crash "$WORK/tel-out" || echo "(crashed with status $?, as it should)"
+  for f in "$WORK"/tel-out/*.txt; do echo "==> $(basename "$f")"; cat "$f"; done
+  grep -q "STUCK frame" "$WORK/tel-out/core-log-previous.txt"
+  grep -q "slow frame" "$WORK/tel-out/core-log-previous.txt"
+  grep -q "crash_here" "$WORK/tel-out/crash.txt"
+}
+
 case "${1:-all}" in
   probe) probe ;;
+  telemetry) telemetry ;;
   ppsspp) ppsspp ;;
   dynarmic) dynarmic ;;
   all) probe && dynarmic && ppsspp ;;
