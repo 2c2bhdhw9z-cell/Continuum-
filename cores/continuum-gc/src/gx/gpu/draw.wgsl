@@ -263,9 +263,13 @@ var<workgroup> flags: array<u32, 64>;
 var<workgroup> picked: array<u32, 64>;
 var<workgroup> picked_count: u32;
 var<workgroup> skip_block: u32;
+var<workgroup> tile_drawn: atomic<u32>;
 
 @compute @workgroup_size(64)
 fn raster(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_index) li: u32) {
+    if (li == 0u) {
+        atomicStore(&tile_drawn, 0u);
+    }
     let tx = i32((pc.tile_x0 + wg.x) * 16u);
     let ty = i32((pc.tile_y0 + wg.y) * 16u);
     let lx = i32(li & 15u);
@@ -307,7 +311,18 @@ fn raster(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_index)
         }
         workgroupBarrier();
     }
-    atomicAdd(&counters[0], drawn);
+    // The tile's pixel count, then one addition to the total per tile (not per thread: 64
+    // threads a tile adding to one word would queue up behind each other).
+    if (drawn != 0u) {
+        atomicAdd(&tile_drawn, drawn);
+    }
+    workgroupBarrier();
+    if (li == 0u) {
+        let n = atomicLoad(&tile_drawn);
+        if (n != 0u) {
+            atomicAdd(&counters[0], n);
+        }
+    }
 }
 
 // This thread's four pixels of the tile (one column, every fourth row) for one triangle.

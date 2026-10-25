@@ -306,6 +306,8 @@ impl Readout {
         }
         lines.push(format!("CPU {} DRAW {}", pct(cpu), pct(draw)));
         lines.push(format!("WAIT {} SND {} APP {}", pct(wait), pct(sound), pct(app)));
+        // Which part of the phone draws (the Drawing setting, or the processor after a fallback).
+        lines.push(if m.hw.gx.gpu_stats().is_some() { "DRAWING GPU".into() } else { "DRAWING CPU".into() });
         if let Some(hot) = m.hot.as_mut() {
             let total: u32 = hot.values().sum::<u32>().max(1);
             let mut v: Vec<(u32, u32)> = hot.drain().collect();
