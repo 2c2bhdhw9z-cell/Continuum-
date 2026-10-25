@@ -19,6 +19,11 @@ commit, not built yet): `syncableGameExtensions` includes `GameCubeUnlock.fileTy
 still waits for the unlock. The unlock key itself already travels in the settings export. He has to
 import Animal Crossing once more, on the build that has this fix, for it to survive later reinstalls.
 Build offered once (hold for the next batch otherwise, owner rule 16).
+OWNER, 6:20 AM: "I'll be able to try JIT shortly." (Do not argue with PLATFORM_LIMITS' "not reachable";
+record what he reports.) The GameCube JIT (cores/continuum-gc/src/jit) has only ever run under qemu/unicorn,
+never on a real iPhone. How to tell it is on: Settings, Technical details, JIT line; and in a GameCube game
+the speed read-out shows a "JIT n%" line (share of instructions run as compiled code) only when it is on.
+If it crashes: Settings, Technical details, "Use JIT when it's available" off goes back to the interpreter.
 
 ## Earlier (24 October 2026, about 9 PM Eastern): the read-out's answer, build 224
 
