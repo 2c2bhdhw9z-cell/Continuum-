@@ -5,7 +5,28 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (25 October 2026, about 12:15 PM Eastern): build 228, the three 227 faults diagnosed
+## START HERE (25 October 2026, about 1:00 PM Eastern): build 229, GameCube sound fixed
+
+OWNER'S UPLOAD ON 228 (litter.catbox.moe/oksf9q): no crash anywhere. **PSP works** (Midnight Club:
+60 fps, 44100 sound frames a second, no gaps; the IR interpreter still logs one recovered "[JIT] Jump
+to invalid address" at boot, harmless). **3DS works** (Animal Crossing New Leaf a full minute: 60 fps,
+frame time 1-4 ms, full sound, no gaps; 8 dynarmic slices = 256 MB). **GameCube** still 32031 sound
+frames a second.
+ROOT CAUSE FOUND AND FIXED (229, 59014ec): libretro.rs ran `run_field(cpu_hz / 60)`, and cpu_hz/60
+(8,100,000 cycles) is a hair SHORT of one NTSC field (262.5 lines x 30888 = 8,108,000). So each call
+stopped one line before the field ended, and every third call ran just that one line: three calls ran
+262+262+1 lines instead of 525+. The machine ran at TWO THIRDS of real time and the sound came out a
+third short. It was never the JIT and never the sound code. Measured with a new probe (tests/machine.rs)
+before the fix: 32032 frames per emulated second, exactly the phone's figure. Now `Machine::run_one_field`
+runs to the field's end with 2 fields of cycles as a safety cap. Tests: 48048 frames a second at 48 kHz
+DMA, 32 kHz DMA and 32 kHz + 48 kHz stream, on the plain and fast CPU; 262/263 lines every call.
+Side effect to watch: the GameCube now emulates 1.5x as much per second as before (it really was slow),
+so frame times go up by about that much (228 showed avg 3-11 ms, max 22 ms; a 16.7 ms frame is the
+limit). If the next upload shows frames over 16.7 ms, that is the hiccup, and the speed work is next.
+Also fixed: the Swift "sound out" figures went negative after the ring was emptied.
+NEXT: his upload from 229 (GameCube sound and frame times).
+
+## Earlier (25 October 2026, about 12:15 PM Eastern): build 228, the three 227 faults diagnosed
 
 The telemetry worked: he uploaded three diagnostic .zips and every fault was named from them
 (litter.catbox.moe/3xmbkp, 2e3e6u, f0mes9; downloaded with curl, kept in .scratch/diag).
