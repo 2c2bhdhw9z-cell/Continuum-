@@ -49,6 +49,9 @@ pub struct Vdp {
     /// blue), written a pair at a time, and a 160x144 window of the picture on its screen.
     #[serde(default)]
     pub gg: bool,
+    /// An SG-1000's TMS9918: none of the Master System's mode 4, taller modes or line interrupt.
+    #[serde(default)]
+    pub tms: bool,
     #[serde(default)]
     cram_latch: u8,
     /// The vertical scroll, taken from register 9 once a frame, at its top.
@@ -76,6 +79,7 @@ impl Default for Vdp {
             line: 0,
             pal: false,
             gg: false,
+            tms: false,
             cram_latch: 0,
             vscroll: 0,
             frame: vec![0; WIDTH * 240],
@@ -112,6 +116,9 @@ impl Vdp {
 
     /// The picture's height: 192 lines, or 224 or 240 in the Master System II's taller modes.
     pub fn height(&self) -> u16 {
+        if self.tms {
+            return 192;
+        }
         let m = (self.regs[0] & 0x06) | (self.regs[1] & 0x18);
         match m {
             0x16 => 224,
@@ -205,7 +212,7 @@ impl Vdp {
     /// The interrupt line to the Z80: a frame interrupt with register 1 bit 5 on, or a line
     /// interrupt with register 0 bit 4 on.
     pub fn irq(&self) -> bool {
-        (self.status & 0x80 != 0 && self.regs[1] & 0x20 != 0) || (self.line_irq && self.regs[0] & 0x10 != 0)
+        (self.status & 0x80 != 0 && self.regs[1] & 0x20 != 0) || (!self.tms && self.line_irq && self.regs[0] & 0x10 != 0)
     }
 
     /// The start of a line: the line counter counts down through the picture and the line after
@@ -252,7 +259,7 @@ impl Vdp {
     /// flips, second palette and priority, then up to eight sprites, with the overflow and
     /// collision flags. From Charles MacDonald's VDP documentation, "Mode 4".
     fn draw_line(&mut self, line: u16) {
-        if self.regs[0] & 0x04 == 0 {
+        if self.tms || self.regs[0] & 0x04 == 0 {
             self.draw_tms_line(line);
             return;
         }

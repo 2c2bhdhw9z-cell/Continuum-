@@ -70,6 +70,10 @@ pub struct Bus {
     /// A Game Gear: its own ports $00-$06 (the Start button, the region, the link port, stereo).
     #[serde(default)]
     pub gg: bool,
+    /// An SG-1000: the cartridge straight in the bottom 48 KiB with no banking, 1 KiB of work RAM
+    /// seen eight times over at $C000, no memory control port.
+    #[serde(default)]
+    pub sg: bool,
     /// The Game Gear's Start button is held.
     #[serde(skip)]
     pub gg_start: bool,
@@ -107,11 +111,18 @@ impl Bus {
             pad_dd: 0xFF,
             io_ctrl: 0xFF,
             gg: false,
+            sg: false,
             gg_start: false,
             export: true,
             console: String::new(),
             console_stop: false,
         }
+    }
+
+    /// Makes this an SG-1000.
+    pub fn set_sg1000(&mut self) {
+        self.sg = true;
+        self.vdp.tms = true;
     }
 
     /// Makes this a Game Gear.
@@ -130,6 +141,9 @@ impl Bus {
     }
 
     fn cart_read(&self, addr: u16) -> u8 {
+        if self.sg {
+            return self.rom.get(usize::from(addr)).copied().unwrap_or(0xFF);
+        }
         if self.mem_ctrl & 0x40 != 0 {
             return 0xFF;
         }
@@ -151,6 +165,9 @@ impl Bus {
 
 impl z80::Bus for Bus {
     fn read(&mut self, addr: u16) -> u8 {
+        if self.sg && addr >= 0xC000 {
+            return self.ram[usize::from(addr & 0x3FF)];
+        }
         if addr >= 0xC000 {
             if self.mem_ctrl & 0x10 != 0 {
                 return 0xFF;
@@ -161,6 +178,12 @@ impl z80::Bus for Bus {
     }
 
     fn write(&mut self, addr: u16, v: u8) {
+        if self.sg {
+            if addr >= 0xC000 {
+                self.ram[usize::from(addr & 0x3FF)] = v;
+            }
+            return;
+        }
         match (self.mapper, addr) {
             (Mapper::Codemasters, 0xA000..=0xBFFF) if self.banks[1] & 0x80 != 0 => {
                 self.cart_ram[usize::from(addr - 0xA000)] = v;
@@ -249,7 +272,7 @@ impl z80::Bus for Bus {
             return;
         }
         match p & 0xC1 {
-            0x00 => self.mem_ctrl = v,
+            0x00 if !self.sg => self.mem_ctrl = v,
             0x01 => self.io_ctrl = v,
             0x40 | 0x41 => self.psg.write(v),
             0x80 => self.vdp.write_data(v),
@@ -318,6 +341,16 @@ mod tests {
         b.mapper = Mapper::Korean;
         b.write(0xA000, 6);
         assert_eq!((b.read(0x0400), b.read(0x4000), b.read(0x8000)), (0, 1, 6));
+    }
+
+    #[test]
+    fn an_sg_1000_has_no_banking_and_one_kib_of_ram() {
+        let mut b = Bus::new(rom(3));
+        b.set_sg1000();
+        b.write(0xFFFF, 0);
+        assert_eq!(b.read(0x8000), 2, "no mapper");
+        b.write(0xC000, 0x55);
+        assert_eq!((b.read(0xC400), b.read(0xFC00)), (0x55, 0x55));
     }
 
     #[test]

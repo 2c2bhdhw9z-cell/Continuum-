@@ -31,11 +31,10 @@ on one phone, the Advance link), which may change the app and engine; it reads t
 B1-B4, B6, B7 done; B8 the cable done (gba/sio.rs), the wireless adapter not (no game here to check it
 with: asked the owner). Build 234 (fb4af3b) has all of it, checked (0.8.0 234, 38 emulators, same list
 as 233). Waiting on the owner: B5 (his Advance games on cBoy) and B9 (his checks, and whether cBoy
-becomes the default for Game Boy games); steps in TESTING.md "Build 234". S1 (the Sega core,
-cores/continuum-sms) has started: settings inventory (docs/SMS_OPTIONS_INVENTORY.md), the crate with
-cArcade's Z80 compiled in from its file, the Sega mapper, memory control, picture-chip ports and
-interrupts, the SDSC console; ZEXALL-SMS runs on it (tests/zexall.rs, fetched by its script).
-Not yet in the app's build (no build-core.sh entry): add that when it draws and plays sound.
+becomes the default for Game Boy games); steps in TESTING.md "Build 234". S1 (the Sega core, shown as cGear,
+cores/continuum-sms) has its first working version: see tasks/cboy-finish.json S1 "progress" for
+what is done and next. ZEXALL for the Master System passes in full on its own memory map. Not yet in
+the app's build (no build-core.sh entry): that is an app change, so ask the owner first.
 
 GameCube state for whoever picks it up: build 233 (next section) = the GPU drawer. Before it, Animal
 Crossing ran in the town at about 85% of real speed, 42-61 pictures a second, drawing the limit. What

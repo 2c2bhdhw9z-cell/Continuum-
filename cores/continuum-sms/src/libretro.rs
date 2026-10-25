@@ -88,7 +88,7 @@ pub unsafe extern "C" fn retro_get_system_info(info: *mut RetroSystemInfo) {
     *info = RetroSystemInfo {
         library_name: c"cGear".as_ptr(),
         library_version: c"0.1.0 (state format 1)".as_ptr(),
-        valid_extensions: c"sms|gg|bin".as_ptr(),
+        valid_extensions: c"sms|gg|sg|bin".as_ptr(),
         need_fullpath: false,
         block_extract: false,
     };
@@ -172,10 +172,13 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
         }
     }
     let gg = is_game_gear(&rom, (*game).path);
+    let sg = has_extension((*game).path, &[".sg", ".sc"]);
     let mut m = Box::new(Sms::new(rom));
     m.rate = RATE;
     if gg {
         m.bus.set_game_gear();
+    } else if sg {
+        m.bus.set_sg1000();
     }
     if let Ok(mut c) = CORE.lock() {
         *c = Some(m);
@@ -207,16 +210,27 @@ pub extern "C" fn retro_reset() {
         if let Some(m) = c.as_mut() {
             let rom = std::mem::take(&mut m.bus.rom);
             let cart_ram = std::mem::take(&mut m.bus.cart_ram);
-            let gg = m.bus.gg;
+            let (gg, sg) = (m.bus.gg, m.bus.sg);
             let mut fresh = Sms::new(rom);
             if gg {
                 fresh.bus.set_game_gear();
+            } else if sg {
+                fresh.bus.set_sg1000();
             }
             fresh.bus.cart_ram = cart_ram;
             fresh.rate = m.rate;
             **m = fresh;
         }
     }
+}
+
+/// The game's file name ends in one of `ends` (lower case).
+unsafe fn has_extension(path: *const c_char, ends: &[&str]) -> bool {
+    if path.is_null() {
+        return false;
+    }
+    let p = std::ffi::CStr::from_ptr(path).to_string_lossy().to_lowercase();
+    ends.iter().any(|e| p.ends_with(e))
 }
 
 /// A Game Gear cartridge: its file is a .gg one, or its header (at $7FF0, $3FF0 or $1FF0, after
