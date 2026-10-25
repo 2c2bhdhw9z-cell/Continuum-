@@ -1,7 +1,11 @@
-//! The GBA memory map and everything clocked by the CPU: waitstates (WAITCNT, with an
-//! approximation of the prefetch buffer), I/O registers, the four DMA channels, the four timers,
-//! interrupts, the keypad, the display timing, sound (the four PSG channels from the Game Boy
-//! core, plus the two DirectSound FIFOs) and the save chip.
+//! The GBA memory map and everything clocked by the CPU: waitstates (WAITCNT and the work RAM's
+//! own control, every access sequential or not as the CPU says, and the cartridge's prefetch
+//! buffer), I/O registers, the four DMA channels, the four timers, interrupts, the keypad, the
+//! display timing, sound (the four PSG channels from the Game Boy core, plus the two DirectSound
+//! FIFOs) and the save chip.
+//!
+//! Every access first spends its cycles and then happens, the way the real bus finishes a read
+//! or a write at the end of its last cycle; so a timer read sees the time the read ends.
 
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +44,142 @@ struct Timer {
 struct Fifo {
     data: Vec<i8>,
     current: i8,
+}
+
+/// The cartridge's prefetch buffer (WAITCNT bit 14). While the CPU runs from the cartridge, any
+/// cycle in which the CPU leaves the cartridge bus alone (an internal cycle, or a read or write
+/// somewhere else) is used to read the next halfwords ahead, one at a time with sequential
+/// timing, into a queue of eight. An opcode waiting there then takes the CPU one cycle instead of
+/// a cartridge read (an ARM opcode is two halfwords).
+///
+/// The rules, as measured on a real console by the author of the timing test programs in
+/// tests/gba.rs (Alyosha's), whose own emulator models them this way:
+/// - an opcode read that is not the oldest one held empties the queue: the CPU reads the
+///   cartridge itself, and reading ahead starts again after it;
+/// - an opcode read of the halfword on its way waits for the rest of that read, except a jump
+///   to it in the very first cycle of the first read after such a restart, which is read
+///   non-sequentially by the CPU instead;
+/// - when the queue is full it stops; the CPU can still take what it holds, and once it has
+///   taken the last one the next opcode read is a non-sequential one that starts it again;
+/// - at a 128 KiB boundary it keeps reading but never gets anything into the queue, and the
+///   CPU reads the boundary itself, non-sequentially;
+/// - the CPU reading or writing the cartridge or its save chip throws the queue away, and if
+///   that happens in the cycle a halfword being read ahead arrives, it costs one cycle more.
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct Prefetch {
+    /// Allowed to read ahead (it is switched on again by the next opcode read it misses).
+    run: bool,
+    /// The halfword being read ahead, or the next one to read.
+    read: u32,
+    /// The oldest halfword held: the next opcode it can hand out. 0 when it has nothing to hand
+    /// out (thrown away, or emptied after it was full).
+    check: u32,
+    /// Halfwords held.
+    held: u32,
+    /// Cycles spent on the read in progress, 0 when none has started.
+    done: u32,
+    /// Cycles that read takes.
+    wait: u32,
+    /// It found the queue full and stopped.
+    full: bool,
+    /// The read in progress is at a 128 KiB boundary: it never arrives.
+    boundary: bool,
+    /// It has got past the first cycle of a read since it last started again.
+    following: bool,
+    /// The next opcode read it cannot hand out is a non-sequential one.
+    force_n: bool,
+    /// A read arrived in the cycle just ticked.
+    arrived: bool,
+    /// WAITCNT bit 14.
+    enabled: bool,
+}
+
+/// Room in the queue, in halfwords.
+const PREFETCH_HALVES: u32 = 8;
+
+impl Prefetch {
+    /// `n` cycles in which the cartridge bus is free for it, each doing what the console's
+    /// prefetch unit does in a cycle: start a read if there is room, or carry one on.
+    fn tick(&mut self, mut n: u32) {
+        self.arrived = false;
+        if !self.run || self.check == 0 || self.full {
+            return;
+        }
+        while n > 0 {
+            if self.done == 0 {
+                if self.held == PREFETCH_HALVES {
+                    self.full = true;
+                    return;
+                }
+                self.boundary = self.read & 0x1_FFFE == 0;
+                self.done = 1;
+                self.arrived = false;
+                n -= 1;
+            } else {
+                self.following = true;
+                let s = n.min(self.wait - self.done);
+                self.done += s;
+                n -= s;
+                if self.done == self.wait {
+                    self.done = 0;
+                    if !self.boundary {
+                        self.held += 1;
+                        self.read = self.read.wrapping_add(2);
+                    }
+                    self.arrived = n == 0;
+                    if !self.enabled {
+                        self.run = false;
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// The CPU took the last halfword it held.
+    fn emptied(&mut self) {
+        if self.full {
+            self.check = 0;
+            self.force_n = true;
+        }
+        if !self.enabled {
+            self.check = 0;
+        }
+    }
+
+    /// The CPU read the halfword (or the ARM opcode) it was in the middle of reading: it starts
+    /// on the next one after it.
+    fn taken_over(&mut self, bytes: u32) {
+        self.read = self.read.wrapping_add(bytes);
+        self.check = self.check.wrapping_add(bytes);
+        self.done = 0;
+        if !self.enabled {
+            self.check = 0;
+            self.run = false;
+        }
+    }
+}
+
+/// Machine state added after the save-state layout was fixed. It is saved after the rest of the
+/// machine (`Gba::save_state`), so a state made before it was added still loads, and these then
+/// start from their defaults.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct BusTiming {
+    pub prefetch: Prefetch,
+    /// The bus cycle just gone was an opcode read, so the next opcode read can be sequential.
+    after_code: bool,
+    /// The last opcode read was a Thumb one.
+    thumb: bool,
+    /// The cycle each timer's `counter` was last pinned to: a running timer counts on from it.
+    pub timer_at: [u64; 4],
+    /// Internal memory control ($04000800): bits 24-27 set the work RAM's wait states.
+    pub memcnt: u32,
+}
+
+impl Default for BusTiming {
+    fn default() -> Self {
+        BusTiming { prefetch: Prefetch::default(), after_code: false, thumb: false, timer_at: [0; 4], memcnt: 0x0D00_0020 }
+    }
 }
 
 /// The mini BIOS this core puts at $00000000: the IRQ vector and the real BIOS's IRQ dispatcher
@@ -147,6 +287,9 @@ pub struct Bus {
     pub frame_ready: bool,
     #[serde(skip)]
     in_dma: bool,
+    /// Saved on its own after the rest (see `BusTiming`).
+    #[serde(skip)]
+    pub tm: BusTiming,
 }
 
 impl Bus {
@@ -198,6 +341,7 @@ impl Bus {
             seq_acc: 0,
             frame_ready: false,
             in_dma: false,
+            tm: BusTiming::default(),
         }
     }
 
@@ -239,32 +383,141 @@ impl Bus {
 
     // ------------------------------------------------------------ timing
 
-    fn wait(&self, addr: u32, word: bool, seq: bool) -> u32 {
-        let wc = self.io16(0x204);
+    /// Cycles of one 16-bit cartridge read in wait-state area `ws` (0 to 2), from WAITCNT.
+    fn rom16(&self, ws: u32, seq: bool) -> u32 {
+        let wc = u32::from(self.io16(0x204));
+        if seq {
+            if wc & [0x10, 0x80, 0x400][ws as usize] != 0 { 2 } else { [3, 5, 9][ws as usize] }
+        } else {
+            [5, 4, 3, 9][((wc >> (2 + ws * 3)) & 3) as usize]
+        }
+    }
+
+    /// Cycles one access takes: 32 bits wide or not, sequential (following on from the one
+    /// before, which only the cartridge cares about) or not.
+    fn cost(&self, addr: u32, word: bool, seq: bool) -> u32 {
         match addr >> 24 {
-            0x02 => if word { 6 } else { 3 },
+            0x02 => {
+                // 15 minus the setting is the number of wait states (15 would lock the console up).
+                let w = 16 - ((self.tm.memcnt >> 24) & 15).min(14);
+                if word { 2 * w } else { w }
+            }
             0x05 | 0x06 => if word { 2 } else { 1 },
             0x08..=0x0D => {
-                let ws = ((addr >> 25) - 4) as u16;
-                let n = [4u32, 3, 2, 8][((wc >> (2 + ws * 3)) & 3) as usize];
-                let s = match ws {
-                    0 => if wc & 0x10 != 0 { 1 } else { 2 },
-                    1 => if wc & 0x80 != 0 { 1 } else { 4 },
-                    _ => if wc & 0x400 != 0 { 1 } else { 8 },
-                };
-                let first = if seq { s + 1 } else { n + 1 };
-                if word { first + s + 1 } else { first }
+                // The cartridge bus is 16 bits wide: a word is a halfword and the one after it.
+                let ws = (addr >> 25) - 4;
+                let first = self.rom16(ws, seq);
+                if word { first + self.rom16(ws, true) } else { first }
             }
-            0x0E | 0x0F => [4u32, 3, 2, 8][(wc & 3) as usize] + 1,
+            0x0E | 0x0F => [5, 4, 3, 9][(self.io16(0x204) & 3) as usize],
             _ => 1,
         }
     }
 
-    fn charge(&mut self, addr: u32, word: bool) {
-        let width = if word { 4 } else { 2 };
-        let seq = addr == self.last_addr.wrapping_add(width);
-        self.last_addr = addr;
-        self.pending += self.wait(addr, word, seq);
+    /// Lets `n` cycles pass with the cartridge bus free: the prefetch buffer reads ahead in them.
+    fn spend(&mut self, n: u32) {
+        self.pending += n;
+        self.tm.prefetch.tick(n);
+    }
+
+    /// The first cycle of a cartridge access is still one the prefetch unit has to itself (it
+    /// gives the bus up at the end of it). Says whether a halfword it was reading arrived in
+    /// that cycle, which holds the bus one cycle longer.
+    fn cart_first_cycle(&mut self) -> bool {
+        self.tm.prefetch.tick(1);
+        self.tm.prefetch.arrived
+    }
+
+    /// A data read or write (by the CPU or by DMA) spends its cycles. `seq` is the access
+    /// following on from the one before: the second word on of a block transfer or a DMA.
+    fn data(&mut self, addr: u32, word: bool, seq: bool) {
+        let seq = seq && addr & 0x1_FFFF != 0;
+        let mut c = self.cost(addr, word, seq);
+        if (0x08..=0x0F).contains(&(addr >> 24)) {
+            // The cartridge or its save chip: whatever was being read ahead is thrown away.
+            c += u32::from(self.cart_first_cycle());
+            let p = &mut self.tm.prefetch;
+            p.done = 0;
+            p.check = 0;
+            self.pending += c;
+        } else {
+            self.spend(c);
+        }
+        #[cfg(feature = "gba_trace")]
+        eprintln!("  {:6} data {addr:08X} {} {} +{c}", self.now(), if word { 32 } else { 16 }, if seq { "S" } else { "N" });
+        self.tm.after_code = false;
+    }
+
+    /// An opcode read from the cartridge, from the prefetch buffer when it can. Returns the
+    /// cycles it takes, its first cycle included.
+    fn cart_code(&mut self, addr: u32, thumb: bool, seq: bool) -> u32 {
+        let glitch = u32::from(self.cart_first_cycle());
+        let ws = (addr >> 25) - 4;
+        let (n16, s16) = (self.rom16(ws, false), self.rom16(ws, true));
+        let p = &mut self.tm.prefetch;
+        #[cfg(feature = "gba_trace")]
+        eprintln!("  {:6} code {addr:08X} {} pf run={} read={:08X} check={:08X} held={} done={}/{} full={} fol={} glitch={glitch}", self.cycles + u64::from(self.pending), if seq { "S" } else { "N" }, p.run, p.read, p.check, p.held, p.done, p.wait, p.full, p.following);
+        let (step, edge) = if thumb { (2, 0x1_FFFE) } else { (4, 0x1_FFFC) };
+        if p.check != 0 && addr & !(step - 1) == p.check {
+            if p.check != p.read && p.held > 0 {
+                p.check = p.check.wrapping_add(2);
+                p.held -= 1;
+                if thumb || (p.check != p.read && p.held > 0) {
+                    if !thumb {
+                        p.check = p.check.wrapping_add(2);
+                        p.held -= 1;
+                    }
+                    if p.held == 0 {
+                        p.emptied();
+                    }
+                    return 1;
+                }
+                // An ARM opcode whose second half is still on its way.
+                let wait = p.wait - p.done + 1;
+                p.held = 0;
+                p.taken_over(2);
+                p.run = p.enabled;
+                return wait;
+            }
+            if addr & edge == 0 {
+                // A 128 KiB boundary: the CPU reads it itself, non-sequentially.
+                p.taken_over(step);
+                return if thumb { n16 } else { n16 + s16 } + glitch;
+            }
+            // On its way: wait for the rest of that read, unless this is a non-sequential read
+            // in the very first cycle of the first read since it last started again.
+            let first = if !seq && p.done == 1 && !p.following { n16 } else { p.wait - p.done + 1 };
+            p.taken_over(step);
+            if !thumb {
+                p.run = p.enabled;
+            }
+            return if thumb { first } else { first + s16 };
+        }
+        // Nothing it can hand out: the CPU reads the cartridge itself, and reading ahead starts
+        // again after it.
+        let seq = seq && !p.force_n && addr & edge != 0;
+        p.force_n = false;
+        let c = match (thumb, seq) {
+            (true, true) => s16,
+            (true, false) => n16,
+            (false, true) => 2 * s16,
+            (false, false) => n16 + s16,
+        } + glitch;
+        let enabled = p.enabled;
+        *p = Prefetch {
+            run: enabled,
+            read: if enabled { addr.wrapping_add(step) } else { 0 },
+            check: if enabled { addr.wrapping_add(step) } else { 0 },
+            wait: s16,
+            enabled,
+            ..Prefetch::default()
+        };
+        c
+    }
+
+    /// Cycles run so far, counting those spent but not yet run through the machine.
+    pub fn now(&self) -> u64 {
+        self.cycles + u64::from(self.pending)
     }
 
     /// Cycles left in the current scanline.
@@ -272,86 +525,95 @@ impl Bus {
         LINE.saturating_sub(self.line_cycle).max(1)
     }
 
+    /// Internal CPU cycles: the bus is free (the prefetch buffer reads ahead), and the opcode
+    /// read after them is non-sequential.
     pub fn idle(&mut self, n: u32) {
-        self.pending += n;
-        self.last_addr = 0;
+        #[cfg(feature = "gba_trace")]
+        eprintln!("  {:6} idle +{n}", self.now());
+        self.spend(n);
+        self.tm.after_code = false;
     }
 
-    pub fn branch_penalty(&mut self) {
-        self.last_addr = 0;
-    }
-
-    fn fetch_cost(&mut self, addr: u32, word: bool) {
-        // The prefetch buffer (WAITCNT bit 14) hides most sequential ROM fetch waits.
-        let seq = addr == self.last_addr.wrapping_add(if word { 4 } else { 2 });
-        if seq && (0x08..=0x0D).contains(&(addr >> 24)) && self.io16(0x204) & 0x4000 != 0 {
-            self.last_addr = addr;
-            self.pending += if word { 2 } else { 1 };
+    /// An opcode read at `addr`, Thumb or ARM. `seq` is the CPU saying it follows on from the
+    /// opcode before (false for the first read after a jump); it only does when the bus cycle
+    /// before was an opcode read too.
+    pub fn code(&mut self, addr: u32, thumb: bool, seq: bool) -> u32 {
+        let seq = seq && self.tm.after_code;
+        self.exec_pc = addr;
+        self.tm.thumb = thumb;
+        if (0x08..=0x0D).contains(&(addr >> 24)) {
+            let c = self.cart_code(addr, thumb, seq);
+            self.pending += c;
         } else {
-            self.charge(addr, word);
+            let c = self.cost(addr, !thumb, seq);
+            self.spend(c);
         }
-    }
-
-    pub fn fetch32(&mut self, addr: u32) -> u32 {
-        self.exec_pc = addr;
-        self.fetch_cost(addr, true);
-        let v = self.peek32(addr);
-        self.open_bus = v;
-        if addr + 8 < 0x4000 {
-            // What a BIOS read from outside returns: the opcode two ahead (the prefetch).
-            let a = (addr + 8) as usize;
-            self.bios_latch = u32::from_le_bytes([self.bios[a], self.bios[a + 1], self.bios[a + 2], self.bios[a + 3]]);
+        self.tm.after_code = true;
+        self.run_pending();
+        if thumb {
+            let v = self.peek16(addr);
+            // What an unmapped read returns afterwards: the last opcode read, arranged by where
+            // the code runs from (two halves of the same opcode for most of the memory map).
+            let other = |s: &Self, a: u32| s.peek16(a);
+            self.open_bus = match addr >> 24 {
+                0x00 | 0x07 if addr & 2 == 0 => v | other(self, addr + 2) << 16,
+                0x00 | 0x07 => other(self, addr.wrapping_sub(2)) | v << 16,
+                0x03 if addr & 2 == 0 => v | other(self, addr.wrapping_sub(2)) << 16,
+                0x03 => other(self, addr.wrapping_sub(2)) | v << 16,
+                _ => v | v << 16,
+            };
+            v
+        } else {
+            let v = self.peek32(addr);
+            self.open_bus = v;
+            if addr < 0x4000 {
+                // What a BIOS read from outside returns: the last opcode the BIOS read.
+                self.bios_latch = v;
+            }
+            v
         }
-        self.run_pending();
-        v
-    }
-
-    pub fn fetch16(&mut self, addr: u32) -> u32 {
-        self.exec_pc = addr;
-        self.fetch_cost(addr, false);
-        let v = self.peek16(addr);
-        self.open_bus = v | v << 16;
-        self.run_pending();
-        v
     }
 
     // ------------------------------------------------------------ CPU access
 
     pub fn read8(&mut self, addr: u32) -> u32 {
-        self.charge(addr, false);
-        let v = self.peek8(addr);
+        self.data(addr, false, false);
         self.run_pending();
-        v
+        self.peek8(addr)
     }
 
     pub fn read16(&mut self, addr: u32) -> u32 {
-        self.charge(addr, false);
-        let v = self.peek16(addr);
+        self.data(addr, false, false);
         self.run_pending();
-        v
+        self.peek16(addr)
     }
 
     pub fn read32(&mut self, addr: u32) -> u32 {
-        self.charge(addr, true);
-        let v = self.peek32(addr);
+        self.read32_seq(addr, false)
+    }
+
+    /// A word read; `seq` for the second word on of a block transfer.
+    pub fn read32_seq(&mut self, addr: u32, seq: bool) -> u32 {
+        self.data(addr, true, seq);
         self.run_pending();
-        v
+        self.peek32(addr)
     }
 
     pub fn write8(&mut self, addr: u32, v: u8) {
         self.writes += 1;
-        self.charge(addr, false);
+        self.data(addr, false, false);
+        self.run_pending();
         self.poke8(addr, v);
         self.run_pending();
     }
 
     pub fn write16(&mut self, addr: u32, v: u16) {
         self.writes += 1;
-        self.charge(addr, false);
+        self.data(addr, false, false);
+        self.run_pending();
         if addr >> 25 == 7 {
             // The save chip's 8-bit bus takes the byte the address lands on.
             self.save.write8(addr, (v >> ((addr & 1) * 8)) as u8);
-            self.run_pending();
             return;
         }
         self.poke16(addr & !1, v);
@@ -359,11 +621,16 @@ impl Bus {
     }
 
     pub fn write32(&mut self, addr: u32, v: u32) {
+        self.write32_seq(addr, v, false);
+    }
+
+    /// A word write; `seq` for the second word on of a block transfer.
+    pub fn write32_seq(&mut self, addr: u32, v: u32, seq: bool) {
         self.writes += 1;
-        self.charge(addr, true);
+        self.data(addr, true, seq);
+        self.run_pending();
         if addr >> 25 == 7 {
             self.save.write8(addr, (v >> ((addr & 3) * 8)) as u8);
-            self.run_pending();
             return;
         }
         self.poke16(addr & !3, v as u16);
@@ -411,7 +678,14 @@ impl Bus {
             0x03 => r(&self.iwram, (addr & 0x7FFF) as usize),
             0x04 => {
                 let a = addr & 0xFF_FFFF;
-                if a < 0x400 { u32::from(self.io_read16(a as usize)) } else { 0 }
+                if a < 0x400 {
+                    u32::from(self.io_read16(a as usize))
+                } else if a & 0xFFFC == 0x800 {
+                    // Internal memory control, mirrored every 64 KiB.
+                    (self.tm.memcnt >> ((a & 2) * 8)) & 0xFFFF
+                } else {
+                    0
+                }
             }
             0x05 => r(&self.pal, (addr & 0x3FF) as usize),
             0x06 => r(&self.vram, Self::vram_index(addr)),
@@ -453,6 +727,9 @@ impl Bus {
                 let a = (addr & 0xFF_FFFF) as usize;
                 if a < 0x400 {
                     self.io_write8(a, v);
+                } else if a & 0xFFFC == 0x800 {
+                    let sh = (a & 3) * 8;
+                    self.tm.memcnt = (self.tm.memcnt & !(0xFF << sh)) | u32::from(v) << sh;
                 }
             }
             // Byte writes to palette and background VRAM write the byte to both halves;
@@ -491,6 +768,9 @@ impl Bus {
                 let a = (addr & 0xFF_FFFF) as usize;
                 if a < 0x400 {
                     self.io_write16(a, v);
+                } else if a & 0xFFFC == 0x800 {
+                    let sh = (a & 2) * 8;
+                    self.tm.memcnt = (self.tm.memcnt & !(0xFFFF << sh)) | u32::from(v) << sh;
                 }
             }
             0x05 => w(&mut self.pal, (addr & 0x3FF) as usize),
@@ -548,7 +828,7 @@ impl Bus {
                 v
             }
             0x06 => self.line as u16,
-            0x100 | 0x104 | 0x108 | 0x10C => self.timers[(a - 0x100) / 4].counter,
+            0x100 | 0x104 | 0x108 | 0x10C => self.timer_count((a - 0x100) / 4, self.cycles),
             0x102 | 0x106 | 0x10A | 0x10E => self.timers[(a - 0x100) / 4].ctrl,
             0x130 => 0x3FF & !self.keys,
             0x60..=0x9F => u16::from(self.io_read8(a)) | u16::from(self.io_read8(a + 1)) << 8,
@@ -625,13 +905,34 @@ impl Bus {
                 }
             }
             0x100 | 0x104 | 0x108 | 0x10C => self.timers[(a - 0x100) / 4].reload = v,
-            0x102 | 0x106 | 0x10A | 0x10E => {
-                let t = &mut self.timers[(a - 0x100) / 4];
-                if t.ctrl & 0x80 == 0 && v & 0x80 != 0 {
-                    t.counter = t.reload;
-                    t.acc = 0;
+            0x102 | 0x106 | 0x10A | 0x10E => self.timer_control((a - 0x100) / 4, v),
+            0x204 => {
+                // Bit 13 is unused and bit 15 says it is an Advance (0), read-only.
+                self.set_io16(0x204, v & 0x5FFF);
+                let thumb = self.tm.thumb;
+                let p = &mut self.tm.prefetch;
+                let on = v & 0x4000 != 0;
+                if !p.enabled && on {
+                    p.check = 0;
+                    p.held = 0;
+                    p.done = 0;
+                    p.run = true;
                 }
-                t.ctrl = v & 0xC7;
+                if p.enabled && !on {
+                    // Switched off: a read in progress is finished (and in ARM, a lone half of
+                    // an opcode gets its other half), what is held can still be used, and the
+                    // next opcode read it cannot hand out is non-sequential.
+                    p.force_n = true;
+                    if p.done == 0 {
+                        if p.held & 1 == 0 || thumb {
+                            p.run = false;
+                        }
+                        if p.held == 0 {
+                            p.check = 0;
+                        }
+                    }
+                }
+                p.enabled = on;
             }
             0x128 => {
                 self.set_io16(a, v);
@@ -708,24 +1009,27 @@ impl Bus {
         let was = self.in_dma;
         self.in_dma = true;
         let (mut s, mut d) = (self.dma[ch].src, self.dma[ch].dst);
+        // Two internal cycles to get going, four when both ends are on the cartridge; then the
+        // first unit is a non-sequential read and write, and every one after it sequential.
+        let cart = |a: u32| (0x08..=0x0F).contains(&(a >> 24));
+        self.idle(if cart(s) && cart(d) { 4 } else { 2 });
         for i in 0..count {
+            let seq = i > 0;
             if word {
-                self.charge(s & !3, true);
+                self.data(s & !3, true, seq);
                 let v = self.peek32(s & !3);
-                self.charge(d & !3, true);
+                self.data(d & !3, true, seq);
                 self.poke16(d & !3, v as u16);
                 self.poke16((d & !3) + 2, (v >> 16) as u16);
             } else {
-                self.charge(s & !1, false);
+                self.data(s & !1, false, seq);
                 let v = self.peek16(s & !1);
-                self.charge(d & !1, false);
+                self.data(d & !1, false, seq);
                 self.poke16(d & !1, v as u16);
             }
-            let _ = i;
             s = match sctl { 0 | 3 => s.wrapping_add(step), 1 => s.wrapping_sub(step), _ => s };
             d = match dctl { 0 | 3 => d.wrapping_add(step), 1 => d.wrapping_sub(step), _ => d };
         }
-        self.pending += 2;
         self.in_dma = was;
         self.dma[ch].src = s;
         self.dma[ch].dst = d;
@@ -876,49 +1180,99 @@ impl Bus {
 
     // ------------------------------------------------------------ the clock
 
-    fn timers(&mut self, cycles: u32) {
-        let mut overflow_prev = 0u32;
-        for i in 0..4 {
-            let ctrl = self.timers[i].ctrl;
-            if ctrl & 0x80 == 0 {
-                overflow_prev = 0;
-                continue;
-            }
-            let ticks = if i > 0 && ctrl & 4 != 0 {
-                overflow_prev
-            } else {
-                let shift = [0u32, 6, 8, 10][(ctrl & 3) as usize];
-                let t = &mut self.timers[i];
-                t.acc += cycles;
-                let n = t.acc >> shift;
-                t.acc -= n << shift;
-                n
-            };
-            let mut overflows = 0;
-            if ticks > 0 {
-                let t = &mut self.timers[i];
-                let mut left = ticks;
-                loop {
-                    let room = 0x10000 - u32::from(t.counter);
-                    if left < room {
-                        t.counter += left as u16;
-                        break;
-                    }
-                    left -= room;
-                    t.counter = t.reload;
-                    overflows += 1;
-                }
-            }
-            for _ in 0..overflows.min(64) {
-                if ctrl & 0x40 != 0 {
-                    self.request_irq(IRQ_TIMER0 << i);
-                }
-                if i < 2 {
-                    self.timer_overflow_sound(i);
-                }
-            }
-            overflow_prev = overflows;
+    fn timer_shift(ctrl: u16) -> u32 {
+        [0, 6, 8, 10][(ctrl & 3) as usize]
+    }
+
+    /// A timer that is on and counts cycles (not another timer's overflows).
+    fn timer_free(&self, i: usize) -> bool {
+        let c = self.timers[i].ctrl;
+        c & 0x80 != 0 && (i == 0 || c & 4 == 0)
+    }
+
+    /// What timer `i` reads at cycle `now`. A running timer's `counter` is its count at
+    /// `timer_at`, and every overflow up to the present has already been run.
+    fn timer_count(&self, i: usize, now: u64) -> u16 {
+        let t = &self.timers[i];
+        let at = self.tm.timer_at[i];
+        if !self.timer_free(i) || now <= at {
+            return t.counter;
         }
+        let n = (now - at) >> Self::timer_shift(t.ctrl);
+        (u64::from(t.counter) + n).min(0xFFFF) as u16
+    }
+
+    /// The cycle a counting timer next overflows.
+    fn timer_overflow_at(&self, i: usize) -> u64 {
+        let t = &self.timers[i];
+        self.tm.timer_at[i] + ((0x1_0000 - u64::from(t.counter)) << Self::timer_shift(t.ctrl))
+    }
+
+    /// A write to a timer's control register. It lands a cycle after the write; a timer just
+    /// switched on loads its reload value and counts its first tick on the prescaler's next
+    /// step from the cycle after that (the prescaler is one free-running divider all four
+    /// timers share, so a slow timer's first tick can come early).
+    fn timer_control(&mut self, i: usize, v: u16) {
+        let now = self.cycles + 1;
+        let was_on = self.timers[i].ctrl & 0x80 != 0;
+        if self.timer_free(i) {
+            self.timers[i].counter = self.timer_count(i, now);
+        }
+        let ctrl = v & 0xC7;
+        self.timers[i].ctrl = ctrl;
+        if ctrl & 0x80 == 0 {
+            return;
+        }
+        let step = (1u64 << Self::timer_shift(ctrl)) - 1;
+        if !was_on {
+            self.timers[i].counter = self.timers[i].reload;
+            self.tm.timer_at[i] = (now & !step) + 1;
+        } else {
+            self.tm.timer_at[i] = now & !step;
+        }
+    }
+
+    /// Runs every timer overflow due by now, earliest first.
+    fn run_timers(&mut self) {
+        loop {
+            let mut next: Option<(u64, usize)> = None;
+            for i in 0..4 {
+                if self.timer_free(i) {
+                    let at = self.timer_overflow_at(i);
+                    if at <= self.cycles && next.is_none_or(|(n, _)| at < n) {
+                        next = Some((at, i));
+                    }
+                }
+            }
+            let Some((at, i)) = next else { break };
+            self.timer_overflow(i, at);
+        }
+    }
+
+    fn timer_overflow(&mut self, i: usize, at: u64) {
+        self.timers[i].counter = self.timers[i].reload;
+        self.tm.timer_at[i] = at;
+        if self.timers[i].ctrl & 0x40 != 0 {
+            self.request_irq(IRQ_TIMER0 << i);
+        }
+        if i < 2 {
+            self.timer_overflow_sound(i);
+        }
+        if i < 3 && self.timers[i + 1].ctrl & 0x84 == 0x84 {
+            if self.timers[i + 1].counter == 0xFFFF {
+                self.timer_overflow(i + 1, at);
+            } else {
+                self.timers[i + 1].counter += 1;
+            }
+        }
+    }
+
+    /// Cycles until the next timer overflow that raises an interrupt, if any.
+    fn cycles_to_timer_irq(&self) -> Option<u64> {
+        (0..4)
+            .filter(|&i| self.timer_free(i) && self.timers[i].ctrl & 0x40 != 0)
+            .map(|i| self.timer_overflow_at(i).saturating_sub(self.cycles))
+            .min()
     }
 
     pub fn run_pending(&mut self) {
@@ -935,7 +1289,7 @@ impl Bus {
     /// Runs the rest of the machine for `n` cycles.
     fn advance(&mut self, mut n: u32) {
         self.cycles += u64::from(n);
-        self.timers(n);
+        self.run_timers();
         self.sound(n);
         while n > 0 {
             let boundary = if self.line_cycle < HBLANK_AT { HBLANK_AT } else { LINE };
@@ -999,7 +1353,10 @@ impl Bus {
 
     /// While halted: jump to the next display event (timers and sound run in step).
     pub fn halt_skip(&mut self) {
-        let to = if self.line_cycle < HBLANK_AT { HBLANK_AT - self.line_cycle } else { LINE - self.line_cycle };
+        let mut to = if self.line_cycle < HBLANK_AT { HBLANK_AT - self.line_cycle } else { LINE - self.line_cycle };
+        if let Some(t) = self.cycles_to_timer_irq() {
+            to = to.min(t.min(256) as u32);
+        }
         self.pending += to.clamp(1, 256);
         self.run_pending();
     }

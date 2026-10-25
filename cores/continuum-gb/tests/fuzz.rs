@@ -122,8 +122,31 @@ fn state_layout_is_pinned() {
     let sa = g.save_state();
     assert_eq!(&sa[..8], b"CGBASTA2");
     eprintln!("state sizes: gb {} gba {}", st.len(), sa.len());
-    assert_eq!((st.len(), sa.len()), (GB_STATE_LEN, GBA_STATE_LEN),
+    // The Advance state is the layout fixed under CGBASTA2, then the timing added after it
+    // (the CPU's pipeline, the prefetch buffer, the timers), which an older state lacks.
+    assert_eq!((st.len(), sa.len()), (GB_STATE_LEN, GBA_STATE_LEN + GBA_TIMING_LEN),
                "the state layout changed: bump CGBSTAT/CGBASTA and update these sizes");
 }
 const GB_STATE_LEN: usize = 221_310;
 const GBA_STATE_LEN: usize = 550_530;
+const GBA_TIMING_LEN: usize = 74;
+
+/// A state made before the Advance timing was saved (the layout fixed under CGBASTA2 and
+/// nothing after it) still loads, and the machine runs on from it.
+#[test]
+fn an_advance_state_from_before_the_timing_was_saved_still_loads() {
+    let mut rom = vec![0u8; 0x1000];
+    // B . at the cartridge start, so the machine has something to run.
+    rom[0..4].copy_from_slice(&0xEAFF_FFFEu32.to_le_bytes());
+    let mut g = Gba::new(rom.clone());
+    for _ in 0..3 {
+        g.run_frame();
+    }
+    let full = g.save_state();
+    let old = &full[..GBA_STATE_LEN];
+    let mut h = Gba::new(rom);
+    h.load_state(old).expect("an older state must still load");
+    assert_eq!(h.bus.cycles, g.bus.cycles);
+    h.run_frame();
+    assert!(h.bus.cycles > g.bus.cycles);
+}

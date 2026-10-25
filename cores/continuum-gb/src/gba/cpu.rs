@@ -1,6 +1,12 @@
 //! The ARM7TDMI: ARM and Thumb instruction sets, banked registers for every mode, the barrel
 //! shifter with its carry rules, and IRQ entry. Memory access and waitstates are the bus's;
 //! SWIs are handed to the high-level BIOS (`bios.rs`).
+//!
+//! The pipeline is the real one: while an opcode runs, the one after it is already read and the
+//! one after that is being read (that read is the first cycle of every instruction, at r15).
+//! A jump throws both away and reads two new ones, the first non-sequentially. Every cycle an
+//! instruction spends is a bus access or an internal cycle, as the ARM7TDMI's own timing tables
+//! list them, so the bus can time each one and the prefetch buffer can use the free ones.
 
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +49,18 @@ pub struct Cpu {
     /// Address of the next instruction to run.
     pub pc: u32,
     branched: bool,
+    /// Saved on its own after the rest (see `CpuPipe`).
+    #[serde(skip)]
+    pub pipe: CpuPipe,
+}
+
+/// The two opcodes already read: the one at `at` (the next to run) and the one after it. When
+/// `at` is not the next instruction (the CPU was moved from outside: a save state from before
+/// this was saved, the built-in BIOS, a test), they are read again without spending any time.
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+pub struct CpuPipe {
+    pub op: [u32; 2],
+    pub at: Option<u32>,
 }
 
 impl Default for Cpu {
@@ -58,6 +76,7 @@ impl Default for Cpu {
             spsr: [0; 6],
             pc: 0x0800_0000,
             branched: false,
+            pipe: CpuPipe::default(),
         };
         c.r[13] = 0x0300_7F00;
         c
@@ -176,6 +195,7 @@ impl Cpu {
         self.r[14] = lr;
         self.cpsr = (self.cpsr & !T) | I;
         self.pc = vector;
+        self.branched = true;
     }
 
     fn cond(&self, c: u32) -> bool {
@@ -259,28 +279,65 @@ impl Cpu {
     /// One instruction, or IRQ entry.
     pub fn step(&mut self, bus: &mut Bus) {
         if bus.irq_line() && self.cpsr & I == 0 {
-            bus.bios_latch = 0xE25E_F004;
-            self.exception(MODE_IRQ, 0x18, self.pc.wrapping_add(4));
+            self.irq(bus);
         }
+        let thumb = self.thumb();
+        let len = if thumb { 2 } else { 4 };
+        if self.pipe.at != Some(self.pc) {
+            self.pipe_quietly(bus);
+        }
+        let addr = self.pc;
+        let op = self.pipe.op[0];
+        self.pipe.op[0] = self.pipe.op[1];
+        let next = addr.wrapping_add(2 * len);
+        self.pipe.op[1] = bus.code(next, thumb, true);
+        self.r[15] = next;
+        self.pc = addr.wrapping_add(len);
+        self.pipe.at = Some(self.pc);
         self.branched = false;
-        if self.thumb() {
-            let addr = self.pc;
-            let op = bus.fetch16(addr);
-            self.r[15] = addr.wrapping_add(4);
-            self.pc = addr.wrapping_add(2);
+        if thumb {
             self.thumb_op(bus, op as u16, addr);
-        } else {
-            let addr = self.pc;
-            let op = bus.fetch32(addr);
-            self.r[15] = addr.wrapping_add(8);
-            self.pc = addr.wrapping_add(4);
-            if self.cond(op >> 28) {
-                self.arm_op(bus, op, addr);
-            }
+        } else if self.cond(op >> 28) {
+            self.arm_op(bus, op, addr);
         }
         if self.branched {
-            bus.branch_penalty();
+            self.refill(bus);
         }
+    }
+
+    /// IRQ entry: the opcode read that was due still happens, then the pipeline is refilled at
+    /// the vector.
+    fn irq(&mut self, bus: &mut Bus) {
+        bus.bios_latch = 0xE25E_F004;
+        let thumb = self.thumb();
+        let len = if thumb { 2 } else { 4 };
+        if self.pipe.at != Some(self.pc) {
+            self.pipe_quietly(bus);
+        }
+        bus.code(self.pc.wrapping_add(2 * len), thumb, true);
+        self.exception(MODE_IRQ, 0x18, self.pc.wrapping_add(4));
+        self.refill(bus);
+    }
+
+    /// After a jump: the first opcode non-sequentially, the second sequentially.
+    fn refill(&mut self, bus: &mut Bus) {
+        let thumb = self.thumb();
+        let len = if thumb { 2 } else { 4 };
+        let pc = self.pc;
+        self.pipe.op[0] = bus.code(pc, thumb, false);
+        self.pipe.op[1] = bus.code(pc.wrapping_add(len), thumb, true);
+        self.pipe.at = Some(pc);
+    }
+
+    fn pipe_quietly(&mut self, bus: &mut Bus) {
+        let pc = self.pc;
+        bus.exec_pc = pc;
+        self.pipe.op = if self.thumb() {
+            [bus.peek16(pc), bus.peek16(pc.wrapping_add(2))]
+        } else {
+            [bus.peek32(pc), bus.peek32(pc.wrapping_add(4))]
+        };
+        self.pipe.at = Some(pc);
     }
 
     // ---------------------------------------------------------------- ARM
@@ -325,6 +382,8 @@ impl Cpu {
                 self.exception(MODE_SVC, 0x08, addr.wrapping_add(4));
             } else {
                 bios::swi(self, bus, (op >> 16) & 0xFF);
+                // Coming back from the BIOS is a jump.
+                self.branched = true;
             }
         } else {
             self.undefined(addr);
@@ -605,8 +664,8 @@ impl Cpu {
             if w {
                 self.set_reg(rn_i, new_base);
             }
-            for &r in &regs {
-                let v = bus.read32(addr & !3);
+            for (k, &r) in regs.iter().enumerate() {
+                let v = bus.read32_seq(addr & !3, k > 0);
                 if user {
                     self.set_user_reg(r, v);
                 } else {
@@ -628,7 +687,7 @@ impl Cpu {
                 if r == rn_i && k != 0 {
                     v = new_base;
                 }
-                bus.write32(addr & !3, v);
+                bus.write32_seq(addr & !3, v, k > 0);
                 addr = addr.wrapping_add(4);
             }
             if w {
@@ -789,6 +848,7 @@ impl Cpu {
                         self.exception(MODE_SVC, 0x08, addr.wrapping_add(2));
                     } else {
                         bios::swi(self, bus, op & 0xFF);
+                        self.branched = true;
                     }
                 } else if c == 14 {
                     self.undefined(addr);
@@ -890,14 +950,16 @@ impl Cpu {
         let list = op & 0xFF;
         if pop {
             let mut a = self.r[13];
+            let mut seq = false;
             for i in 0..8 {
                 if list & (1 << i) != 0 {
-                    self.r[i] = bus.read32(a & !3);
+                    self.r[i] = bus.read32_seq(a & !3, seq);
+                    seq = true;
                     a = a.wrapping_add(4);
                 }
             }
             if extra {
-                let v = bus.read32(a & !3);
+                let v = bus.read32_seq(a & !3, seq);
                 a = a.wrapping_add(4);
                 self.set_reg(15, v);
             }
@@ -907,14 +969,16 @@ impl Cpu {
             let n = list.count_ones() + u32::from(extra);
             let mut a = self.r[13].wrapping_sub(n * 4);
             self.r[13] = a;
+            let mut seq = false;
             for i in 0..8 {
                 if list & (1 << i) != 0 {
-                    bus.write32(a, self.r[i]);
+                    bus.write32_seq(a, self.r[i], seq);
+                    seq = true;
                     a = a.wrapping_add(4);
                 }
             }
             if extra {
-                bus.write32(a, self.r[14]);
+                bus.write32_seq(a, self.r[14], seq);
             }
         }
     }
@@ -937,9 +1001,11 @@ impl Cpu {
         }
         let end = a.wrapping_add(list.count_ones() * 4);
         if load {
+            let mut seq = false;
             for i in 0..8 {
                 if list & (1 << i) != 0 {
-                    self.r[i] = bus.read32(a & !3);
+                    self.r[i] = bus.read32_seq(a & !3, seq);
+                    seq = true;
                     a = a.wrapping_add(4);
                 }
             }
@@ -952,7 +1018,7 @@ impl Cpu {
             for i in 0..8 {
                 if list & (1 << i) != 0 {
                     let v = if i == rb && i != first { end } else { self.r[i] };
-                    bus.write32(a, v);
+                    bus.write32_seq(a, v, i != first);
                     a = a.wrapping_add(4);
                 }
             }

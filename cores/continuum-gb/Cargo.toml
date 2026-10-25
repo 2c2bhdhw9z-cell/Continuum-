@@ -19,6 +19,8 @@ libc = "0.2"
 [features]
 # Prints the exact drawer's state on every picture-register write (scripts/sameboy). Test only.
 trace = []
+# Prints every Advance bus access with its cycles (the timing test programs). Test only.
+gba_trace = []
 
 [dev-dependencies]
 png = "0.17"

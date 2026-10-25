@@ -140,6 +140,9 @@ impl Gba {
     pub fn save_state(&self) -> Vec<u8> {
         let mut out = STATE_MAGIC.to_vec();
         out.extend(bincode::serialize(self).unwrap_or_default());
+        // Added after the layout above was fixed, so they come after it and a state made before
+        // them still loads: the CPU's pipeline and the bus's timing (prefetch buffer, timers).
+        out.extend(bincode::serialize(&(self.cpu.pipe, &self.bus.tm)).unwrap_or_default());
         out
     }
 
@@ -148,6 +151,16 @@ impl Gba {
             return Err("not a cBoy GBA state".into());
         }
         let mut next: Gba = crate::state_decode(&data[8..])?;
+        let used = 8 + bincode::serialized_size(&next).map_err(|e| e.to_string())? as usize;
+        match data.get(used..).filter(|rest| !rest.is_empty()) {
+            Some(rest) => {
+                let (pipe, tm): (cpu::CpuPipe, bus::BusTiming) = crate::state_decode(rest)?;
+                next.cpu.pipe = pipe;
+                next.bus.tm = tm;
+            }
+            // An older state: its timers' counts are the counts at the moment it was made.
+            None => next.bus.tm.timer_at = [next.bus.cycles; 4],
+        }
         next.bus.rom = std::mem::take(&mut self.bus.rom);
         next.bus.bios = std::mem::take(&mut self.bus.bios);
         // The music engine's own notes are read back out of the machine's memory, so only the
