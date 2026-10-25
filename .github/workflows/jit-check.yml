@@ -1,0 +1,27 @@
+# The PSP and 3DS recompilers' own tests against Continuum's two-address code memory, on an Apple
+# Silicon Mac (scripts/jit-check.sh). Started by hand only; it never builds the app.
+name: JIT check
+
+on:
+  workflow_dispatch:
+    inputs:
+      which:
+        description: "probe, ppsspp, dynarmic or all"
+        default: all
+
+jobs:
+  check:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: brew install ninja sdl3 sdl3_ttf || true
+      - name: Probe
+        run: scripts/jit-check.sh probe
+      - name: Dynarmic (3DS CPU)
+        if: inputs.which == 'all' || inputs.which == 'dynarmic'
+        run: scripts/jit-check.sh dynarmic
+      - name: PPSSPP (PSP)
+        if: always() && (inputs.which == 'all' || inputs.which == 'ppsspp')
+        run: scripts/jit-check.sh ppsspp

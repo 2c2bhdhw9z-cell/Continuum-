@@ -43,9 +43,16 @@
 
 // Everything below is iPhone-only. A host build (the Linux test machine) compiles the stubs at the
 // bottom instead, so this file is harmless there rather than conditionally absent from the build.
-#if defined(__APPLE__) && defined(__aarch64__) && TARGET_OS_IPHONE
+//
+// CONTINUUM_JIT_TEST builds the same code on an Apple Silicon Mac (scripts/jit-check.sh), where the
+// cores' own test suites run against it: every slice comes from the "phone that needs no blessing"
+// branch, which hands out the same two-address shape, so a core that writes code through the address
+// it runs from faults there exactly as it would on the phone.
+#if defined(__APPLE__) && defined(__aarch64__) && (TARGET_OS_IPHONE || defined(CONTINUUM_JIT_TEST))
 
 #include <mach/mach.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -80,13 +87,27 @@ static size_t g_used = 0;
 // to run code from, and the failure would land inside the core rather than here.
 static bool g_live = false;
 
+#if defined(CONTINUUM_JIT_TEST)
+// The test harness has no engine to say JIT is on: CONTINUUM_DUAL=1 in the environment does.
+__attribute__((constructor)) static void continuum_jit_test_init(void) {
+    const char *dual = getenv("CONTINUUM_DUAL");
+    g_live = dual != NULL && dual[0] == '1';
+}
+#endif
+
 // One slice per asking core, remembered by name.
 //
 // A core is unloaded and loaded again every time the user leaves a game and opens another, and it
 // asks for its code memory each time. Without this the arena would be eaten a slice at a time
 // until it ran out mid-session; with it, the same core always gets the same slice back. The names
 // are short fixed strings from the patches, so there is no allocation here.
-#define CONTINUUM_JIT_SLOTS 32
+//
+// 4096, not 32 (build 226 on the owner's iPhone 17 Pro Max: the 3DS crashed with JIT on). Azahar's
+// shader recompiler takes one oaknut CodeBlock PER SHADER PROGRAM, each under a new name, and keeps
+// them all for the session; with 32 slots, eight CPU recompilers (two per emulated core) and the
+// first couple of dozen shaders used them up, the next CodeBlock fell back to a plain mapping, and on
+// a TXM phone nothing outside the blessed region may run code. About 200 KB of table.
+#define CONTINUUM_JIT_SLOTS 4096
 static struct {
     char owner[32];
     uint8_t *rx;
@@ -287,6 +308,9 @@ continuum_jit_region(const char *owner, size_t size, void **out_rx, void **out_r
     g_slots[slot].rw = rw;
     g_slots[slot].size = size;
     g_slots[slot].in_use = true;
+#if defined(CONTINUUM_JIT_TEST)
+    fprintf(stderr, "continuum_jit_region: %s %zu KB\n", name, size >> 10);
+#endif
 
     *out_rx = rx;
     *out_rw = rw;
