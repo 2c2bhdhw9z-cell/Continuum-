@@ -228,7 +228,9 @@ extension EngineHost {
     /// a game that won't start after a cheat or a setting, or a save state that crashes it.
     func launchCleanStart(entry: LibraryEntry) {
         CleanStart.pendingPath = entry.path
-        launch(entry: entry, resumingAuto: false)
+        // jitWaited: Clean start is taken back the moment launch returns, so it must not wait
+        // for JIT (BuiltInJIT.swift).
+        launch(entry: entry, resumingAuto: false, jitWaited: true)
         CleanStart.pendingPath = nil
         // Taken back in case this start never reached the core (a missing BIOS, say). After a
         // start that did, the engine has already used it up, and this changes nothing.

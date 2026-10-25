@@ -51,6 +51,10 @@ echo "==> MoltenVK"
 "$ROOT/scripts/fetch-moltenvk.sh"
 echo "==> libsmb2"
 "$ROOT/scripts/fetch-libsmb2.sh"
+# StikJIT's source for the built-in JIT helper (JITHelper/): project.yml compiles it from
+# build/stikjit, so it has to be there before XcodeGen runs.
+echo "==> StikJIT"
+"$ROOT/scripts/fetch-stikjit.sh"
 
 # EVERY BUILD NEEDS ITS OWN CFBundleVersion, and it is not a cosmetic detail.
 #
@@ -219,6 +223,20 @@ for framework in "$BUNDLE"/Frameworks/*.framework; do
   echo "==> signing nested framework $(basename "$framework")"
   codesign --force --sign - --timestamp=none "$framework"
 done
+
+# THE JIT HELPER (PlugIns/ContinuumJITHelper.appex). It carries the app's own build number, as an
+# extension must (XcodeGen gives it 1), and is signed before the app that contains it.
+APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$BUNDLE/Info.plist")"
+for appex in "$BUNDLE"/PlugIns/*.appex; do
+  [ -d "$appex" ] || continue
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_BUILD" "$appex/Info.plist"
+  echo "==> signing app extension $(basename "$appex") (build $APP_BUILD)"
+  codesign --force --sign - --timestamp=none "$appex"
+done
+[ -d "$BUNDLE/PlugIns/ContinuumJITHelper.appex" ] || {
+  echo "error: the JIT helper (PlugIns/ContinuumJITHelper.appex) is not in the app" >&2
+  exit 1
+}
 
 echo "==> ad-hoc signing $APP_NAME.app with entitlements"
 [ -f "$ENTITLEMENTS" ] || { echo "error: $ENTITLEMENTS missing" >&2; exit 1; }

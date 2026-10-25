@@ -502,6 +502,9 @@ targets:
       # Settings: the artwork controls and their disclosure, the layout controls, the permanent home
       # of the diagnostics, the BIOS row and the core options.
       - path: SettingsScreen.swift
+      # JIT, every way it can be turned on: built in (the JIT helper below), StikDebug, or another
+      # JIT app. The method, the pairing file, and turning JIT on when a game starts.
+      - path: BuiltInJIT.swift
       # The secret way in to the experimental GameCube core (seven taps on Settings, ABOUT,
       # Version) and its celebration. Remove it, and follow the compiler, when GameCube is ready
       # for everyone; the file's header says how.
@@ -875,6 +878,60 @@ targets:
         embed: true
         link: false
         codeSign: false
+      # The built-in JIT helper (JITHelper/, BuiltInJIT.swift): an app extension, embedded in
+      # PlugIns/. Signed by package-ipa.sh with everything else.
+      - target: ContinuumJITHelper
+        embed: true
+        codeSign: false
+
+  # CONTINUUM'S JIT HELPER: turns JIT on from the phone itself, with the pairing file and
+  # LocalDevVPN, like Manic's built-in debugger. A separate process because a process that
+  # attaches a debugger to itself deadlocks. StikJIT's source (MPL-2.0, fetched by
+  # scripts/fetch-stikjit.sh into build/stikjit, pinned) is compiled straight into it, with the
+  # idevice static library it ships. iOS 17.4 or later, like StikJIT; the app itself keeps 16.0
+  # and only starts the helper on 17.4 or later.
+  ContinuumJITHelper:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.4"
+    info:
+      path: JITHelper/Info.plist
+      properties:
+        CFBundleDisplayName: Continuum JIT Helper
+        CFBundlePackageType: XPC!
+        CFBundleShortVersionString: "0.8.0"
+        NSExtension:
+          NSExtensionAttributes:
+            NSExtensionActivationRule: FALSEPREDICATE
+          NSExtensionPointIdentifier: com.apple.ar.viewer
+          NSExtensionPrincipalClass: ContinuumJITHelperHandler
+    sources:
+      - path: JITHelper/ContinuumJITHelper.swift
+      - path: build/stikjit/Sources
+      - path: build/stikjit/Resources
+        buildPhase: resources
+    dependencies:
+      - sdk: JavaScriptCore.framework
+      - sdk: Network.framework
+      - sdk: Security.framework
+      - sdk: CFNetwork.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: IOKit.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.continuum.app.JITHelper
+        PRODUCT_NAME: ContinuumJITHelper
+        IPHONEOS_DEPLOYMENT_TARGET: "17.4"
+        SWIFT_VERSION: "5.0"
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SWIFT_INCLUDE_PATHS: "$(SRCROOT)/build/stikjit/idevice $(SRCROOT)/build/stikjit/iokit"
+        HEADER_SEARCH_PATHS: "$(inherited) $(SRCROOT)/build/stikjit/idevice $(SRCROOT)/build/stikjit/iokit"
+        LIBRARY_SEARCH_PATHS: "$(inherited) $(SRCROOT)/build/stikjit/idevice"
+        # Only the idevice code StikJIT reaches, with its symbols kept private.
+        OTHER_LDFLAGS: "$(inherited) -Wl,-hidden-lidevice_ffi -lc++"
+        DEAD_CODE_STRIPPING: YES
+        CLANG_CXX_LIBRARY: "libc++"
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks"
 
 # Declared explicitly. XcodeGen only emits a *shared* scheme when one is defined here, and
 # `xcodebuild -scheme` cannot see the non-shared schemes Xcode would otherwise invent on

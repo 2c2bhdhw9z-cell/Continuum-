@@ -36,6 +36,8 @@ on:
       # Builds libsmb2 for the phone and links it into the app. package-ipa.sh runs it before
       # xcodegen. A change to the pin or the flags has to rebuild.
       - "scripts/fetch-libsmb2.sh"
+      # Fetches StikJIT's pinned source, compiled into the built-in JIT helper.
+      - "scripts/fetch-stikjit.sh"
       # The Swift checkers the `checks` job runs before the .ipa. A change to one must run them,
       # or a broken checker would surface only on the next unrelated push and block that build.
       - "scripts/check-*.sh"

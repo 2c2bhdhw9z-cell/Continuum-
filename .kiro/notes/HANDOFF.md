@@ -5,7 +5,83 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (25 October 2026, about 6:15 AM Eastern): GameCube game gone after the reinstall
+## START HERE (25 October 2026, about 7:50 AM Eastern): built-in JIT written, NOT BUILT, NOT COMPILED
+
+The owner ended the chat here because it got too long. Everything is pushed with [skip ci]; nothing
+since build 224 has been built. NEXT BUILD (225) carries: 0d68444 (GameCube backup fix), 8f717bf (JIT
+button line), and the built-in JIT below.
+
+OWNER, ~7:40 AM: "Works with stikdebug here's the picture, so I guess I want it Any way Jit can be set up
+Continuum can do that method." (The picture did not arrive; text only. He was told.) So JIT through
+StikDebug works in Continuum 224 on his phone (iOS 27.0.1, iPhone18,2, TXM, CertDrop development cert,
+get-task-allow.plist, StikPair pairing file, LocalDevVPN). Earlier: "It should be as simple as Manic, if
+not simpler". GOAL: every way JIT can be turned on, default "Built in" like Manic (import the pairing file
+once; JIT comes on by itself when a game starts).
+
+WHAT IS WRITTEN (this commit; Swift syntax-checked with `swiftc -parse` on Linux, never compiled for iOS):
+- scripts/fetch-stikjit.sh: clones StikJIT tag 1.9.0 (commit 32287268fa5824f9edce4cb359f5833ce0cf7b00 is
+  checked) into native/ios/build/stikjit (Sources, Resources, idevice, iokit, LICENSE). Works locally.
+  Why source and not the release xcframework: its swiftinterface is Swift 6.4 / Xcode 27; CI has Xcode
+  26.6 (iOS SDK 26.5). Madeira (GPL) was read for the approach only; no code copied.
+- native/ios/JITHelper/ContinuumJITHelper.swift + Info.plist: app extension dev.continuum.app.JITHelper,
+  extension point com.apple.ar.viewer with FALSEPREDICATE, principal class ContinuumJITHelperHandler.
+  Request JSON in the input item's userInfo["continuum-jit-request"] {operation enable|prepare|reset,
+  targetPID, pairing (base64 string -> Data, JSONDecoder's default)}; answer JSON in
+  userInfo["continuum-jit-response"] {ok, message, log}. "enable" = StikJIT.enableJIT(targetPID:,
+  pairingFile:, ddiPaths: DDIPaths.default(in: Library/StikJIT), script: .universal, forceScript: false).
+- project.yml: target ContinuumJITHelper (app-extension, iOS 17.4, StikJIT sources + resources,
+  include paths for idevice/iokit, `-Wl,-hidden-lidevice_ffi -lc++`, sdk frameworks); embedded in the
+  app (PlugIns/); BuiltInJIT.swift added to the app's sources.
+- package-ipa.sh: runs fetch-stikjit.sh before XcodeGen; stamps the appex CFBundleVersion with the app's;
+  signs PlugIns/*.appex; FAILS the build if PlugIns/ContinuumJITHelper.appex is missing.
+  ios.yml: fetch-stikjit.sh is a build trigger path.
+- native/ios/BuiltInJIT.swift: JitMethod (builtIn default, stikDebug, otherApp); JitPairingFile
+  (Documents/StikJIT/pairingFile.plist + Keychain copy, AfterFirstUnlockThisDeviceOnly, so it survives
+  the owner deleting the app; never synced or logged); JitHelper (starts the appex through the private
+  NSExtension API: extensionWithIdentifier:error:, beginExtensionRequestWithInputItems:completion:,
+  completion/cancel/interruption blocks); BuiltInJIT.shared (turnOn, shouldTurnOnBeforeGame, a
+  main-actor polling Task calling engine.prepareJit every 0.25 s so the engine prepares the code memory
+  as soon as the helper's universal script is attached; gives up after 120 s; after 2 failures in a run
+  it stops waiting at game start); BuiltInJITRows (Settings, Technical details: method picker, pairing
+  file import, "Turn JIT on when a game starts" switch (on), "Turn on JIT now", "Download the developer
+  disk image again").
+- SettingsScreen.swift: jitRows shows BuiltInJITRows in place of the old StikDebug-only button (StikDebug
+  is now a method; its jitAskLine shows under it). Credits: StikJIT (MPL 2.0), idevice (MIT), StikDebug
+  universal script (AGPL 3.0).
+- ContinuumApp.swift `launch(entry:...)` has `jitWaited: Bool = false`: with Built in + pairing file +
+  the switch on and JIT not on yet, the first game waits for turnOn, then re-enters launch once with
+  jitWaited true (status keeps its "opening " start so the Library shows no refusal). The core fallback
+  retry, launchAndLoad (play from a state) and Clean start pass jitWaited true, because they read the
+  result the moment launch returns.
+
+NEXT CHAT, IN ORDER:
+1. Start build 225 (push without [skip ci], or gh api -X POST
+   repos/2c2bhdhw9z-cell/Continuum-/actions/workflows/ios.yml/dispatches -f ref=master). EXPECT compile
+   errors in the helper/StikJIT sources (Swift 6.2 vs StikJIT's toolchain, IOKit headers on the iOS SDK,
+   kIORegistryEntryPropertyKeysKey, the idevice module map) and in BuiltInJIT.swift (actor isolation,
+   Sendable). Fix them in one go per round; read the failed log with gh run view --log-failed.
+2. Check the .ipa: 0.8.0 (225), 38 `_libretro_ios.dylib`, Frameworks/continuum_gc_libretro_ios.dylib,
+   AND PlugIns/ContinuumJITHelper.appex with its CFBundleVersion = the app's.
+3. Hand over the link + numbered steps: sign with the development (JIT) certificate and the Release's
+   get-task-allow.plist; reinstall; import Animal Crossing again (once; the backup keeps it from now on);
+   Settings, Technical details, JIT method Built in, Import pairing file (the one from StikPair, the same
+   one Manic uses); LocalDevVPN on; open a game: it should say it is turning JIT on, then open; Technical
+   details' JIT line says on; in a GameCube game the speed read-out shows a "JIT n%" line.
+   Ask what he sees if it fails: the line under the button says what went wrong in plain words.
+4. KNOWN RISKS: (a) iOS may refuse to start an app extension of a sideloaded app through NSExtension if
+   the signer (Feather/ESign) strips or renames PlugIns: the button then says the helper is missing or
+   didn't start. (b) Signers re-sign the appex with the same cert; the appex's own get-task-allow is not
+   needed (it is the debugger, not the debuggee). (c) "Another JIT app" only waits for an attach after
+   "Turn on JIT now"; it does not auto-prepare at app start, on purpose (a non-universal debugger would
+   not answer the prepare breakpoints). (d) StikDebug method: if StikDebug does not open, the button
+   stays "Turning JIT on..." for 90 s.
+5. The other ways still to add if the owner wants them (ask before building): SideStore/AltStore's own
+   "Enable JIT" (works today as "Another JIT app"), a computer (same), StikDebug's "launch with JIT"
+   shortcut; owner-rules' old "owner cannot use JIT" line is outdated (PLATFORM_LIMITS records it).
+6. Then: interpreter speed (dispatch loop, superinstructions, stmw/lmw/cr ops), the GPU drawer, the
+   Neverball plain-vs-fast compare difference after field 33 (pre-existing since 0d4edda).
+
+## Earlier (25 October 2026, about 6:15 AM Eastern): GameCube game gone after the reinstall
 
 OWNER ON 224 (6 AM, furious): GameCube "isn't showing". Two screenshots: Settings, About shows 0.8.0 (224)
 with the GameCube (experimental) switch ON; the Library (80 titles) has no GameCube console and no

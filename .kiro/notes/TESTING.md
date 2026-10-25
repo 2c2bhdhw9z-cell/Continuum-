@@ -7,12 +7,20 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
-## Next install (after 224): GameCube games kept through a reinstall
+## Next install (after 224): GameCube games kept through a reinstall, built-in JIT
 
 Owner on 224: Animal Crossing gone after deleting the app (the backup never carried GameCube files).
+Owner, 25 October: JIT works with StikDebug; wants every JIT way, built in like Manic by default.
 
-1. After installing, import Animal Crossing once more (+ button). It shows under GameCube.
-2. On the install after that: it is still there, without importing it again.
+1. Sign with the development (JIT) certificate and the Release's get-task-allow.plist, install.
+2. Import Animal Crossing once more (+ button). It shows under GameCube.
+3. Settings, Technical details: JIT method "Built in"; "Import pairing file" (the StikPair one, the
+   same file Manic uses). It says "Pairing file imported".
+4. LocalDevVPN on. Open a game: it turns JIT on first (a few seconds; the first time it also
+   downloads the developer disk image), then opens. Technical details' JIT line says on; in a
+   GameCube game the speed read-out shows a "JIT n%" line.
+5. If it fails: the line under "Turn on JIT now" says why. StikDebug still works as a method.
+6. On the install after that: Animal Crossing and the pairing file are still there.
 
 ## Build 224 (24 October): GameCube, faster processor maths
 

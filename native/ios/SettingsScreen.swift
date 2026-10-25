@@ -577,14 +577,9 @@ struct SettingsScreen: View {
         }
         .tint(ShellPalette.accent)
 
-        if report?.canAskEnabler == true {
-            SettingsButton(title: "Turn on JIT with StikDebug", role: .normal) {
-                host.askStikDebugForJit()
-            }
-            if !host.jitAskLine.isEmpty {
-                SettingsNote(host.jitAskLine)
-            }
-        }
+        // How JIT is turned on (built in, StikDebug, another JIT app), the pairing file and the
+        // "Turn on JIT now" button (BuiltInJIT.swift). It replaces the StikDebug-only button.
+        BuiltInJITRows(host: host)
 
         // Only on a phone that needs its code memory blessed and where that has not happened yet.
         // Normally the app does this by itself on coming back from StikDebug; this is for someone
@@ -1602,6 +1597,11 @@ struct OpenSourceCreditsList: View {
         .init(name: "J2meJS", systems: "J2ME", license: "GPL v2", source: "https://github.com/Rosabis/J2meJS"),
         .init(name: "Continuum Symbian (built on EKA2L1)", systems: "Symbian / N-Gage", license: "GPL v3", source: "https://github.com/EKA2L1/EKA2L1"),
         .init(name: "rcheevos", systems: "Achievements", license: "MIT", source: "https://github.com/RetroAchievements/rcheevos"),
+        // The built-in JIT helper (JITHelper/, BuiltInJIT.swift): StikJIT's source compiled in, the
+        // idevice library it ships, and StikDebug's universal script inside StikJIT's resources.
+        .init(name: "StikJIT", systems: "Built-in JIT", license: "MPL 2.0", source: "https://github.com/StikDebug/StikJIT"),
+        .init(name: "idevice", systems: "Built-in JIT", license: "MIT", source: "https://github.com/jkcoxson/idevice"),
+        .init(name: "StikDebug (universal JIT script)", systems: "Built-in JIT", license: "AGPL 3.0", source: "https://github.com/StikDebug/StikDebug"),
         .init(name: "libsmb2", systems: "SMB file sharing", license: "LGPL v2.1", source: "https://github.com/sahlberg/libsmb2"),
         .init(name: "MoltenVK", systems: "Vulkan graphics", license: "Apache 2.0", source: "https://github.com/KhronosGroup/MoltenVK"),
         .init(name: "Console photos (Wikimedia Commons: Evan-Amos and others)", systems: "The New look's SYSTEMS row", license: "Public domain, CC0, CC BY and CC BY-SA; each one named in the list", source: "https://github.com/2c2bhdhw9z-cell/Continuum-/blob/master/native/ios/CONSOLE_PHOTOS.md"),

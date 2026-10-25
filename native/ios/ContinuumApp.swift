@@ -4856,7 +4856,8 @@ final class EngineHost: ObservableObject {
     /// Set only for the length of `restartForCoreSettings`' call to `launch`.
     var restartResumesAnyway = false
 
-    func launch(entry: LibraryEntry, resumingAuto: Bool = true, forcedCoreId: String? = nil) {
+    func launch(entry: LibraryEntry, resumingAuto: Bool = true, forcedCoreId: String? = nil,
+                jitWaited: Bool = false) {
         // Breadcrumb, written before the re-entrancy stop and before ANY guard below can
         // return. A tap that reaches this method therefore always changes the HUD. If the HUD
         // ever stays on the previous line, this method provably was not reached, which narrows
@@ -4899,6 +4900,21 @@ final class EngineHost: ObservableObject {
            let line = CoreCatalog.unplayableSystems[system] {
             status = line
             FeedbackCenter.step("launch refused: \(entry.name) [\(system.rawValue)] has no core in this version")
+            return
+        }
+
+        // JIT FIRST, WHEN IT IS BUILT IN (BuiltInJIT.swift). With the pairing file imported and
+        // "Turn JIT on when a game starts" on, the first game of a run waits the few seconds the
+        // helper takes, then opens, the way Manic does it. Only once per tap: whatever happened
+        // (on, or a failure, which Settings explains), the game then opens. The status keeps its
+        // "opening " start so the wait is not shown as a refusal.
+        if !jitWaited, BuiltInJIT.shared.shouldTurnOnBeforeGame(self) {
+            status = "opening \(entry.name)... turning JIT on first"
+            FeedbackCenter.step("launch: turning JIT on before \(entry.name)")
+            BuiltInJIT.shared.turnOn(self) { [weak self] on in
+                FeedbackCenter.step("launch: JIT \(on ? "on" : "did not come on"); opening \(entry.name)")
+                self?.launch(entry: entry, resumingAuto: resumingAuto, forcedCoreId: forcedCoreId, jitWaited: true)
+            }
             return
         }
 
@@ -5241,7 +5257,8 @@ final class EngineHost: ObservableObject {
                                               refusedCore: spec.coreId, refusedWasDefault: true),
                CoreCatalog.core(id: fallback) != nil {
                 FeedbackCenter.step("launch retry: \(spec.coreId) refused \(entry.name); trying \(fallback) once")
-                launch(entry: entry, resumingAuto: resumingAuto, forcedCoreId: fallback)
+                // jitWaited: the retry is checked the moment it returns, so it must not wait for JIT.
+                launch(entry: entry, resumingAuto: resumingAuto, forcedCoreId: fallback, jitWaited: true)
                 if running && activeCoreId == fallback {
                     status = launchRetryLine(refusedName: SaveStates.shortCoreName(spec.coreId),
                                              fallbackName: SaveStates.shortCoreName(fallback))
@@ -5615,7 +5632,8 @@ final class EngineHost: ObservableObject {
     /// core to load into; if it failed, `running` is false and the store refuses with its own
     /// reason rather than this method inventing one.
     func launchAndLoad(entry: LibraryEntry, record: SaveStateRecord) {
-        launch(entry: entry, resumingAuto: false)
+        // jitWaited: the state is loaded the moment launch returns, so it must not wait for JIT.
+        launch(entry: entry, resumingAuto: false, jitWaited: true)
         guard running else { return }
         saveStates.load(record)
     }

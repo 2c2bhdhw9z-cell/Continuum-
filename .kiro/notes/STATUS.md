@@ -1,5 +1,12 @@
 # What is finished, and what is not
 
+**25 October 2026, morning: JIT, every way (built in like Manic, StikDebug, another JIT app).
+Written, not compiled, not built.** Our own JIT helper app extension with StikJIT 1.9.0's source
+compiled in (JITHelper/, scripts/fetch-stikjit.sh), BuiltInJIT.swift (method, pairing file kept in
+the Keychain across reinstalls, JIT on when a game starts). Build 225 will be its first compile;
+HANDOFF.md "START HERE" has the order. Also waiting for that build: the GameCube backup fix and the
+JIT button line.
+
 **RULE (owner, 19 October 2026): never copy another app's UI layout.** Other apps may be looked
 at only for WHAT a player can do (capability), never for how a screen is laid out or worded.
 Build 200's Theme sheet broke this and was removed.
