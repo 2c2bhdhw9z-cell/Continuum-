@@ -7,7 +7,14 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
-## Build 223 (24 October): the speed read-out can be switched on
+## Build 224 (24 October): GameCube, faster processor maths
+
+Owner on 223: the read-out works (five screenshots, written down in HANDOFF.md).
+
+1. GameCube switch on, open Animal Crossing, Speed read-out on (as in 221, step 2).
+2. Watch the title screen: screenshot the box once while it is slow.
+
+## Build 223 (24 October): the speed read-out can be switched on (done: it shows)
 
 Owner on 221: no difference felt; Speed read-out would not turn on. 223 pauses the game while Core
 settings is open, so its choices respond. Steps as for 221 below. (222 was cancelled.)

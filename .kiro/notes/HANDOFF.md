@@ -5,7 +5,33 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (24 October 2026, about 7:15 PM Eastern): build 223, the read-out made reachable
+## START HERE (24 October 2026, about 9 PM Eastern): the read-out's answer, build 224
+
+OWNER'S READ-OUT ON 223 (~7:35 PM, five screenshots; the read-out works now):
+    title screen:  SPEED 81% | CPU 86M LOAD 32% | CPU 65 DRAW 8 | WAIT 12 SND 0 APP 15 | HOT 8007E100 68 ...
+                   SPEED 100% | CPU 94M LOAD 28% | CPU 71 DRAW 10 | WAIT 1 SND 0 APP 18 | 8007E100 71 ...
+                   SPEED 100% | CPU 78M LOAD 24% | CPU 67 DRAW 9 | WAIT 10 SND 0 APP 14 | 8007E100 76 ...
+    K.K. scene:    SPEED 99-100% | CPU 56-61M LOAD 17-18% | CPU 35-40 DRAW 1-3 | APP 57-64 (Metal HUD 60 fps)
+    title hot code (python3 .scratch/acsym.py): 8007E100 SelectThread (the OS idle loop), then emu64 (Animal
+    Crossing's N64 display-list emulation: texture_matrix/set_position 80050400/80050800, dl_G_VTX 80055B00,
+    dl_G_TRIN 80056000, emu64_taskstart 80058A00); K.K.: 80017000-80017800 RspStart (its software N64 sound).
+WHAT IT MEANS: the game runs at 81-100% speed, but the Metal HUD shows ~15 pictures a second. The engine runs
+the core on the main thread and the pacer (timing.rs) runs up to 4 core frames per display tick when behind;
+with a core frame of ~13-20 ms the main thread is saturated and the pacer settles into 2-4 frames per tick
+(.scratch/pacersim.py: 13.3 ms -> 30 shown/s, 20 ms -> 12 shown/s at 77% speed, <= 11 ms -> 60). Drawing is
+not the bottleneck here (DRAW 8-10, WAIT 1-12); the PowerPC interpretation is (CPU 65-71%), and the hot code
+is floating-point heavy. So: make the fast interpreter faster. Done in a430fef (build 224): quick handlers
+for FP and paired singles (fast_ops.rs "paired singles, quickly", fpu.rs farith_quick shared with the plain
+interpreter), 1.7x on .scratch/fpbench.dol (examples/fpbench.rs; x86 needs RUSTFLAGS="-C target-feature=+fma"
+to be fair, the phone has hardware FMA). Neverball 1,500 fields 101 -> 86 s.
+FOUND, NOT FIXED: examples/compare.rs on Neverball differs plain vs fast after field 33 (fast 10 cycles ahead,
+pc equal) - already so at session start (0d4edda), not from today's changes. Track down later.
+NEXT: more interpreter speed (the dispatch loop itself is ~50% of interpreter time; superinstructions or
+fewer per-op stores; stmw/lmw and cr ops still go generic), then the pacer for heavy cores if needed.
+Neverball test image: `.scratch/mkfat.py img 256 .scratch/homebrew/neverball/neverball` (pyfatfs in
+.scratch/venv), run from a fresh copy (the game writes to it).
+
+## Earlier (24 October 2026, about 7:15 PM Eastern): build 223, the read-out made reachable
 
 OWNER ON 221 (~7 PM): "Nope. Saw and felt no difference. And the thing don't turn on." Three screenshots:
 title screen with the Metal HUD (~16 and ~24 fps), and Core settings showing Speed read-out: Off, with no
