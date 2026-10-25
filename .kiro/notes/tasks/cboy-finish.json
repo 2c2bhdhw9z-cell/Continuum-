@@ -22,9 +22,10 @@
   "items": [
     {
       "id": "B1",
-      "done": false,
+      "done": true,
       "title": "Game Boy Advance timing: the cartridge prefetch buffer and exact wait states",
-      "notes": "Today a simple prefetch model. Measure with the jsmolka/AGS-style timing tests and mGBA's suite (mgba-suite) before and after; some demanding games depend on it."
+      "notes": "Today a simple prefetch model. Measure with the jsmolka/AGS-style timing tests and mGBA's suite (mgba-suite) before and after; some demanding games depend on it.",
+      "result": "Done 25 October (commits c7e2bb1, 7061656). Measured with Alyosha's timing tests (alyosha-tas/gba-tests, MIT, 133 ROMs written against a real console; mGBA's suite needs devkitARM, which this sandbox cannot download). Before: 47 of 133 (prefetch 1 of 18). After: 64 of 133, all 18 prefetch-buffer tests and both prefetch on/off tests; pinned in tests/gba.rs alyosha_timing_tests, fetched by scripts/fetch-test-roms.sh. What changed: the Advance CPU has its real two-opcode pipeline (each instruction's read at r15, jumps refill N then S); every access is sequential or not as the CPU says (N after any data or internal cycle); the prefetch buffer is modelled halfword by halfword the way the tests' author's own emulator (GBAHawk) does it; DMA: first unit N, rest S, internal cycles split before/after, an immediate DMA starts 2 cycles after its write and overlaps the CPU's internal cycles; the work RAM wait register ($04000800); timers on the shared prescaler with the real start delay (and the FFFF-on-enable overflow); registers read/written at the end of the access; ARM jumps keep bit 1. Reference used: GBAHawk (Alyosha's emulator) built locally in .scratch only, with a stand-in BIOS, as a cycle-by-cycle comparison (it passes 102 of 133 that way); nothing of it is in the repo. Older Advance save states still load (the new timing state is appended after the fixed layout). Speed: about 5% slower than before on the six homebrew games here. Not done (not prefetch or wait states): a DMA interrupted by a higher-priority one, interrupt entry delay, the serial port's timing, sprite fetch timing, BIOS-dependent start-up tests."
     },
     {
       "id": "B2",
