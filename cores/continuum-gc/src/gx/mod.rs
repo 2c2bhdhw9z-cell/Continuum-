@@ -20,12 +20,13 @@ use serde::{Deserialize, Serialize};
 
 mod draw;
 mod efb;
+pub mod gpu;
 mod raster;
 mod tev;
 mod texture;
 mod vertex;
 
-pub use efb::{EFB_HEIGHT, EFB_WIDTH};
+pub use efb::{EfbMem, EFB_HEIGHT, EFB_WIDTH};
 
 /// Physical memory as the graphics engine's DMA sees it.
 pub struct Ram<'a> {
@@ -169,7 +170,8 @@ pub struct Stats {
     pub last_unknown: u8,
     /// Time spent drawing (development read-out).
     pub draw_time: std::time::Duration,
-    /// Time the CPU's thread spent waiting for (and helping with) the helpers' pixels.
+    /// Time the CPU's thread spent waiting for (and helping with) the helpers' pixels, or for
+    /// the graphics chip.
     pub wait_time: std::time::Duration,
 }
 
@@ -179,6 +181,10 @@ pub struct Gx {
     /// before the EFB it draws into.
     #[serde(skip)]
     draw: draw::Threads,
+    /// The GPU drawer (gpu/mod.rs), when the graphics chip draws instead: then the EFB below is
+    /// its memory. Not part of save states; a copy (for a save state) draws on the CPU.
+    #[serde(skip)]
+    gpu: gpu::Slot,
     // ---- CP registers (CPU side, 0x0C000000)
     pub cp_sr: u16,
     pub cp_cr: u16,
@@ -215,10 +221,8 @@ pub struct Gx {
     // ---- memories
     #[serde(with = "big_bytes")]
     pub tmem: Vec<u8>,
-    #[serde(with = "big_u32s")]
-    pub efb_color: Vec<u32>,
-    #[serde(with = "big_u32s")]
-    pub efb_depth: Vec<u32>,
+    pub efb_color: EfbMem,
+    pub efb_depth: EfbMem,
 
     /// FIFO bytes read but not yet a whole command.
     queue: Vec<u8>,
@@ -235,6 +239,9 @@ pub struct Gx {
     pub(crate) tex_cache_bytes: usize,
     #[serde(skip)]
     pub stats: Stats,
+    /// Why the GPU drawer stopped mid-game, for the log (taken by whoever reports it).
+    #[serde(skip)]
+    pub gpu_error: Option<String>,
 }
 
 mod big_bytes {
@@ -243,16 +250,6 @@ mod big_bytes {
         v.serialize(s)
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
-        Vec::deserialize(d)
-    }
-}
-
-mod big_u32s {
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-    pub fn serialize<S: Serializer>(v: &Vec<u32>, s: S) -> Result<S::Ok, S::Error> {
-        v.serialize(s)
-    }
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u32>, D::Error> {
         Vec::deserialize(d)
     }
 }
@@ -276,6 +273,7 @@ impl Gx {
         bp[0x22] = 0x0000_0606;
         Gx {
             draw: draw::Threads::default(),
+            gpu: gpu::Slot::default(),
             cp_sr: SR_READ_IDLE | SR_CMD_IDLE,
             cp_cr: 0,
             cp_token: 0,
@@ -298,13 +296,14 @@ impl Gx {
             tev_konst: [[0; 4]; 4],
             pe_regs: [0; 16],
             tmem: vec![0; 1 << 20],
-            efb_color: vec![0; efb::EFB_WIDTH * efb::EFB_HEIGHT],
-            efb_depth: vec![0x00FF_FFFF; efb::EFB_WIDTH * efb::EFB_HEIGHT],
+            efb_color: EfbMem::owned(vec![0; efb::EFB_WIDTH * efb::EFB_HEIGHT]),
+            efb_depth: EfbMem::owned(vec![0x00FF_FFFF; efb::EFB_WIDTH * efb::EFB_HEIGHT]),
             queue: Vec::new(),
             tex_cache: Default::default(),
             tex_epoch: 0,
             tex_cache_bytes: 0,
             stats: Stats::default(),
+            gpu_error: None,
         }
     }
 
@@ -334,6 +333,12 @@ impl Gx {
         let t = std::time::Instant::now();
         let n = self.draw.wait();
         self.stats.pixels += n;
+        if let Some(g) = self.gpu.get() {
+            match g.wait() {
+                Ok(n) => self.stats.pixels += n,
+                Err(e) => self.gpu_failed(&e),
+            }
+        }
         self.stats.wait_time += t.elapsed();
     }
 
@@ -341,6 +346,54 @@ impl Gx {
     pub fn wait_idle(&self) {
         // Pixels counted here are dropped from the development counter; nothing else.
         let _ = self.draw.wait();
+        // A failure here shows at the next `sync`, which takes the GPU drawer away.
+        self.gpu.wait_shared();
+    }
+
+    // ------------------------------------------------------------------ the GPU drawer
+
+    /// Draws with `g` (the graphics chip) from now on: the EFB moves into its memory.
+    pub fn attach_gpu(&mut self, g: gpu::GpuDrawer) {
+        self.sync();
+        if self.gpu.get().is_some() {
+            return;
+        }
+        let (mut color, mut depth) = g.efb();
+        color.copy_from_slice(&self.efb_color);
+        depth.copy_from_slice(&self.efb_depth);
+        self.efb_color = color;
+        self.efb_depth = depth;
+        self.gpu.put(g);
+    }
+
+    /// Takes the GPU drawer away (the CPU draws from now on), the EFB copied back out of its memory.
+    pub fn detach_gpu(&mut self) -> Option<gpu::GpuDrawer> {
+        self.sync();
+        let g = self.gpu.take()?;
+        self.efb_color = EfbMem::owned(self.efb_color.to_vec());
+        self.efb_depth = EfbMem::owned(self.efb_depth.to_vec());
+        Some(g)
+    }
+
+    /// Whether the graphics chip is drawing.
+    pub fn gpu_drawing(&mut self) -> bool {
+        self.gpu.get().is_some()
+    }
+
+    /// The GPU drawer's counters, when it is drawing.
+    pub fn gpu_stats(&self) -> Option<gpu::GpuStats> {
+        self.gpu.stats()
+    }
+
+    /// The graphics chip failed: the CPU draws from here on (what it had drawn is kept), and the
+    /// reason is kept for the log.
+    fn gpu_failed(&mut self, why: &str) {
+        if let Some(g) = self.gpu.take() {
+            g.poison();
+            self.efb_color = EfbMem::owned(self.efb_color.to_vec());
+            self.efb_depth = EfbMem::owned(self.efb_depth.to_vec());
+            self.gpu_error = Some(why.to_string());
+        }
     }
 
     // ------------------------------------------------------------------ interrupts

@@ -3,12 +3,83 @@
 //! picture VI shows, in YUV) and to textures (every texture format the hardware can write).
 
 use super::{Gx, Ram};
+use std::sync::Arc;
 
 pub const EFB_WIDTH: usize = 640;
 pub const EFB_HEIGHT: usize = 528;
 
+/// The EFB's colour or depth words: the drawer's own memory, or (with the GPU drawer) memory the
+/// graphics chip draws into and the processor reads directly (gpu/mod.rs), the same words in the
+/// same order. Everything else (copies, clears, peeks, save states) sees a plain slice either way,
+/// and only after `Gx::sync` has waited for the drawing.
+pub struct EfbMem {
+    ptr: *mut u32,
+    len: usize,
+    /// The memory itself: a Vec, or the GPU buffer it lives in (kept alive while it is used).
+    _own: Vec<u32>,
+    _gpu: Option<Arc<dyn std::any::Any + Send + Sync>>,
+}
+
+// SAFETY: `ptr` points into `own` or into the GPU buffer `_gpu` keeps alive; access follows the
+// usual borrow rules through Deref/DerefMut.
+unsafe impl Send for EfbMem {}
+unsafe impl Sync for EfbMem {}
+
+impl EfbMem {
+    pub fn owned(mut v: Vec<u32>) -> EfbMem {
+        EfbMem { ptr: v.as_mut_ptr(), len: v.len(), _own: v, _gpu: None }
+    }
+
+    /// Words in GPU memory.
+    ///
+    /// # Safety
+    /// `ptr` must be valid for `len` words for as long as `keep` lives, and nothing else may use
+    /// them while this does (the GPU only while `Gx::sync` is not holding it back).
+    pub unsafe fn mapped(ptr: *mut u32, len: usize, keep: Arc<dyn std::any::Any + Send + Sync>) -> EfbMem {
+        EfbMem { ptr, len, _own: Vec::new(), _gpu: Some(keep) }
+    }
+
+    pub fn is_mapped(&self) -> bool {
+        self._gpu.is_some()
+    }
+}
+
+impl std::ops::Deref for EfbMem {
+    type Target = [u32];
+    fn deref(&self) -> &[u32] {
+        // SAFETY: see the type's notes.
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    }
+}
+
+impl std::ops::DerefMut for EfbMem {
+    fn deref_mut(&mut self) -> &mut [u32] {
+        // SAFETY: see the type's notes.
+        unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) }
+    }
+}
+
+impl Clone for EfbMem {
+    fn clone(&self) -> Self {
+        EfbMem::owned(self.to_vec())
+    }
+}
+
+// The same bytes as the Vec<u32> it used to be, so older save states still load.
+impl serde::Serialize for EfbMem {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        (**self).serialize(s)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for EfbMem {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<EfbMem, D::Error> {
+        Vec::<u32>::deserialize(d).map(EfbMem::owned)
+    }
+}
+
 /// The pixel engine's settings, unpacked from BP registers once per primitive.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug)]
 pub struct PeState {
     pub z_enable: bool,
     pub z_func: u32,

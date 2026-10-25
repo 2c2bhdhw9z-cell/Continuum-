@@ -84,6 +84,14 @@ impl Gx {
         if tris.is_empty() {
             return;
         }
+        // The graphics chip draws them, when it is drawing; if it fails, the CPU takes over from
+        // this primitive on.
+        if let Some(g) = self.gpu.get() {
+            match g.submit(&s, &tris) {
+                Ok(()) => return,
+                Err(e) => self.gpu_failed(&e),
+            }
+        }
         let target = Target::new(&mut self.efb_color, &mut self.efb_depth);
         let n = self.draw.submit(Job { setup: Arc::new(s), tris, target });
         self.stats.pixels += n;

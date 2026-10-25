@@ -24,7 +24,7 @@ const ROW_HALF: u8 = 8;
 const ROW_ZERO: u8 = 9;
 
 /// A colour operand selector (0-15) as a row of the input table.
-fn color_operand(sel: u8) -> Operand {
+pub(super) fn color_operand(sel: u8) -> Operand {
     match sel {
         0..=11 => Operand { row: sel / 2, alpha: sel & 1 == 1 },
         12 => Operand { row: ROW_ONE, alpha: false },
@@ -35,7 +35,7 @@ fn color_operand(sel: u8) -> Operand {
 }
 
 /// An alpha operand selector (0-7) as a row of the input table (its alpha is used).
-fn alpha_operand(sel: u8) -> u8 {
+pub(super) fn alpha_operand(sel: u8) -> u8 {
     match sel {
         0..=6 => sel,
         _ => ROW_ZERO,

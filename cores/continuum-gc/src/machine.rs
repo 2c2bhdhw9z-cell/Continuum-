@@ -563,8 +563,13 @@ impl Machine {
         self.hw.dsp = s.dsp;
         self.hw.ai = s.ai;
         let threads = self.hw.gx.draw_threads();
+        // The graphics chip keeps drawing: its EFB takes the state's.
+        let gpu = self.hw.gx.detach_gpu();
         self.hw.gx = s.gx;
         self.hw.gx.set_draw_threads(threads);
+        if let Some(g) = gpu {
+            self.hw.gx.attach_gpu(g);
+        }
         self.hw.gather = s.gather;
         self.line_cycles = s.line_cycles;
         Ok(())

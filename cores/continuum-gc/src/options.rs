@@ -54,17 +54,31 @@ const NULL_VALUE: OptValue = OptValue { value: std::ptr::null(), label: std::ptr
 /// the corner of the picture.
 pub const SPEED_READOUT: &CStr = c"cgc_speed_readout";
 
+/// Which part of the phone draws the pictures: the graphics chip (gx/gpu) or the processor's
+/// cores (gx/draw.rs), read when a game starts.
+pub const DRAWING: &CStr = c"cgc_drawing";
+
 /// (category, key, label, info, values, default)
 type Spec = (&'static CStr, &'static CStr, &'static CStr, &'static CStr, &'static [(&'static CStr, &'static CStr)], &'static CStr);
 
-const SPECS: &[Spec] = &[(
-    c"performance",
-    SPEED_READOUT,
-    c"Speed read-out",
-    c"Shows how fast the game runs, and what takes the time, in the corner. Applies right away.",
-    &[(c"off", c"Off"), (c"on", c"On")],
-    c"off",
-)];
+const SPECS: &[Spec] = &[
+    (
+        c"performance",
+        SPEED_READOUT,
+        c"Speed read-out",
+        c"Shows how fast the game runs, and what takes the time, in the corner. Applies right away.",
+        &[(c"off", c"Off"), (c"on", c"On")],
+        c"off",
+    ),
+    (
+        c"performance",
+        DRAWING,
+        c"Drawing",
+        c"Which part of the phone draws the game's pictures. The graphics chip is much faster; the processor is the original drawer, slower. If the graphics chip cannot be used, the processor draws. Applies when the game next starts.",
+        &[(c"gpu", c"Graphics chip"), (c"cpu", c"Processor")],
+        c"gpu",
+    ),
+];
 
 const CATEGORIES: &[(&CStr, &CStr, &CStr)] = &[(c"performance", c"Performance", c"How fast the game runs.")];
 
@@ -155,4 +169,12 @@ pub unsafe fn changed(env: EnvFn) -> bool {
 /// `env` must be the frontend's environment callback.
 pub unsafe fn speed_readout(env: EnvFn) -> bool {
     get(env, SPEED_READOUT).is_some_and(|v| v == "on")
+}
+
+/// Whether the graphics chip should draw (the default), rather than the processor.
+///
+/// # Safety
+/// `env` must be the frontend's environment callback.
+pub unsafe fn gpu_drawing(env: EnvFn) -> bool {
+    get(env, DRAWING).is_none_or(|v| v != "cpu")
 }

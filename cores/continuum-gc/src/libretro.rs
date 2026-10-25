@@ -62,6 +62,11 @@ type InputFn = unsafe extern "C" fn(u32, u32, u32, u32) -> i16;
 
 const ENV_SET_PIXEL_FORMAT: u32 = 10;
 const ENV_GET_JIT_CAPABLE: u32 = 74;
+const ENV_SET_HW_RENDER: u32 = 14;
+const ENV_GET_HW_RENDER_INTERFACE: u32 = 41 | 0x1_0000;
+const HW_CONTEXT_VULKAN: u32 = 6;
+const HW_RENDER_INTERFACE_VULKAN: u32 = 0;
+const HW_RENDER_INTERFACE_VULKAN_VERSION: u32 = 5;
 const PIXEL_FORMAT_XRGB8888: u32 = 1;
 const DEVICE_JOYPAD: u32 = 1;
 const DEVICE_ANALOG: u32 = 5;
@@ -107,6 +112,131 @@ struct Core {
     /// The read-out panel was drawn onto `frame`: the next field converts the picture again even
     /// if the game's picture did not change, so a switched-off panel does not stay on screen.
     overlaid: bool,
+    /// The app took the request for its graphics chip (the `cgc_drawing` setting asked for it),
+    /// and how many context resets it had sent when the GPU drawer was last tried.
+    gpu_wanted: bool,
+    gpu_tried_at: u32,
+}
+
+// ---------------------------------------------------------------------- the graphics chip
+//
+// The GPU drawer (gx/gpu) runs on the app's own Vulkan device, through libretro's Vulkan
+// interface (the one the PSP and 3DS cores use). Only the device is used: pictures still go out
+// as ordinary frames, exactly as before, so nothing else in the app changes.
+
+/// `struct retro_hw_render_callback`.
+#[repr(C)]
+struct HwRenderCallback {
+    context_type: u32,
+    context_reset: Option<unsafe extern "C" fn()>,
+    get_current_framebuffer: Option<unsafe extern "C" fn() -> usize>,
+    get_proc_address: Option<unsafe extern "C" fn(*const c_char) -> *const c_void>,
+    depth: bool,
+    stencil: bool,
+    bottom_left_origin: bool,
+    version_major: u32,
+    version_minor: u32,
+    cache_context: bool,
+    context_destroy: Option<unsafe extern "C" fn()>,
+    debug_context: bool,
+}
+
+/// `struct retro_hw_render_interface_vulkan` (version 5).
+#[repr(C)]
+struct HwRenderInterfaceVulkan {
+    interface_type: u32,
+    interface_version: u32,
+    handle: *mut c_void,
+    instance: *mut c_void,
+    gpu: *mut c_void,
+    device: *mut c_void,
+    get_device_proc_addr: *const c_void,
+    get_instance_proc_addr: *const c_void,
+    queue: *mut c_void,
+    queue_index: u32,
+    set_image: *const c_void,
+    get_sync_index: *const c_void,
+    get_sync_index_mask: *const c_void,
+    set_command_buffers: *const c_void,
+    wait_sync_index: *const c_void,
+    lock_queue: Option<unsafe extern "C" fn(*mut c_void)>,
+    unlock_queue: Option<unsafe extern "C" fn(*mut c_void)>,
+    set_signal_semaphore: *const c_void,
+}
+
+/// Context resets the app has sent (each says its Vulkan device is ready).
+static VK_RESETS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+unsafe extern "C" fn vk_context_reset() {
+    VK_RESETS.fetch_add(1, Ordering::SeqCst);
+}
+
+/// The device is going away: the GPU drawer must be gone first (this app never sends it).
+unsafe extern "C" fn vk_context_destroy() {
+    if let Ok(mut c) = CORE.try_lock() {
+        if let Some(c) = c.as_mut() {
+            drop(c.machine.hw.gx.detach_gpu());
+        }
+    }
+}
+
+/// Asks the app for its graphics chip (SET_HW_RENDER, Vulkan). True when it said yes.
+fn ask_for_vulkan() -> bool {
+    let mut cb = HwRenderCallback {
+        context_type: HW_CONTEXT_VULKAN,
+        context_reset: Some(vk_context_reset),
+        get_current_framebuffer: None,
+        get_proc_address: None,
+        depth: false,
+        stencil: false,
+        bottom_left_origin: false,
+        version_major: 1,
+        version_minor: 0,
+        cache_context: false,
+        context_destroy: Some(vk_context_destroy),
+        debug_context: false,
+    };
+    env(ENV_SET_HW_RENDER, &mut cb as *mut HwRenderCallback as *mut c_void)
+}
+
+/// The app's Vulkan device, when it has handed one over.
+fn vulkan_handles() -> Result<crate::gx::gpu::Handles, String> {
+    use ash::vk::Handle;
+    let mut p: *const HwRenderInterfaceVulkan = std::ptr::null();
+    if !env(ENV_GET_HW_RENDER_INTERFACE, &mut p as *mut *const HwRenderInterfaceVulkan as *mut c_void) || p.is_null() {
+        return Err("the app has not handed over its graphics chip (Vulkan) yet".into());
+    }
+    // SAFETY: the frontend's interface, valid while its context lives.
+    let i = unsafe { &*p };
+    if i.interface_type != HW_RENDER_INTERFACE_VULKAN || i.interface_version != HW_RENDER_INTERFACE_VULKAN_VERSION {
+        return Err(format!("the app's Vulkan interface is type {} version {}, not Vulkan version 5", i.interface_type, i.interface_version));
+    }
+    if i.instance.is_null() || i.gpu.is_null() || i.device.is_null() || i.queue.is_null() || i.get_instance_proc_addr.is_null() {
+        return Err("the app's Vulkan interface is missing its device".into());
+    }
+    // SAFETY: a non-null vkGetInstanceProcAddr (the C and "system" conventions are the same on
+    // every target this builds for).
+    let gipa: ash::vk::PFN_vkGetInstanceProcAddr = unsafe { std::mem::transmute(i.get_instance_proc_addr) };
+    let queue_lock = match (i.lock_queue, i.unlock_queue) {
+        (Some(lock), Some(unlock)) => Some(crate::gx::gpu::QueueLock { handle: i.handle, lock, unlock }),
+        _ => None,
+    };
+    Ok(crate::gx::gpu::Handles {
+        get_instance_proc_addr: gipa,
+        instance: ash::vk::Instance::from_raw(i.instance as u64),
+        physical: ash::vk::PhysicalDevice::from_raw(i.gpu as u64),
+        device: ash::vk::Device::from_raw(i.device as u64),
+        queue: ash::vk::Queue::from_raw(i.queue as u64),
+        queue_family: i.queue_index,
+        queue_lock,
+    })
+}
+
+/// Pixels in the picture check that may differ by more than a little (floating point rounds a
+/// little differently on the graphics chip) before it is judged to draw wrongly: one in a hundred.
+/// On the test machine it is about one in ten thousand; a chip that draws wrongly is far over.
+fn picture_check_passes(c: &crate::gx::gpu::Comparison) -> bool {
+    c.differ_4 * 100 <= c.pixels && c.gpu_drawn.abs_diff(c.cpu_drawn) * 100 <= c.cpu_drawn.max(1)
 }
 
 /// The speed read-out: every second, how fast the game ran and where the time went, drawn in
@@ -207,6 +337,7 @@ struct Tel {
     gx: (u64, u64, u64, u64, u64, u64),
     fast: (u64, u64, u64, u64, [u64; 6]),
     jit: (u64, u64, u64, u64),
+    gpu: Option<crate::gx::gpu::GpuStats>,
 }
 
 impl Tel {
@@ -236,7 +367,26 @@ impl Tel {
             gx,
             fast,
             jit,
+            gpu: m.hw.gx.gpu_stats(),
         }
+    }
+
+    /// What drew this second: the graphics chip (with its counters) or the processor.
+    fn drawer(&self, m: &Machine) -> String {
+        let (Some(now), Some(was)) = (m.hw.gx.gpu_stats(), self.gpu) else {
+            return "drawer processor".into();
+        };
+        format!(
+            "drawer graphics chip ({} chunks, {} triangles, {} waits {} ms, {} states, {} textures {} KB, {} texture memory resets)",
+            now.chunks - was.chunks,
+            now.triangles - was.triangles,
+            now.waits - was.waits,
+            (now.wait_time.saturating_sub(was.wait_time)).as_millis(),
+            now.states - was.states,
+            now.textures - was.textures,
+            (now.texture_bytes - was.texture_bytes) / 1024,
+            now.heap_resets - was.heap_resets
+        )
     }
 
     fn field(&mut self, m: &mut Machine, run: std::time::Duration, drain_hot: bool) {
@@ -286,7 +436,7 @@ impl Tel {
              {} resets, {}% of compiled ops via handlers), interpreted {:.1}M; blocks built {}, \
              invalidated {}, not compiled {:?}; gx {} tris, {:.1}M px, {} efb copies, {} xfb copies, \
              {} display lists, {} commands; sound dma on {}%, 32 kHz {}%, stream {}; disc {} reads \
-             {} KB ({} errors); aram {} dmas {} KB; hot {}",
+             {} KB ({} errors); aram {} dmas {} KB; hot {}; {}",
             self.seconds,
             new_pics,
             same_pics,
@@ -325,6 +475,7 @@ impl Tel {
             hw.aram_dmas - self.hw.aram_dmas,
             (hw.aram_bytes - self.hw.aram_bytes) / 1024,
             hot.unwrap_or_default(),
+            self.drawer(m),
         ));
         let seconds = self.seconds;
         *self = Tel::new(m);
@@ -351,6 +502,48 @@ impl Core {
             readout: None,
             tel: None,
             overlaid: false,
+            gpu_wanted: false,
+            gpu_tried_at: 0,
+        }
+    }
+
+    /// Starts the GPU drawer on the app's Vulkan device, after a picture check against the CPU
+    /// drawer; the CPU keeps drawing if any of it fails, and the log says why either way.
+    fn start_gpu(&mut self) {
+        self.gpu_tried_at = VK_RESETS.load(Ordering::SeqCst);
+        let t = std::time::Instant::now();
+        let h = match vulkan_handles() {
+            Ok(h) => h,
+            Err(e) => {
+                log_line(&format!("drawing on the processor: {e}"));
+                return;
+            }
+        };
+        // SAFETY: the app's live device; it outlives the game (context_destroy takes the drawer
+        // away first if it ever goes).
+        let mut g = match unsafe { crate::gx::gpu::GpuDrawer::new(&h) } {
+            Ok(g) => g,
+            Err(e) => {
+                log_line(&format!("drawing on the processor: the graphics chip could not be set up: {e}"));
+                return;
+            }
+        };
+        let ready = t.elapsed();
+        match crate::gx::gpu::picture_check(&mut g, 1, 60) {
+            Ok(c) if picture_check_passes(&c) => {
+                log_line(&format!(
+                    "drawing on the graphics chip ({}): set up in {} ms, picture check against the processor in {} ms: {c}",
+                    g.device_name,
+                    ready.as_millis(),
+                    (t.elapsed() - ready).as_millis()
+                ));
+                self.machine.hw.gx.attach_gpu(g);
+            }
+            Ok(c) => log_line(&format!("drawing on the processor: the graphics chip ({}) drew the picture check wrongly: {c}", g.device_name)),
+            Err(e) => {
+                log_line(&format!("drawing on the processor: the graphics chip's picture check failed: {e}"));
+                g.poison();
+            }
         }
     }
 
@@ -573,6 +766,18 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
             machine.hw.gx.set_draw_threads(draw_helpers());
             let mut c = Core::new(machine);
             c.set_readout(read_option(crate::options::speed_readout));
+            // The graphics chip draws unless the player chose the processor. The app hands its
+            // Vulkan device over during this request (or later: retro_run tries again then).
+            if read_option(crate::options::gpu_drawing) {
+                c.gpu_wanted = ask_for_vulkan();
+                if c.gpu_wanted {
+                    c.start_gpu();
+                } else {
+                    log_line("drawing on the processor: the app has no graphics chip (Vulkan) for this core");
+                }
+            } else {
+                log_line("drawing on the processor (the Drawing setting)");
+            }
             *core() = Some(c);
             true
         }
@@ -651,9 +856,16 @@ pub extern "C" fn retro_run() {
             core.set_readout(unsafe { crate::options::speed_readout(env) });
         }
     }
+    // The app handed its graphics chip over after the game started (or again): try it now.
+    if core.gpu_wanted && !core.machine.hw.gx.gpu_drawing() && VK_RESETS.load(Ordering::SeqCst) > core.gpu_tried_at {
+        core.start_gpu();
+    }
     let t = std::time::Instant::now();
     core.machine.run_one_field();
     let ran = t.elapsed();
+    if let Some(e) = core.machine.hw.gx.gpu_error.take() {
+        log_line(&format!("the graphics chip stopped drawing ({e}); the processor draws from here"));
+    }
     // Converted only when the TV picture changed (`vi_picture_if_new`); otherwise the app is told
     // it is the same picture (a dupe) and keeps showing it, unless something is drawn over it.
     let same = match core.machine.hw.vi_picture_if_new() {
