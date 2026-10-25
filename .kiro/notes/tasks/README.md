@@ -11,6 +11,7 @@ saved part-way (`../wip/` holds only the scratch tools).
 | File | Job | Done | Left |
 |---|---|---|---|
 | `gamecube.json` | GameCube and Wii on Dolphin with our own faster interpreter (owner, 16 October) | nothing yet | GC1 to GC5 |
+| `cboy-finish.json` | Finish cBoy (B1 to B9), then start the Sega 8-bit core (S1) (owner, 25 October) | nothing yet | B1 to B9, S1 |
 | `library-and-manic.json` | Covers like Manic's, the library by console, Manic's other features from the owner's screenshots | **All done (17 October), in build 191**: L1 to L10 (`.kiro/notes/docs/reports/library-and-manic-2026-10-16.md`) | nothing |
 | `mirror-restore.json` | The build's frozen emulator copies (deleted by mistake, 14 October) | **All done (16 October)**: the next build takes 11 from the buildbot and 5 (DOOM, Jaguar, Virtual Boy, C64, Amiga) from build 185's install, then refills the mirror itself | nothing |
 | `cboy.json` | cBoy | **All done (16 October)**: G1 colour for black-and-white games, G1b link text, G1c short descriptions, G2 write timing, G3 the Color half of Mealybug, G4 the rest (the exact drawer at 51 of 55, the most there are references for), G5 the write-up (`.kiro/notes/docs/CBOY_EVENING.md`) | nothing |

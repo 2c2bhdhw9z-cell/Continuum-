@@ -1,0 +1,33 @@
+{
+  "complete": false,
+  "title": "Finish cBoy (Game Boy, Game Boy Color, Game Boy Advance), then start the Sega 8-bit core",
+  "owner_order_25_october": "Owner, 25 October 2026 evening: a NEW chat finishes cBoy first (much quicker than the GameCube core), then works on the next easiest core, which has to be as good as the current outside emulator for those consoles, with more settings. Work one item at a time until it is fixed, then move on. Do not stop partway to report a discovery; report when an item is done or blocked. One build when a batch is done (owner rules: one build per batch, [skip ci] on the pushes before it).",
+  "where_cboy_stands_25_october": "Full suite green on 25 October (163 tests: Blargg cpu_instrs/instr_timing/mem_timing, dmg-acid2, cgb-acid2, Mooneye DMG 87/87, Mooneye Color 7/7, Mealybug 51/55 on the exact drawer = every picture with a reference, jsmolka arm/thumb/memory/bios/saves/unsafe, six open-licence Advance games gated, fuzz, options e2e, link e2e). On the phone: Pokemon Yellow played (build 177); colour for black-and-white games and the exact drawer confirmed (build 192, 'Works.'). Never tried on the phone: any commercial Game Boy Advance game. mGBA is still the default core for GB/GBC/GBA; cBoy is the second choice in Settings.",
+  "read_first": [
+    ".kiro/steering/owner-rules.md",
+    ".kiro/notes/HANDOFF.md (START HERE)",
+    ".kiro/notes/docs/CBOY_OPTIONS_INVENTORY.md (the 22 setting gaps)",
+    ".kiro/notes/docs/CBOY_EXACT_DRAWER.md ('What is left')",
+    ".kiro/notes/docs/CBOY_EVENING.md and CBOY_NIGHT.md"
+  ],
+  "hard_rules": [
+    "cBoy's own code only: cores/continuum-gb/**. App or engine changes that an item needs (camera, two screens) are allowed, and must keep every other core working; run the engine tests too.",
+    "Another chat may be working on the GameCube core at the same time: never touch cores/continuum-gc/**, and pull before every push (git pull --rebase).",
+    "Never copy another emulator's code (owner rule). Read SameBoy, mGBA, Gambatte, NanoBoyAdvance etc. for behaviour only; cBoy is written from scratch.",
+    "Never guess a test picture pixel by pixel: follow how a proven emulator models it, and compare against it.",
+    "Run the whole cBoy suite before every push (cd cores/continuum-gb && scripts/fetch-test-roms.sh && cargo test --release). Never weaken a test.",
+    "Every look or behaviour change gets a setting with a sensible default (owner: everything is customisable)."
+  ],
+  "items": [
+    {"id": "B1", "done": false, "title": "Game Boy Camera: the phone's camera feeds a Camera cartridge", "notes": "cBoy runs Camera cartridges already (cart.rs); the app already hands camera frames to cores through RETRO_ENVIRONMENT_GET_CAMERA_INTERFACE (crates/emulator-bridge/src/peripherals, used for the 3DS). Add the setting for which camera (mgba's 'camera' gap in the inventory)."},
+    {"id": "B2", "done": false, "title": "Game Boy Advance timing: the cartridge prefetch buffer and exact wait states", "notes": "Today a simple prefetch model. Measure with the jsmolka/AGS-style timing tests and mGBA's suite (mgba-suite) before and after; some demanding games depend on it."},
+    {"id": "B3", "done": false, "title": "Real Advance games: the commercial-game compatibility pass", "notes": "The owner has Advance games; ask him once (with the test steps) to try a list on the phone with cBoy selected, and use the diagnostics upload (Settings, Technical details) for anything wrong. Fix what it shows."},
+    {"id": "B4", "done": false, "title": "Sound accuracy: SameSuite's APU tests", "notes": "STATUS: SameSuite's APU tests mostly fail; normal game sound is fine. Follow SameBoy's APU model."},
+    {"id": "B5", "done": false, "title": "Two Game Boys on one phone (dual console, linked by cable)", "notes": "Gaps: sameboy_screen_layout, sameboy_audio_output, tgbdual_* (5), savePlayerId. Two machines in one core, both screens drawn side by side or one above the other, which one is heard, swap."},
+    {"id": "B6", "done": false, "title": "Game Boy Advance link: cable multiplayer and the wireless adapter", "notes": "Gap gpsp_serial. The Game Boy/Color cable between two phones exists (Built, untested; link.rs)."},
+    {"id": "B7", "done": false, "title": "The small setting gaps", "notes": "Pick Pocket/SGB2 and Advance mode automatically for games that check (bgb gaps), the Game Boy Player's fade and pause, faster-than-real SGB transfers, Waitloop detection on Game Boy (idle skip is Advance-only now), and the network-link rows (gambatte_gb_link_*) mapped to the two-phone link. Regenerate the inventory."},
+    {"id": "B8", "done": false, "title": "The rare Color picture cases from CBOY_EXACT_DRAWER.md 'What is left'", "notes": "Double-speed write landing, Color revisions (CGB D+ palette and SCY timing), the five access-blocking edges. Only where a test can measure it; never guess."},
+    {"id": "B9", "done": false, "title": "One build, the phone checks, then ask the owner whether cBoy becomes the default for Game Boy games", "notes": "Hand over the link and numbered steps (owner rules)."},
+    {"id": "S1", "done": false, "title": "Start the Sega 8-bit core: Master System, Game Gear, SG-1000 (working name continuum-sms; owner: never ask about names, decide and note)", "notes": "Why this one is next: Continuum already has its own Z80 (cores/continuum-arcade/src/z80.rs) passing SingleStepTests' Z80 suite, ZEXDOC and ZEXALL. The rest: the VDP (TMS9918 modes plus Mode 4, Game Gear palette and window), the SN76489 sound chip, the YM2413 FM chip (Japanese Master System), the Sega, Codemasters and Korean mappers, the Game Gear start button and link, light phaser and paddle. The bar: Gearsystem (the app's current core) and Genesis Plus GX; settings = every setting Gearsystem, Genesis Plus GX, PicoDrive, SMS Plus GX and Emulicious offer, plus our own (do a settings inventory first, like cBoy's and the GameCube's). Tests: ZEXALL for the Z80 on the real memory map, the SMS VDP test ROMs (Flubba's VDPTEST, the SMS Test Suite), and real open-licence homebrew. Replaces Gearsystem (GPL v3) when it matches it."}
+  ]
+}

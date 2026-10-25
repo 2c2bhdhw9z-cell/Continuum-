@@ -5,7 +5,27 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (25 October 2026, about 3:30 PM Eastern): build 231 = GameCube speed from the 230 profile
+## START HERE FOR A NEW CHAT (25 October 2026, evening Eastern): finish cBoy, then the Sega core
+
+Owner's order: a new chat finishes **cBoy** first, because it is much nearer done than the GameCube
+core, then builds the **next easiest core**, which must be as good as the outside emulator it replaces
+for those consoles and have more settings. One item at a time until it is fixed, then the next; do
+not stop partway to report a discovery. The checklist with every item, the rules and the references
+is `.kiro/notes/tasks/cboy-finish.json` (B1 to B9 for cBoy, then S1: Master System, Game Gear and
+SG-1000 in one core, working name continuum-sms, built on the arcade core's own Z80, which already
+passes ZEXALL and SingleStepTests). Another chat may be working on the GameCube core in
+`cores/continuum-gc` at the same time: never touch it, and pull before every push.
+
+GameCube state for whoever picks it up: build 231 (below). Animal Crossing in the town at about 85%
+of real speed, 42-61 pictures a second; what is missing from the core, by group, is in the owner's
+list of 25 October (speed: GPU drawer first, then the JIT's floating point and paired singles and a
+register cache; picture options; players 2-4 and rumble; memory card slot B and other card sizes;
+cheats; disc swap; broadband adapter; 478 of 479 settings; Wii). He said: work down that list one
+thing at a time, the GPU drawer first. Note: Continuum Symbian is NOT one of the owner's own cores:
+it is EKA2L1 (GPL v3) with Continuum's libretro plug around it (credits say "built on EKA2L1").
+The owner's own, written from scratch: cBoy, cArcade, the GameCube core.
+
+## Earlier (25 October 2026, about 3:30 PM Eastern): build 231 = GameCube speed from the 230 profile
 
 HIS 230 UPLOAD (h67pii) said exactly where Animal Crossing's time went (town, 40-50 emulator frames/s):
 - SCREEN: the app's pacer SPIRALLED: every display tick ran 4 GameCube frames (3+:11-13 per second), the
