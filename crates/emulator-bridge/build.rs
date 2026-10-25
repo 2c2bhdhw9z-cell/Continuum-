@@ -34,6 +34,13 @@ fn main() {
         .warnings(true)
         .compile("continuum_jit26");
 
+    // Telemetry: the core log, the crash catcher and the frame watchdog (its header says why).
+    println!("cargo:rerun-if-changed=src/telemetry.c");
+    cc::Build::new()
+        .file("src/telemetry.c")
+        .warnings(true)
+        .compile("continuum_telemetry");
+
     build_rcheevos();
 }
 

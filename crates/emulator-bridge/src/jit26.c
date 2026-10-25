@@ -87,6 +87,19 @@ static size_t g_used = 0;
 // to run code from, and the failure would land inside the core rather than here.
 static bool g_live = false;
 
+// telemetry.c in the app; the Mac test harness links this file alone and prints instead.
+#if defined(CONTINUUM_JIT_TEST)
+static void continuum_tel_note(const char *text) { fprintf(stderr, "%s\n", text); }
+#else
+void continuum_tel_note(const char *text);
+#endif
+static void jit_note(const char *what, const char *owner, size_t size) {
+    char line[160];
+    snprintf(line, sizeof line, "jit memory: %s %s %zu KB (%zu of %zu MB used)", what, owner, size >> 10,
+             g_used >> 20, g_size >> 20);
+    continuum_tel_note(line);
+}
+
 #if defined(CONTINUUM_JIT_TEST)
 // The test harness has no engine to say JIT is on: CONTINUUM_DUAL=1 in the environment does.
 __attribute__((constructor)) static void continuum_jit_test_init(void) {
@@ -236,10 +249,11 @@ size_t continuum_jit26_used(void) { return g_used; }
 /// through `dlsym(RTLD_DEFAULT, "continuum_jit_region")`.
 __attribute__((used, visibility("default"))) bool
 continuum_jit_region(const char *owner, size_t size, void **out_rx, void **out_rw) {
+    const char *name = (owner != NULL) ? owner : "unnamed";
     if (!g_live || out_rx == NULL || out_rw == NULL || size == 0) {
+        jit_note(g_live ? "REFUSED (bad request)" : "refused (JIT is not on)", name, size);
         return false;
     }
-    const char *name = (owner != NULL) ? owner : "unnamed";
     size = continuum_jit_page_round(size);
 
     // A slice this core already holds, by name. A core asks again every time a game is opened, so
@@ -267,12 +281,14 @@ continuum_jit_region(const char *owner, size_t size, void **out_rx, void **out_r
         strncpy(g_slots[best].owner, name, sizeof(g_slots[best].owner) - 1);
         g_slots[best].owner[sizeof(g_slots[best].owner) - 1] = '\0';
         g_slots[best].in_use = true;
+        jit_note("reused a slice for", name, g_slots[best].size);
         *out_rx = g_slots[best].rx;
         *out_rw = g_slots[best].rw;
         return true;
     }
 
     if (g_slot_count >= CONTINUUM_JIT_SLOTS) {
+        jit_note("REFUSED (every slot taken)", name, size);
         return false;
     }
 
@@ -282,6 +298,7 @@ continuum_jit_region(const char *owner, size_t size, void **out_rx, void **out_r
         // Carve the next slice off the blessed region. Nothing outside it can run code on this
         // phone, so there is no fallback here.
         if (size > g_size - g_used) {
+            jit_note("REFUSED (the region is full)", name, size);
             return false;
         }
         rx = g_rx + g_used;
@@ -308,6 +325,7 @@ continuum_jit_region(const char *owner, size_t size, void **out_rx, void **out_r
     g_slots[slot].rw = rw;
     g_slots[slot].size = size;
     g_slots[slot].in_use = true;
+    jit_note(g_state == 1 ? "new slice of the blessed region for" : "new mapping for", name, size);
 #if defined(CONTINUUM_JIT_TEST)
     fprintf(stderr, "continuum_jit_region: %s %zu KB\n", name, size >> 10);
 #endif

@@ -1635,8 +1635,13 @@ impl EmulatorCore for NativeLibretroCore {
 
         if self.frame_count == 0 {
             crate::feedback::launch_step("first frame (retro_run)");
+            crate::telemetry::game_started(&self.descriptor.id, self.descriptor.audio_sample_rate);
         }
+        let frame_started = std::time::Instant::now();
+        crate::telemetry::frame_begin();
         unsafe { (self.symbols.run)() };
+        crate::telemetry::frame_end();
+        let frame_ran = frame_started.elapsed();
         if self.frame_count == 0 {
             crate::feedback::launch_step("first frame done");
         }
@@ -1696,6 +1701,8 @@ impl EmulatorCore for NativeLibretroCore {
             }
             std::mem::swap(&mut self.audio, &mut exchange.audio);
         });
+        crate::telemetry::rate_changed(self.descriptor.audio_sample_rate);
+        crate::telemetry::frame_done(frame_started, frame_ran, &self.audio);
 
         self.frame_count += 1;
         Ok(())

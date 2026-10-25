@@ -85,6 +85,7 @@ pub mod game_region;
 pub mod feedback;
 pub mod netplay;
 pub mod sync;
+pub mod telemetry;
 pub mod timing;
 
 /// `Send`, and now unconditionally so.

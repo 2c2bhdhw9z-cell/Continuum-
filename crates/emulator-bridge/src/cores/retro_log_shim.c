@@ -19,6 +19,8 @@ static char g_last_log[CONTINUUM_LAST_LOG_CAP];
 
 /* native_core.rs: puts one line into the app's activity log (the one a problem report sends). */
 void continuum_core_log_forward(const char *line);
+/* telemetry.c */
+void continuum_tel_core_log(int level, const char *text);
 static int g_have_last_log = 0;
 
 const char *continuum_last_core_log_line(void)
@@ -56,6 +58,9 @@ void continuum_retro_log_printf(int level, const char *fmt, ...)
     if (strncmp(buf, "cBoy: ", 6) == 0) {
         continuum_core_log_forward(buf);
     }
+    /* Every core's every line goes into core-log.txt (telemetry.c), which the diagnostics upload
+     * carries. Until build 227 these went to os_log only, which nobody on a phone can read. */
+    continuum_tel_core_log(level, buf);
 
     strncpy(g_last_log, buf, CONTINUUM_LAST_LOG_CAP - 1);
     g_last_log[CONTINUUM_LAST_LOG_CAP - 1] = '\0';
