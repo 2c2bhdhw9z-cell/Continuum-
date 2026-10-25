@@ -1,11 +1,29 @@
 # What to test, and what to tell me
 
-Last updated 23 October 2026, 9:45 PM Eastern. **Build 213** (`84e7636`) is the newest install:
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-213-84e7636/Continuum-213.ipa
-Its checks are "Next install (after 212)" just below; the older sections are history. Do not ask the 192
+Last updated 25 October 2026, 6:40 PM Eastern. **Build 234** (`fb4af3b`) is the newest install:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-234-fb4af3b/Continuum-234.ipa
+Its checks are "Build 234" just below; the older sections are history. Do not ask the 192
 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
+
+## Build 234 (25 October, evening): cBoy batch B1 to B8
+
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-234-fb4af3b/Continuum-234.ipa
+(0.8.0 build 234, 38 emulators, the same list as 233, the JIT helper inside.)
+
+1. Advance games on cBoy (B5): Settings → Cores → Core for Game Boy Advance games → cBoy. Open
+   each Advance game you have and play about a minute (title, start a game, some play, sound on).
+   ✅ Each looks and sounds right and does not freeze. For any that is wrong: Settings → Technical
+   details → Upload a diagnostic file, straight after.
+2. Game Boy sound (B2): Core for Game Boy games → cBoy, open Tetris or Pokémon, listen for a minute.
+3. Two Game Boys on one phone (B7): open Tetris on cBoy, ⋯ → Core settings... → Link → Two Game Boys
+   on this phone → On. Close the game and open it again. ✅ Two screens, one above the other, both
+   at the title; the sound is the top one's.
+4. Still in Tetris: choose 2 PLAYER on the top one. Then Core settings... → Link → Two Game Boys:
+   your controls play → The second console, and choose 2 PLAYER on the bottom one. ✅ Both reach
+   Tetris's two-player screen (it only gets there over the cable).
+5. Answer: should cBoy become the default for Game Boy games (B9)?
 
 ## Next install (after 224): GameCube games kept through a reinstall, built-in JIT
 

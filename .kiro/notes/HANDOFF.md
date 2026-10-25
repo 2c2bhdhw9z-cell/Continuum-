@@ -28,11 +28,14 @@ on one phone, the Advance link), which may change the app and engine; it reads t
 (none yet)
 
 ### cBoy chat, 25 October 2026 evening: where cboy-finish.json stands
-B1 (Advance timing), B2 (sound chip), B3 (settings), B4 (later Color revisions in the exact drawer),
-B6 (camera choice: already the app's Back / Front) and B7 (two Game Boys on one phone, `dual.rs`) are
-done and pushed with [skip ci]; NO build yet. B5 waits for the build (the owner tries Advance games).
-Next: B8 (Advance link), then B9 (one build for the whole batch, phone checks, ask about cBoy as the
-default). Each item's "result" in tasks/cboy-finish.json says what was done and measured.
+B1-B4, B6, B7 done; B8 the cable done (gba/sio.rs), the wireless adapter not (no game here to check it
+with: asked the owner). Build 234 (fb4af3b) has all of it, checked (0.8.0 234, 38 emulators, same list
+as 233). Waiting on the owner: B5 (his Advance games on cBoy) and B9 (his checks, and whether cBoy
+becomes the default for Game Boy games); steps in TESTING.md "Build 234". S1 (the Sega core,
+cores/continuum-sms) has started: settings inventory (docs/SMS_OPTIONS_INVENTORY.md), the crate with
+cArcade's Z80 compiled in from its file, the Sega mapper, memory control, picture-chip ports and
+interrupts, the SDSC console; ZEXALL-SMS runs on it (tests/zexall.rs, fetched by its script).
+Not yet in the app's build (no build-core.sh entry): add that when it draws and plays sound.
 
 GameCube state for whoever picks it up: build 233 (next section) = the GPU drawer. Before it, Animal
 Crossing ran in the town at about 85% of real speed, 42-61 pictures a second, drawing the limit. What
