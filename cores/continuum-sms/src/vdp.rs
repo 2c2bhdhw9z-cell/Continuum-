@@ -38,6 +38,12 @@ pub struct Vdp {
     /// The line being drawn, 0 at the top of the picture.
     pub line: u16,
     pub pal: bool,
+    /// A Game Gear's: 64 bytes of colour memory, two to a colour (4 bits each of red, green and
+    /// blue), written a pair at a time, and a 160x144 window of the picture on its screen.
+    #[serde(default)]
+    pub gg: bool,
+    #[serde(default)]
+    cram_latch: u8,
     /// The vertical scroll, taken from register 9 once a frame, at its top.
     #[serde(default)]
     vscroll: u8,
@@ -62,6 +68,8 @@ impl Default for Vdp {
             counter: 0xFF,
             line: 0,
             pal: false,
+            gg: false,
+            cram_latch: 0,
             vscroll: 0,
             frame: vec![0; WIDTH * 240],
         }
@@ -69,6 +77,27 @@ impl Default for Vdp {
 }
 
 impl Vdp {
+    /// Makes this a Game Gear's picture chip.
+    pub fn set_game_gear(&mut self) {
+        self.gg = true;
+        self.cram = vec![0; 64];
+    }
+
+    /// The picture as the screen shows it: all of it on a Master System, the middle 160x144 on a
+    /// Game Gear. Returns (width, height).
+    pub fn shown(&self, out: &mut Vec<u32>) -> (usize, usize) {
+        out.clear();
+        if self.gg {
+            for y in 24..168 {
+                out.extend_from_slice(&self.frame[y * WIDTH + 48..y * WIDTH + 208]);
+            }
+            return (160, 144);
+        }
+        let h = usize::from(self.height());
+        out.extend_from_slice(&self.frame[..h * WIDTH]);
+        (WIDTH, h)
+    }
+
     /// Lines in a frame.
     pub fn lines(&self) -> u16 {
         if self.pal { LINES_PAL } else { LINES_NTSC }
@@ -129,7 +158,16 @@ impl Vdp {
 
     pub fn write_data(&mut self, v: u8) {
         self.latch = false;
-        if self.code == 3 {
+        if self.code == 3 && self.gg {
+            // The even byte waits; the odd one writes the pair.
+            let a = usize::from(self.addr) & 0x3F;
+            if a & 1 == 0 {
+                self.cram_latch = v;
+            } else {
+                self.cram[a - 1] = self.cram_latch;
+                self.cram[a] = v & 0x0F;
+            }
+        } else if self.code == 3 {
             let n = self.cram.len();
             self.cram[usize::from(self.addr) % n] = v;
         } else {
@@ -192,6 +230,12 @@ impl Vdp {
 
     /// A colour from colour memory: the Master System's six bits, two each of blue, green and red.
     fn colour(&self, index: usize) -> u32 {
+        if self.gg {
+            let i = (index & 31) * 2;
+            let (lo, hi) = (self.cram[i], self.cram[i + 1]);
+            let level = |v: u8| u32::from(v & 15) * 17;
+            return level(lo) << 16 | level(lo >> 4) << 8 | level(hi);
+        }
         let c = self.cram[index & 31];
         let level = |v: u8| u32::from(v & 3) * 85;
         level(c) << 16 | level(c >> 2) << 8 | level(c >> 4)
@@ -393,6 +437,26 @@ mod tests {
         v.start_line(0);
         assert_eq!((px(&v, 0, 0), px(&v, 8, 0)), (v.colour(16), 0xFF0000), "the left column masked");
         assert_eq!(v.status & 0x60, 0x60, "nine on one line: overflow; overlapping: collision");
+    }
+
+    #[test]
+    fn a_game_gear_writes_colours_a_pair_at_a_time_and_shows_the_middle() {
+        let mut v = dotted();
+        v.set_game_gear();
+        v.write_control(0x06);
+        v.write_control(0xC0); // colour 3
+        v.write_data(0x0F); // red 15, green 0
+        assert_eq!(v.cram[6], 0, "nothing until the odd byte");
+        v.write_data(0x0F); // blue 15
+        assert_eq!((v.cram[6], v.cram[7]), (0x0F, 0x0F));
+        for l in 0..192 {
+            v.start_line(l);
+        }
+        let mut out = Vec::new();
+        assert_eq!(v.shown(&mut out), (160, 144));
+        // Screen (0, 0) is picture (48, 24): a tile's top-left dot (48 is a multiple of 8).
+        assert_eq!(out[0], 0xFF00FF);
+        assert_eq!(out[1], 0);
     }
 
     #[test]

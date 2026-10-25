@@ -10,7 +10,6 @@ use std::ffi::{c_char, c_void};
 use std::sync::Mutex;
 
 use crate::sms::Sms;
-use crate::vdp::WIDTH;
 
 #[repr(C)]
 pub struct RetroSystemInfo {
@@ -89,7 +88,7 @@ pub unsafe extern "C" fn retro_get_system_info(info: *mut RetroSystemInfo) {
     *info = RetroSystemInfo {
         library_name: c"cGear".as_ptr(),
         library_version: c"0.1.0 (state format 1)".as_ptr(),
-        valid_extensions: c"sms|bin".as_ptr(),
+        valid_extensions: c"sms|gg|bin".as_ptr(),
         need_fullpath: false,
         block_extract: false,
     };
@@ -100,10 +99,11 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
     if info.is_null() {
         return;
     }
-    let pal = CORE.lock().ok().and_then(|c| c.as_ref().map(|m| m.bus.vdp.pal)).unwrap_or(false);
-    // The console's pixels are a little wider than square: 8:7 on a 60 Hz TV for its 256 x 192.
+    let (pal, gg) = CORE.lock().ok().and_then(|c| c.as_ref().map(|m| (m.bus.vdp.pal, m.bus.gg))).unwrap_or((false, false));
+    // A Master System on a TV: 256 x 192 shown 4:3. A Game Gear's own screen: 160 x 144, 10:9.
+    let (w, h, aspect) = if gg { (160, 144, 10.0 / 9.0) } else { (256, 192, 4.0 / 3.0) };
     *info = RetroSystemAvInfo {
-        geometry: RetroGameGeometry { base_width: 256, base_height: 192, max_width: 256, max_height: 240, aspect_ratio: 4.0 / 3.0 },
+        geometry: RetroGameGeometry { base_width: w, base_height: h, max_width: 256, max_height: 240, aspect_ratio: aspect },
         timing: RetroSystemTiming {
             fps: if pal { 3_546_895.0 / (228.0 * 313.0) } else { 3_579_545.0 / (228.0 * 262.0) },
             sample_rate: f64::from(RATE),
@@ -171,8 +171,12 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
             return false;
         }
     }
+    let gg = is_game_gear(&rom, (*game).path);
     let mut m = Box::new(Sms::new(rom));
     m.rate = RATE;
+    if gg {
+        m.bus.set_game_gear();
+    }
     if let Ok(mut c) = CORE.lock() {
         *c = Some(m);
         return true;
@@ -203,12 +207,33 @@ pub extern "C" fn retro_reset() {
         if let Some(m) = c.as_mut() {
             let rom = std::mem::take(&mut m.bus.rom);
             let cart_ram = std::mem::take(&mut m.bus.cart_ram);
+            let gg = m.bus.gg;
             let mut fresh = Sms::new(rom);
+            if gg {
+                fresh.bus.set_game_gear();
+            }
             fresh.bus.cart_ram = cart_ram;
             fresh.rate = m.rate;
             **m = fresh;
         }
     }
+}
+
+/// A Game Gear cartridge: its file is a .gg one, or its header (at $7FF0, $3FF0 or $1FF0, after
+/// "TMR SEGA") gives a Game Gear region code (5, 6 or 7 in the top half of its last byte).
+unsafe fn is_game_gear(rom: &[u8], path: *const c_char) -> bool {
+    if !path.is_null() {
+        let p = std::ffi::CStr::from_ptr(path).to_string_lossy().to_lowercase();
+        if p.ends_with(".gg") {
+            return true;
+        }
+        if p.ends_with(".sms") {
+            return false;
+        }
+    }
+    [0x7FF0usize, 0x3FF0, 0x1FF0].iter().any(|&at| {
+        rom.get(at..at + 16).is_some_and(|h| &h[..8] == b"TMR SEGA" && (5..=7).contains(&(h[15] >> 4)))
+    })
 }
 
 /// The pads as the console's ports read them, from the two players' buttons: $DC holds the
@@ -243,12 +268,19 @@ pub unsafe extern "C" fn retro_run() {
         let (dc, dd, pause) = read_pads(input);
         m.bus.pad_dc = dc;
         m.bus.pad_dd = dd;
-        m.set_pause(pause);
+        if m.bus.gg {
+            // The Game Gear's Start is a button the game reads; it has no Pause.
+            m.bus.gg_start = pause;
+        } else {
+            m.set_pause(pause);
+        }
     }
     m.run_frame();
     if let Some(video) = video {
-        let h = usize::from(m.bus.vdp.height());
-        video(m.bus.vdp.frame.as_ptr() as *const c_void, WIDTH as u32, h as u32, WIDTH * 4);
+        let mut shown = std::mem::take(&mut m.shown);
+        let (w, h) = m.bus.vdp.shown(&mut shown);
+        video(shown.as_ptr() as *const c_void, w as u32, h as u32, w * 4);
+        m.shown = shown;
     }
     let samples = std::mem::take(&mut m.samples);
     if let Some(audio) = audio {

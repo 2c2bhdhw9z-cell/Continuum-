@@ -26,6 +26,9 @@ pub struct Sms {
     pub rate: u32,
     #[serde(skip)]
     pause_held: bool,
+    /// The picture as the screen shows it, handed to the app.
+    #[serde(skip)]
+    pub shown: Vec<u32>,
 }
 
 const STATE_MAGIC: &[u8; 8] = b"CGEARST1";
@@ -40,7 +43,7 @@ impl Sms {
         // As a start-up file leaves it: the stack at the top of work RAM, interrupt mode 1.
         cpu.sp = 0xDFF0;
         cpu.im = 1;
-        Sms { cpu, bus: Bus::new(rom), over: 0, frames: 0, samples: Vec::new(), rate: default_rate(), pause_held: false }
+        Sms { cpu, bus: Bus::new(rom), over: 0, frames: 0, samples: Vec::new(), rate: default_rate(), pause_held: false, shown: Vec::new() }
     }
 
     /// One line of CPU time, with the picture chip's line events at its start.

@@ -39,12 +39,25 @@ pub struct Bus {
     pub pad_dd: u8,
     /// Port $3F, the pads' output pins (for the region check and the light phaser).
     pub io_ctrl: u8,
+    /// A Game Gear: its own ports $00-$06 (the Start button, the region, the link port, stereo).
+    #[serde(default)]
+    pub gg: bool,
+    /// The Game Gear's Start button is held.
+    #[serde(skip)]
+    pub gg_start: bool,
+    /// The console is an export one (not Japanese), as port $00 (Game Gear) reports.
+    #[serde(default = "yes")]
+    pub export: bool,
     /// What test programs have printed to the SDSC debug console.
     #[serde(skip)]
     pub console: String,
     /// The last SDSC console command (1 asks the emulator to stop).
     #[serde(skip)]
     pub console_stop: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Bus {
@@ -64,9 +77,18 @@ impl Bus {
             pad_dc: 0xFF,
             pad_dd: 0xFF,
             io_ctrl: 0xFF,
+            gg: false,
+            gg_start: false,
+            export: true,
             console: String::new(),
             console_stop: false,
         }
+    }
+
+    /// Makes this a Game Gear.
+    pub fn set_game_gear(&mut self) {
+        self.gg = true;
+        self.vdp.set_game_gear();
     }
 
     fn rom_at(&self, bank: u8, offset: u16) -> u8 {
@@ -129,6 +151,16 @@ impl z80::Bus for Bus {
 
     fn input(&mut self, port: u16) -> u8 {
         let p = port as u8;
+        if self.gg && p < 7 {
+            return match p {
+                0 => u8::from(!self.gg_start) << 7 | u8::from(self.export) << 6,
+                1 => 0x7F,
+                2 => 0xFF,
+                5 => 0x00,
+                6 => self.psg.stereo,
+                _ => 0xFF,
+            };
+        }
         match p & 0xC1 {
             0x00 | 0x01 => 0xFF,
             0x40 => self.vdp.v_counter(),
@@ -155,6 +187,12 @@ impl z80::Bus for Bus {
                 return;
             }
             _ => {}
+        }
+        if self.gg && p < 7 {
+            if p == 6 {
+                self.psg.stereo = v;
+            }
+            return;
         }
         match p & 0xC1 {
             0x00 => self.mem_ctrl = v,
