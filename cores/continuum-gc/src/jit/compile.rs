@@ -25,6 +25,7 @@ use std::mem::offset_of;
 #[repr(C)]
 pub struct JitCtx {
     pub mem1: u64,
+    /// `Hw::code_lines`: one bit per 32-byte line of main memory that holds cached code.
     pub code_pages: u64,
     /// `fallback(cpu, hw, op)`: runs one instruction's fast-interpreter handler.
     pub fallback: u64,
@@ -713,11 +714,17 @@ fn window(c: &mut Ctx, n: u32, slow: &mut SlowSites) {
     slow.add(c, Slow::Cond(Cond::Hs));
 }
 
-/// A store to offset w1 must not hit a page holding compiled or cached code.
-fn not_code_page(c: &mut Ctx, slow: &mut SlowSites) {
-    c.a.lsr_imm(false, 4, 1, 18);
+/// A store of `n` bytes to offset w1 must stay inside one 32-byte line and not hit a line
+/// holding compiled or cached code (`Hw::code_lines`, one bit per 32 bytes: word w1 >> 11, bit
+/// (w1 >> 5) & 63). Lines rather than 4 KB pages: data stored beside code no longer takes the
+/// slow path or throws the code away.
+fn not_code_page(c: &mut Ctx, n: u32, slow: &mut SlowSites) {
+    c.a.ubfx(false, 4, 1, 0, 5);
+    c.a.cmp_imm(false, 4, 32 - n);
+    slow.add(c, Slow::Cond(Cond::Hi));
+    c.a.lsr_imm(false, 4, 1, 11);
     c.a.ldr_x_reg_lsl3(5, PAGES, 4);
-    c.a.lsr_imm(false, 6, 1, 12);
+    c.a.lsr_imm(false, 6, 1, 5);
     c.a.lsrv(true, 5, 5, 6);
     slow.add(c, Slow::Bit(true, 5, 0));
 }
@@ -844,7 +851,7 @@ fn fp_mem(c: &mut Ctx, ins: &Inst, count: u32) {
             }
         }
     } else {
-        not_code_page(c, &mut slow);
+        not_code_page(c, n, &mut slow);
         match opc {
             52 | 53 => {
                 c.a.ldr_x_any(2, CPU, ps0(d), 16);
@@ -1208,15 +1215,19 @@ fn page_check(c: &mut Ctx, n: u32) -> usize {
 
 /// Inline store of `n` bytes of rS to the address in w0, skipping pages that hold cached code.
 fn mem_store(c: &mut Ctx, ins: &Inst, count: u32, n: u32, s: u8, update: Option<u8>) {
-    let page_at = page_check(c, n);
+    // Inside one 32-byte line (so one line bit says whether it can touch code).
+    c.a.ubfx(false, 4, 0, 0, 5);
+    c.a.cmp_imm(false, 4, 32 - n);
+    let page_at = c.a.here();
+    c.a.emit(0);
     c.a.emit(eor_top_bit(1, 0));
     c.a.cmp(false, 1, LIMIT);
     let slow_at = c.a.here();
     c.a.emit(0);
-    // The code-page bit for physical page w1 >> 12.
-    c.a.lsr_imm(false, 4, 1, 18);
+    // The code-line bit for the 32-byte line w1 >> 5 (see `not_code_page`).
+    c.a.lsr_imm(false, 4, 1, 11);
     c.a.ldr_x_reg_lsl3(5, PAGES, 4);
-    c.a.lsr_imm(false, 6, 1, 12);
+    c.a.lsr_imm(false, 6, 1, 5);
     c.a.lsrv(true, 5, 5, 6);
     let code_at = c.a.here();
     c.a.emit(0);

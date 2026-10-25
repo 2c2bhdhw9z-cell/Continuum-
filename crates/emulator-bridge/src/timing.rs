@@ -28,6 +28,9 @@ pub struct FramePacer {
     steps_total: u64,
     steps_dropped: u64,
     stalls: u64,
+    /// How long one core step has been taking, in milliseconds (an average the bridge feeds
+    /// with [`FramePacer::note_step_cost`]); 0 until measured.
+    step_cost_ms: f64,
 }
 
 /// What a single tick should do. Returned by [`FramePacer::plan`].
@@ -59,7 +62,35 @@ impl FramePacer {
             steps_total: 0,
             steps_dropped: 0,
             stalls: 0,
+            step_cost_ms: 0.0,
         }
+    }
+
+    /// How long the core steps of the last tick took, each, in milliseconds.
+    pub fn note_step_cost(&mut self, ms: f64) {
+        if !ms.is_finite() || ms <= 0.0 {
+            return;
+        }
+        self.step_cost_ms = if self.step_cost_ms == 0.0 { ms } else { self.step_cost_ms * 0.8 + ms * 0.2 };
+    }
+
+    /// The most core steps one tick may run, from what a step costs.
+    ///
+    /// A core that cannot keep up must not be asked to catch up: each extra step makes this tick
+    /// longer, so the next one owes even more, until every tick runs the full burst and the screen
+    /// updates a dozen times a second (the owner's iPhone, build 230, GameCube Animal Crossing:
+    /// 4 steps a tick, 11-13 pictures a second, while the core was managing 44-52 frames a second).
+    /// So a tick may spend about two core frames' worth of time catching up, and at least one step
+    /// always runs; whatever else is owed is let go, and the game runs a little slow instead of
+    /// stuttering.
+    fn catch_up_cap(&self) -> u32 {
+        if self.step_cost_ms <= 0.0 {
+            return MAX_CATCH_UP_STEPS;
+        }
+        // Two core frames of wall time (step_ms is the core frame period at normal speed).
+        let budget = 2.0 * self.step_ms;
+        let fits = (budget / self.step_cost_ms).floor() as u32;
+        fits.clamp(1, MAX_CATCH_UP_STEPS)
     }
 
     pub fn set_target_fps(&mut self, fps: f64) {
@@ -154,9 +185,10 @@ impl FramePacer {
         self.accumulator_ms -= steps as f64 * self.step_ms;
 
         let mut dropped = 0;
-        if steps > MAX_CATCH_UP_STEPS {
-            dropped = steps - MAX_CATCH_UP_STEPS;
-            steps = MAX_CATCH_UP_STEPS;
+        let cap = self.catch_up_cap();
+        if steps > cap {
+            dropped = steps - cap;
+            steps = cap;
             // Debt already subtracted above, so dropped steps are simply forfeited.
             self.steps_dropped += dropped as u64;
         }
@@ -252,4 +284,45 @@ mod tests {
         assert_eq!(plan.steps, MAX_CATCH_UP_STEPS);
         assert!(plan.dropped > 0);
     }
+
+    #[test]
+    fn a_core_slower_than_the_screen_runs_one_step_a_tick_instead_of_spiralling() {
+        // 60 fps core, 120 Hz screen, each step takes 20 ms: a tick takes 20 ms, so ticks come
+        // 20-25 ms apart and each owes more than one step. Without the cap they owed 4.
+        let mut p = FramePacer::new(60.0);
+        p.plan(0.0);
+        p.note_step_cost(20.0);
+        let mut t = 0.0;
+        for _ in 0..50 {
+            t += 22.0;
+            let plan = p.plan(t);
+            assert_eq!(plan.steps, 1, "a slow core gets one step a tick");
+            p.note_step_cost(20.0);
+        }
+    }
+
+    #[test]
+    fn a_fast_core_still_catches_up_after_a_hitch() {
+        let mut p = FramePacer::new(60.0);
+        p.plan(0.0);
+        p.note_step_cost(2.0);
+        // One 50 ms hitch: three steps owed, all run.
+        assert_eq!(p.plan(50.0).steps, 3);
+    }
+
+    #[test]
+    fn fast_forward_is_not_capped_by_a_cheap_core() {
+        let mut p = FramePacer::new(60.0);
+        p.set_speed(4.0);
+        p.plan(0.0);
+        p.note_step_cost(1.0);
+        let mut steps = 0;
+        let mut t = 0.0;
+        for _ in 0..60 {
+            t += 1000.0 / 60.0;
+            steps += p.plan(t).steps;
+        }
+        assert!(steps >= 230, "4x on a 60 Hz screen ran {steps} steps");
+    }
+
 }

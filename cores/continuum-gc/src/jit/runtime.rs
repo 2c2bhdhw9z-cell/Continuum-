@@ -247,7 +247,7 @@ impl Jit {
     /// block). Returns how many ran.
     pub fn run(&mut self, n: Native, cpu: &mut Cpu, hw: &mut Hw, budget: u64) -> u64 {
         self.ctx.mem1 = hw.mem1.as_mut_ptr() as u64;
-        self.ctx.code_pages = hw.code_pages.as_ptr() as u64;
+        self.ctx.code_pages = hw.code_lines.as_ptr() as u64;
         self.ctx.fallback = self.backend.fallback();
         // Accesses up to 8 bytes long starting below this are inside the data window.
         self.ctx.mem_limit = (self.mapping.data - 7) as u64;

@@ -793,6 +793,7 @@ impl EmulatorBridge {
 
         // 2. Core steps (0..=4, decided by the pacer).
         let plan = pacer.plan(now_ms);
+        let steps_started = std::time::Instant::now();
         for _ in 0..plan.steps {
             // Turbo is the one part of input that is meant to differ between catch-up steps:
             // it pulses per CORE frame, so its rate holds at 120 Hz and under fast forward.
@@ -828,6 +829,10 @@ impl EmulatorBridge {
             snapshot.consume_mouse_motion();
             // 3. Audio — drained straight into the ring, no intermediate buffer.
             session.core.drain_audio(sink.as_mut());
+        }
+        // What a step costs, for the pacer's catch-up cap (`FramePacer::catch_up_cap`).
+        if plan.steps > 0 {
+            pacer.note_step_cost(steps_started.elapsed().as_secs_f64() * 1000.0 / plan.steps as f64);
         }
         // Motion a frame read is spent. With no step this tick it is kept for the next one,
         // so a drag during a skipped frame is not lost.

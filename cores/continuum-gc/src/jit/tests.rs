@@ -137,12 +137,12 @@ fn jit_blocks_match_the_interpreter() {
     }
     hw_jit.mem1.copy_from_slice(&hw_ref.mem1);
     // One page of "cached code" in the window: stores there must take the slow path.
-    hw_jit.code_pages[(WINDOW + 0x8000) >> 18] |= 1 << (((WINDOW + 0x8000) >> 12) & 63);
-    hw_ref.code_pages.copy_from_slice(&hw_jit.code_pages.clone());
+    hw_jit.mark_code((WINDOW + 0x8000) as u32, 0x1000);
+    hw_ref.mark_code((WINDOW + 0x8000) as u32, 0x1000);
     let mut table = vec![[TABLE_EMPTY, 0u64]; TABLE_SIZE];
     let ctx = JitCtx {
         mem1: hw_jit.mem1.as_mut_ptr() as u64,
-        code_pages: hw_jit.code_pages.as_ptr() as u64,
+        code_pages: hw_jit.code_lines.as_ptr() as u64,
         fallback: backend.fallback(),
         mem_limit: (crate::hw::MEM1_SIZE - 7) as u64,
         table: table.as_mut_ptr() as u64,

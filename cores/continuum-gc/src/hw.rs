@@ -303,6 +303,8 @@ pub struct Hw {
     pub invalidated: Vec<(u32, u32)>,
     /// One bit per 4 KB physical page holding cached code (MEM1, then MEM2 from bit 8192).
     pub code_pages: Vec<u64>,
+    /// The same RAM as `code_pages` by 32-byte line: which lines hold cached code (`touch`).
+    pub code_lines: Vec<u64>,
     /// Lines the program printed through the debug UART (EXI channel 0, device 1).
     pub uart: Vec<u8>,
     /// Register addresses nothing answers yet, with how often they were touched (development aid).
@@ -365,6 +367,7 @@ impl Hw {
             disc: None,
             invalidated: Vec::new(),
             code_pages: vec![0; (8192 + 16384) / 64],
+            code_lines: vec![0; (8192 + 16384) * 128 / 64],
             uart: Vec::new(),
             unknown: Default::default(),
             di_commands: Default::default(),
@@ -456,11 +459,7 @@ impl Hw {
         let pa = pa & 0x1FFF_FFFF;
         if let Some(r) = self.ram(pa, data.len() as u32) {
             r.copy_from_slice(data);
-            if !data.is_empty() {
-                for page in (pa >> 12)..=((pa + data.len() as u32 - 1) >> 12) {
-                    self.touch_page(page);
-                }
-            }
+            self.touch(pa, data.len() as u32);
         }
     }
 
@@ -476,26 +475,67 @@ impl Hw {
         }
     }
 
-    /// Marks a physical page as holding cached code.
+    /// Marks a physical page as holding cached code (the whole page: see `mark_code`).
     pub fn mark_code_page(&mut self, page: u32) {
-        if let Some(b) = Self::code_bit(page) {
+        self.mark_code(page << 12, 0x1000);
+    }
+
+    /// Marks `pa .. pa + len` as holding cached code: its pages in `code_pages` (the quick
+    /// filter compiled code and the stores check first) and its 32-byte lines in `code_lines`.
+    pub fn mark_code(&mut self, pa: u32, len: u32) {
+        if len == 0 {
+            return;
+        }
+        let last = pa.wrapping_add(len - 1);
+        for page in (pa >> 12)..=(last >> 12) {
+            let Some(b) = Self::code_bit(page) else { continue };
             self.code_pages[b / 64] |= 1 << (b % 64);
+            let lo = if page == pa >> 12 { (pa & 0xFFF) >> 5 } else { 0 };
+            let hi = if page == last >> 12 { (last & 0xFFF) >> 5 } else { 127 };
+            for line in lo..=hi {
+                let l = b * 128 + line as usize;
+                self.code_lines[l / 64] |= 1 << (l % 64);
+            }
         }
     }
 
-    /// Memory in a page changed: if it held cached code, that code is dropped (and true is
-    /// returned).
+    /// `pa .. pa + len` was written. Only code in the 32-byte lines written is dropped: a store
+    /// to data that shares a page with code no longer throws away (and makes the JIT compile
+    /// again) every block in that 4 KB page. On the owner's iPhone (build 230) Animal Crossing
+    /// rebuilt 5,000-6,000 blocks a second that way, and compiling them was a tenth of the game
+    /// thread's time. Returns whether any code was there.
     #[inline]
-    pub(crate) fn touch_page(&mut self, page: u32) -> bool {
-        if let Some(b) = Self::code_bit(page) {
-            let w = &mut self.code_pages[b / 64];
-            if *w & (1 << (b % 64)) != 0 {
-                *w &= !(1 << (b % 64));
-                self.invalidate_code(page << 12, 0x1000);
-                return true;
+    pub(crate) fn touch(&mut self, pa: u32, len: u32) -> bool {
+        if len == 0 {
+            return false;
+        }
+        let last = pa.wrapping_add(len - 1);
+        let mut hit = false;
+        for page in (pa >> 12)..=(last >> 12) {
+            let Some(b) = Self::code_bit(page) else { continue };
+            if self.code_pages[b / 64] & (1 << (b % 64)) == 0 {
+                continue;
+            }
+            let lo = if page == pa >> 12 { (pa & 0xFFF) >> 5 } else { 0 };
+            let hi = if page == last >> 12 { (last & 0xFFF) >> 5 } else { 127 };
+            let mut first_hit = None;
+            let mut last_hit = 0;
+            for line in lo..=hi {
+                let l = b * 128 + line as usize;
+                let w = &mut self.code_lines[l / 64];
+                if *w & (1 << (l % 64)) != 0 {
+                    *w &= !(1 << (l % 64));
+                    first_hit.get_or_insert(line);
+                    last_hit = line;
+                }
+            }
+            if let Some(f) = first_hit {
+                hit = true;
+                let start = (page << 12) | (f << 5);
+                self.invalidate_code(start, (last_hit - f + 1) << 5);
             }
         }
-        false
+        hit
     }
 
     pub fn dma_read(&mut self, pa: u32, len: usize) -> Vec<u8> {
@@ -1866,7 +1906,7 @@ impl Bus for Hw {
     fn write8(&mut self, pa: u32, v: u8) {
         if let Some(r) = self.ram(pa, 1) {
             r[0] = v;
-            self.touch_page(pa >> 12);
+            self.touch(pa, 1);
             return;
         }
         self.mmio_write(pa, 1, v as u32);
@@ -1874,7 +1914,7 @@ impl Bus for Hw {
     fn write16(&mut self, pa: u32, v: u16) {
         if let Some(r) = self.ram(pa, 2) {
             r.copy_from_slice(&v.to_be_bytes());
-            self.touch_page(pa >> 12);
+            self.touch(pa, 2);
             return;
         }
         self.mmio_write(pa, 2, v as u32);
@@ -1882,7 +1922,7 @@ impl Bus for Hw {
     fn write32(&mut self, pa: u32, v: u32) {
         if let Some(r) = self.ram(pa, 4) {
             r.copy_from_slice(&v.to_be_bytes());
-            self.touch_page(pa >> 12);
+            self.touch(pa, 4);
             return;
         }
         self.mmio_write(pa, 4, v);

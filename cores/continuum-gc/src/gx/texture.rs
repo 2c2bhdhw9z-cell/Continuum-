@@ -25,6 +25,48 @@ pub struct TexKey {
     levels: u32,
 }
 
+/// A decoded texture in the cache, the hash of the bytes it came from, and the cache epoch it
+/// was last known to be right in (`Gx::tex_epoch`).
+#[derive(Clone)]
+pub struct Cached {
+    pub decoded: Arc<Decoded>,
+    pub hash: u64,
+    pub epoch: u64,
+}
+
+/// A fast 64-bit hash of texture bytes (eight bytes a step). Only ever compared with itself:
+/// it says whether bytes changed, nothing else.
+struct Hasher(u64);
+
+impl Hasher {
+    fn new(seed: u64) -> Hasher {
+        Hasher(seed ^ 0x9E37_79B9_7F4A_7C15)
+    }
+    #[inline]
+    fn word(&mut self, w: u64) {
+        self.0 = (self.0 ^ w).wrapping_mul(0xBF58_476D_1CE4_E5B9).rotate_left(29);
+    }
+    fn byte(&mut self, b: u8) {
+        self.word(b as u64 | 0x100);
+    }
+    fn bytes(&mut self, b: &[u8]) {
+        let mut chunks = b.chunks_exact(8);
+        for c in &mut chunks {
+            self.word(u64::from_le_bytes(c.try_into().unwrap()));
+        }
+        for &x in chunks.remainder() {
+            self.byte(x);
+        }
+        self.word(b.len() as u64);
+    }
+    fn finish(&self) -> u64 {
+        let mut x = self.0;
+        x ^= x >> 31;
+        x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
+        x ^ (x >> 29)
+    }
+}
+
 /// One texture map's settings, unpacked from its BP registers once per primitive.
 #[derive(Clone, Copy, Default, Debug)]
 pub struct TexMap {
@@ -408,10 +450,24 @@ impl Gx {
         let nlev = if t.mip != 0 { levels(t).min(((t.max_lod.ceil() as u32) + 1).max(1)) } else { 1 };
         let tlut = if matches!(t.fmt, 8..=10) { t.tlut_base | (t.tlut_fmt << 30) } else { 0 };
         let key = TexKey { addr: if t.preloaded { t.tmem_even } else { t.addr }, fmt: t.fmt, w: t.width, h: t.height, tlut, preloaded: t.preloaded, odd: t.tmem_odd, levels: nlev };
-        if let Some(d) = self.tex_cache.get(&key) {
-            return d.clone();
+        let epoch = self.tex_epoch;
+        if let Some(c) = self.tex_cache.get(&key) {
+            if c.epoch == epoch {
+                return c.decoded.clone();
+            }
         }
-        if self.tex_cache.len() > 1024 || self.tex_cache_bytes > TEX_CACHE_BYTES {
+        // Not checked since the last possible change: hash what it was decoded from.
+        let hash = self.source_hash(ram, t, &key);
+        if let Some(c) = self.tex_cache.get_mut(&key) {
+            if c.hash == hash {
+                c.epoch = epoch;
+                return c.decoded.clone();
+            }
+            let bytes: usize = c.decoded.levels.iter().map(|l| l.2.len() * 4).sum();
+            self.tex_cache_bytes -= bytes.min(self.tex_cache_bytes);
+            self.tex_cache.remove(&key);
+        }
+        if self.tex_cache.len() > 4096 || self.tex_cache_bytes > TEX_CACHE_BYTES {
             self.clear_tex_cache();
         }
         let mut levels = Vec::with_capacity(nlev as usize);
@@ -425,8 +481,56 @@ impl Gx {
         }
         let d = Arc::new(Decoded { levels });
         self.tex_cache_bytes += d.levels.iter().map(|l| l.2.len() * 4).sum::<usize>();
-        self.tex_cache.insert(key, d.clone());
+        self.tex_cache.insert(key, Cached { decoded: d.clone(), hash, epoch });
         d
+    }
+
+    /// A hash of every byte the texture `key` decodes from: its texels (all levels, in main
+    /// memory or TMEM) and, for the palette formats, its palette in TMEM.
+    fn source_hash(&self, ram: &Ram, t: &TexMap, key: &TexKey) -> u64 {
+        let mut total = 0u32;
+        let (mut w, mut h) = (t.width, t.height);
+        for _ in 0..key.levels {
+            total += level_bytes(t.fmt, w, h);
+            w = (w / 2).max(1);
+            h = (h / 2).max(1);
+        }
+        let mut hash = Hasher::new(key.levels as u64 ^ ((t.fmt as u64) << 8));
+        let tmem = |a: u32, n: u32, hash: &mut Hasher| {
+            let a = (a as usize) & 0xFFFFF;
+            let n = n as usize;
+            if a + n <= self.tmem.len() {
+                hash.bytes(&self.tmem[a..a + n]);
+            } else {
+                for k in 0..n {
+                    hash.byte(self.tmem[(a + k) & 0xFFFFF]);
+                }
+            }
+        };
+        if t.preloaded {
+            // RGBA8 in TMEM is split over both banks; hash both (more than needed, never less).
+            tmem(t.tmem_even, total, &mut hash);
+            tmem(t.tmem_odd, total, &mut hash);
+        } else {
+            match ram.slice(t.addr, total as usize) {
+                Some(b) => hash.bytes(b),
+                None => {
+                    let mut buf = vec![0u8; total as usize];
+                    ram.read_into(t.addr, &mut buf);
+                    hash.bytes(&buf);
+                }
+            }
+        }
+        if matches!(t.fmt, 8..=10) {
+            let entries = match t.fmt {
+                8 => 16,
+                9 => 256,
+                _ => 16384,
+            };
+            tmem(t.tlut_base & 0xFFFFE, entries * 2, &mut hash);
+            hash.byte(t.tlut_fmt as u8);
+        }
+        hash.finish()
     }
 
 }
@@ -596,4 +700,46 @@ mod tests {
         }
         assert_eq!(cases, 11 * 60);
     }
+
+    /// After something that may have changed textures (a cache invalidate, a palette load), an
+    /// unchanged texture is used again without decoding, and a changed one is decoded again:
+    /// changed texels in main memory, and a changed palette in TMEM for a palette format.
+    #[test]
+    fn the_cache_keeps_unchanged_textures_and_redecodes_changed_ones() {
+        let mut mem1 = vec![0u8; 1 << 20];
+        let mut mem2: Vec<u8> = Vec::new();
+        let mut gx = Gx::new();
+        for (k, b) in mem1[0x1000..0x1000 + 64].iter_mut().enumerate() {
+            *b = k as u8;
+        }
+        let i8_tex = TexMap { width: 8, height: 4, fmt: 1, addr: 0x1000, ..Default::default() };
+        let ram = Ram { mem1: &mut mem1, mem2: &mut mem2 };
+        let a = gx.decoded(&ram, &i8_tex);
+        gx.tex_epoch += 1;
+        let b = gx.decoded(&ram, &i8_tex);
+        assert!(Arc::ptr_eq(&a, &b), "unchanged texture decoded again");
+        drop(ram);
+        mem1[0x1000] = 0xFF;
+        gx.tex_epoch += 1;
+        let ram = Ram { mem1: &mut mem1, mem2: &mut mem2 };
+        let c = gx.decoded(&ram, &i8_tex);
+        assert!(!Arc::ptr_eq(&a, &c), "changed texture not decoded again");
+        assert_eq!(c.levels[0].2[0], [0xFF, 0xFF, 0xFF, 0xFF]);
+        // Without an epoch change the cache is trusted as before, without hashing.
+        let d = gx.decoded(&ram, &i8_tex);
+        assert!(Arc::ptr_eq(&c, &d));
+
+        // C8 (format 9) with its palette at TMEM 0x2000: a new palette, same texels.
+        let ci8 = TexMap { width: 8, height: 4, fmt: 9, addr: 0x1000, tlut_base: 0x2000, tlut_fmt: 1, ..Default::default() };
+        gx.tmem[0x2000 + 2 * 1] = 0xF8; // entry 1: red in RGB565
+        let e = gx.decoded(&ram, &ci8);
+        gx.tex_epoch += 1;
+        assert!(Arc::ptr_eq(&e, &gx.decoded(&ram, &ci8)), "same palette decoded again");
+        gx.tmem[0x2000 + 2 * 1] = 0x07; // entry 1: now green
+        gx.tex_epoch += 1;
+        let f = gx.decoded(&ram, &ci8);
+        assert!(!Arc::ptr_eq(&e, &f), "new palette not decoded again");
+        assert_ne!(e.levels[0].2[1], f.levels[0].2[1]);
+    }
+
 }

@@ -79,6 +79,15 @@ impl Ram<'_> {
         }
     }
 
+    /// The bytes at `pa .. pa + n` when they are one piece of RAM (for hashing a texture).
+    pub fn slice(&self, pa: u32, n: usize) -> Option<&[u8]> {
+        match self.locate(pa & 0x1FFF_FFFF, n) {
+            Some((false, o)) => Some(&self.mem1[o..o + n]),
+            Some((true, o)) => Some(&self.mem2[o..o + n]),
+            None => None,
+        }
+    }
+
     pub fn read_into(&self, pa: u32, out: &mut [u8]) {
         let pa = pa & 0x1FFF_FFFF;
         match self.locate(pa, out.len()) {
@@ -215,7 +224,12 @@ pub struct Gx {
     queue: Vec<u8>,
     /// Decoded textures (rebuilt on demand; never in a save state).
     #[serde(skip)]
-    pub(crate) tex_cache: std::collections::HashMap<texture::TexKey, std::sync::Arc<texture::Decoded>>,
+    pub(crate) tex_cache: std::collections::HashMap<texture::TexKey, texture::Cached>,
+    /// Moves on whenever cached textures may have gone stale (a texture-cache invalidate, a
+    /// palette or TMEM load, an EFB copy to a texture). A cached texture from an older epoch is
+    /// checked against the bytes it was decoded from before it is used, and decoded again only
+    /// if they changed (`texture::Gx::decoded`).
+    pub(crate) tex_epoch: u64,
     /// Bytes the decoded textures in `tex_cache` take (kept under `texture::TEX_CACHE_BYTES`).
     #[serde(skip)]
     pub(crate) tex_cache_bytes: usize,
@@ -288,6 +302,7 @@ impl Gx {
             efb_depth: vec![0x00FF_FFFF; efb::EFB_WIDTH * efb::EFB_HEIGHT],
             queue: Vec::new(),
             tex_cache: Default::default(),
+            tex_epoch: 0,
             tex_cache_bytes: 0,
             stats: Stats::default(),
         }
@@ -653,21 +668,26 @@ impl Gx {
                 self.pe_regs[7] = v as u16;
                 self.pe_regs[5] |= PE_TOKEN_INT;
             }
+            // These used to throw every decoded texture away, and Animal Crossing does them all
+            // the time (its N64 display-list code loads a palette for nearly every texture): on
+            // the owner's iPhone (build 230) decoding textures again was a quarter of the game
+            // thread. Now the cache is only marked as possibly stale, and each texture is checked
+            // against its bytes the next time it is used.
             0x52 => {
                 self.efb_copy(ram, v);
                 if v & (1 << 14) == 0 {
-                    self.clear_tex_cache();
+                    self.tex_epoch += 1;
                 }
             }
             0x63 => {
                 self.preload_texture(ram, v);
-                self.clear_tex_cache();
+                self.tex_epoch += 1;
             }
             0x65 => {
                 self.load_tlut(ram, v);
-                self.clear_tex_cache();
+                self.tex_epoch += 1;
             }
-            0x66 => self.clear_tex_cache(),
+            0x66 => self.tex_epoch += 1,
             0xE0..=0xE7 => {
                 // Pairs: even = red (0-10) and alpha (12-22); odd = blue (0-10) and green (12-22).
                 // Bit 23 says whether this is a konstant colour or a TEV register.

@@ -989,3 +989,75 @@ fn every_call_runs_one_whole_field() {
     assert!(lines[2..].iter().all(|&n| n == 262 || n == 263), "lines per call: {lines:?}");
     assert_eq!(lines[2..].iter().sum::<u64>(), 525 * 5);
 }
+
+/// A program that rewrites one of its own instructions with a plain store (no icbi) and runs it
+/// again, plus a loop that keeps storing to data in the same 4 KB page as its code. Results:
+/// the value the routine returned before and after the rewrite, and the loop's count.
+fn self_modifying_program() -> Vec<u8> {
+    const ROUTINE: u32 = 0x8000_3300;
+    let li_r4_2 = li(4, 2);
+    let bl = |from: u32, to: u32| 0x4800_0001 | ((to.wrapping_sub(from)) & 0x03FF_FFFC);
+    let blr = 0x4E80_0020u32;
+    let mut main = vec![
+        lis(5, ROUTINE >> 16),
+        ori(5, 5, ROUTINE & 0xFFFF),
+        lis(6, li_r4_2 >> 16),
+        ori(6, 6, li_r4_2 & 0xFFFF),
+        lis(8, RESULTS >> 16),
+        ori(8, 8, RESULTS & 0xFFFF),
+    ];
+    let here = |words: &Vec<u32>| 0x8000_3100 + 4 * words.len() as u32;
+    let at = here(&main);
+    main.push(bl(at, ROUTINE));
+    main.push(stw(4, 8, 0)); // the routine before the rewrite
+    main.push(stw(6, 5, 0)); // rewrite its first instruction: li r4, 2
+    let at = here(&main);
+    main.push(bl(at, ROUTINE));
+    main.push(stw(4, 8, 4)); // after the rewrite
+    // 2000 stores to data 0x80 bytes past the routine (the same page, other lines), running it
+    // each time, counting in r9.
+    main.push(li(9, 0));
+    main.push(li(7, 2000));
+    main.push(mtctr(7));
+    let top = here(&main);
+    main.push(stw(9, 5, 0x80));
+    let at = here(&main);
+    main.push(bl(at, ROUTINE));
+    main.push(addi(9, 9, 1));
+    let at = here(&main);
+    main.push((16 << 26) | (16 << 21) | (top.wrapping_sub(at) & 0xFFFC)); // bdnz top
+    main.push(stw(9, 8, 8));
+    // By now the routine has run 2000 times (compiled, under the JIT). Rewrite it again.
+    let li_r4_3 = li(4, 3);
+    main.push(lis(6, li_r4_3 >> 16));
+    main.push(ori(6, 6, li_r4_3 & 0xFFFF));
+    main.push(stw(6, 5, 0));
+    let at = here(&main);
+    main.push(bl(at, ROUTINE));
+    main.push(stw(4, 8, 12));
+    main.push(HANG);
+    dol(&[(0x8000_3100, main), (ROUTINE, vec![li(4, 1), blr])], 0x8000_3100)
+}
+
+#[test]
+fn rewritten_code_runs_as_rewritten_on_every_cpu() {
+    for (mode, r) in on_every_cpu(&self_modifying_program(), 3, 4) {
+        assert_eq!(r[0], 1, "{mode}: the routine before the rewrite");
+        assert_eq!(r[1], 2, "{mode}: the routine after the rewrite (a stale cached block would say 1)");
+        assert_eq!(r[2], 2000, "{mode}: the data-store loop ran");
+        assert_eq!(r[3], 3, "{mode}: rewritten again after running 2000 times (a stale compiled block would say 2)");
+    }
+}
+
+#[test]
+fn stores_to_data_beside_code_do_not_throw_the_code_away() {
+    let mut m = booted(&self_modifying_program());
+    for _ in 0..3 {
+        m.run_field(20_000_000);
+    }
+    let f = m.fast.as_ref().unwrap();
+    // The 2000 stores land in the routine's page but not its lines: the blocks stay built. A
+    // whole-page drop rebuilt the routine and the loop's own block every round (4000+).
+    assert!(f.stats.blocks_built < 50, "blocks built: {}", f.stats.blocks_built);
+    assert!(f.stats.invalidations <= 6, "invalidations: {}", f.stats.invalidations);
+}

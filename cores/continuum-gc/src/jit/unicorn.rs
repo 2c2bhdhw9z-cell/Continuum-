@@ -113,7 +113,7 @@ impl Backend for UnicornBackend {
 
     unsafe fn call(&mut self, at: usize, cpu: *mut Cpu, hw: *mut Hw, ctx: *const JitCtx, budget: u64) -> u64 {
         // SAFETY: the caller guarantees live pointers.
-        let (mem1, pages, pages_len) = unsafe { ((*hw).mem1.as_mut_ptr() as usize, (*hw).code_pages.as_ptr() as usize, (*hw).code_pages.len() * 8) };
+        let (mem1, pages, pages_len) = unsafe { ((*hw).mem1.as_mut_ptr() as usize, (*hw).code_lines.as_ptr() as usize, (*hw).code_lines.len() * 8) };
         // SAFETY: the caller guarantees a live context.
         let table = unsafe { (*ctx).table } as usize;
         self.map(3, TABLE, table, super::compile::TABLE_SIZE * 16);

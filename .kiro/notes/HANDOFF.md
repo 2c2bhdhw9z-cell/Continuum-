@@ -5,7 +5,38 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (25 October 2026, about 2:00 PM Eastern): build 230 = ALL the telemetry, in one go
+## START HERE (25 October 2026, about 3:30 PM Eastern): build 231 = GameCube speed from the 230 profile
+
+HIS 230 UPLOAD (h67pii) said exactly where Animal Crossing's time went (town, 40-50 emulator frames/s):
+- SCREEN: the app's pacer SPIRALLED: every display tick ran 4 GameCube frames (3+:11-13 per second), the
+  tick held the main thread 70-90 ms, so only 11-13 pictures reached the screen a second. That is the
+  "10 fps" he saw, while the core itself managed 44-52 frames a second.
+- Game thread (profile, symbolized with llvm-nm on ipa230's dylib): texture DECODING ~25% (`Gx::decoded`,
+  + palette 3%: the whole texture cache was thrown away on every GXInvalidateTexAll / TLUT load / TMEM
+  preload, which Animal Crossing's N64 display-list code does constantly), `Jit::compile` ~13% (every
+  store to data sharing a 4 KB page with code dropped all that page's blocks: 5,000-6,000 blocks rebuilt
+  and 800 page drops a second), JIT code itself only 15-20%, drawing helped 5%.
+- Threads: game 85%, gx draw 0-3 ~80% each (drawing is the other limit), memory 850 MB, phone cool.
+- The JIT works (99% of instructions run compiled); the Gekko's own code is just not where the time goes.
+FIXED IN 231 (all tested here; pictures checked bit-identical with examples/drawcheck over 700 fields of
+FCE Ultra GX and Swiss against the 230 code):
+1. timing.rs: `FramePacer::catch_up_cap`: a tick may spend ~2 core frames of wall time catching up (from
+   the measured step cost the bridge feeds `note_step_cost`); at least 1 step. A slow core now runs one
+   step a tick instead of 4. Tests: slow core 1 step/tick, fast core still catches up, 4x fast-forward ok.
+2. Texture cache (gx/texture.rs, mod.rs): invalidations bump `tex_epoch` instead of clearing; an entry
+   from an older epoch is hashed (texels + palette) and reused when unchanged. Test:
+   the_cache_keeps_unchanged_textures_and_redecodes_changed_ones.
+3. Code invalidation by 32-byte line (`Hw::code_lines`, `mark_code`, `touch`): page bits stay as the quick
+   filter; only blocks overlapping written lines are dropped (FastCpu::invalidate); the JIT's inline
+   store check now reads the line bitmap (word w1>>11, bit (w1>>5)&63) and sends line-crossing stores to
+   the slow path. Tests: rewritten_code_runs_as_rewritten_on_every_cpu (plain, fast, JIT under unicorn;
+   rewrite before and after 2000 runs), stores_to_data_beside_code_do_not_throw_the_code_away.
+4. raster_triangle: each row starts at its first inside pixel and stops at its last (edge functions
+   solved per row); attributes stepped identically so results are bit-exact. FCEUGX drawing -11%.
+5. Telemetry: the busiest non-game thread (a draw helper) is profiled too.
+NEXT: his 231 upload. If drawing is still the limit (helpers ~80-100%), the GPU drawer (G6 part 2).
+
+## Earlier (25 October 2026, about 2:00 PM Eastern): build 230 = ALL the telemetry, in one go
 
 OWNER ON 229 (upload c6xury): GameCube sound came out at the right amount when fast enough, but he saw
 as low as ~10 fps, and was furious that I quoted "39-60 FPS": my line counted EMULATOR FRAMES (retro_run

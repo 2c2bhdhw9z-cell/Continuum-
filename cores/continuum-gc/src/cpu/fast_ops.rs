@@ -158,7 +158,7 @@ fn load64(cpu: &mut Cpu, hw: &mut Hw, ea: u32) -> Option<u64> {
 fn store64(cpu: &mut Cpu, hw: &mut Hw, ea: u32, v: u64) -> bool {
     if let Some(p) = in_window::<8>(cpu, ea) {
         hw.mem1[p..p + 8].copy_from_slice(&v.to_be_bytes());
-        if hw.touch_page((p >> 12) as u32) {
+        if hw.touch(p as u32, 8) {
             cpu.exit = true;
             cpu.pc = cpu.cur_pc.wrapping_add(4);
         }
@@ -170,7 +170,7 @@ fn store64(cpu: &mut Cpu, hw: &mut Hw, ea: u32, v: u64) -> bool {
             let p = pa as usize;
             if p + 8 <= MEM1_SIZE {
                 hw.mem1[p..p + 8].copy_from_slice(&v.to_be_bytes());
-                if hw.touch_page(pa >> 12) {
+                if hw.touch(pa, 8) {
                     cpu.exit = true;
                     cpu.pc = cpu.cur_pc.wrapping_add(4);
                 }
@@ -194,7 +194,7 @@ fn store<const N: u32>(cpu: &mut Cpu, hw: &mut Hw, ea: u32, v: u32) -> bool {
             2 => m.copy_from_slice(&(v as u16).to_be_bytes()),
             _ => m.copy_from_slice(&v.to_be_bytes()),
         }
-        if hw.touch_page((p >> 12) as u32) {
+        if hw.touch(p as u32, N) {
             cpu.exit = true;
             cpu.pc = cpu.cur_pc.wrapping_add(4);
         }
@@ -211,7 +211,7 @@ fn store<const N: u32>(cpu: &mut Cpu, hw: &mut Hw, ea: u32, v: u32) -> bool {
                     2 => m[p..p + 2].copy_from_slice(&(v as u16).to_be_bytes()),
                     _ => m[p..p + 4].copy_from_slice(&v.to_be_bytes()),
                 }
-                if hw.touch_page(pa >> 12) {
+                if hw.touch(pa, N) {
                     cpu.exit = true;
                     cpu.pc = cpu.cur_pc.wrapping_add(4);
                 }
@@ -386,7 +386,7 @@ fn psq_store_quick(cpu: &mut Cpu, hw: &mut Hw, s: usize, ea: u32, w: bool, q: us
     if !w {
         put(&mut hw.mem1[p + size as usize..], b);
     }
-    if hw.touch_page((p >> 12) as u32) {
+    if hw.touch(p as u32, n) {
         cpu.exit = true;
         cpu.pc = cpu.cur_pc.wrapping_add(4);
     }

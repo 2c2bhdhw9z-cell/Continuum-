@@ -154,25 +154,36 @@ impl FastCpu {
             self.clear();
             return;
         }
+        let end = pa.wrapping_add(len.max(1));
         let first = pa >> 12;
         let last = pa.wrapping_add(len.max(1) - 1) >> 12;
         for page in first..=last {
-            if let Some(starts) = self.pages.remove(&page) {
+            let Some(starts) = self.pages.remove(&page) else { continue };
+            // Only the blocks whose code lies in the range: a block never crosses a page (`build`
+            // stops at the page's end), so its start page is the only list it is in.
+            let mut kept = Vec::new();
+            for s in starts {
+                let Some(&i) = self.index.get(&s) else { continue };
+                let bytes = self.blocks[i as usize].as_ref().map_or(4, |b| b.ops.len() as u32 * 4);
+                if s.wrapping_add(bytes) <= pa || s >= end {
+                    kept.push(s);
+                    continue;
+                }
+                self.index.remove(&s);
                 self.stats.invalidations += 1;
                 self.last = None;
-                for s in starts {
-                    if let Some(i) = self.index.remove(&s) {
-                        if let (Some(j), Some(n)) = (self.jit.as_mut(), self.blocks[i as usize].as_ref().and_then(|b| b.native)) {
-                            j.forget(n.ea);
-                        }
-                        self.blocks[i as usize] = None;
-                        self.free.push(i);
-                        let slot = &mut self.lookup[((s >> 2) as usize) & (LOOKUP - 1)];
-                        if slot.0 == s + 1 {
-                            *slot = (0, 0);
-                        }
-                    }
+                if let (Some(j), Some(n)) = (self.jit.as_mut(), self.blocks[i as usize].as_ref().and_then(|b| b.native)) {
+                    j.forget(n.ea);
                 }
+                self.blocks[i as usize] = None;
+                self.free.push(i);
+                let slot = &mut self.lookup[((s >> 2) as usize) & (LOOKUP - 1)];
+                if slot.0 == s + 1 {
+                    *slot = (0, 0);
+                }
+            }
+            if !kept.is_empty() {
+                self.pages.insert(page, kept);
             }
         }
     }
@@ -269,7 +280,9 @@ impl FastCpu {
                         Some(&i) => i,
                         None => {
                             let i = self.build(hw, pa);
-                            hw.mark_code_page(pa >> 12);
+                            // Exactly the bytes the block was built from (`Hw::touch`).
+                            let bytes = self.blocks[i as usize].as_ref().map_or(4, |b| b.ops.len() as u32 * 4);
+                            hw.mark_code(pa, bytes);
                             i
                         }
                     };

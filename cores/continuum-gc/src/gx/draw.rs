@@ -216,32 +216,53 @@ pub(super) fn raster_triangle(target: Target, s: &Setup, v0: &Screen, v1: &Scree
         let cy = (py * 16 + 8) as i64;
         let fy = (py as f32 + 0.5) - y0;
         let cx0 = (px0 * 16 + 8) as i64;
-        let mut e = [eval(0, cx0, cy), eval(1, cx0, cy), eval(2, cx0, cy)];
+        let e = [eval(0, cx0, cy), eval(1, cx0, cy), eval(2, cx0, cy)];
+        // The row's inside pixels, straight from the three edge functions (each is linear along
+        // the row, so where it turns non-negative is a division): the pixels before and after
+        // them are never visited. Exactly the pixels the per-pixel test accepted.
+        let (mut lo, mut hi) = (0i64, (px1 - px0) as i64);
+        for i in 0..3 {
+            let (e0, st) = (e[i], step_x[i]);
+            if st == 0 {
+                if e0 < 0 {
+                    hi = -1;
+                }
+            } else if st > 0 {
+                if e0 < 0 {
+                    lo = lo.max((-e0 + st - 1) / st);
+                }
+            } else if e0 < 0 {
+                hi = -1;
+            } else {
+                hi = hi.min(e0 / -st);
+            }
+        }
+        if lo > hi {
+            continue;
+        }
+        // The attributes at px0, stepped to the first inside pixel exactly as the old loop
+        // stepped them (one addition a pixel), so every value is bit for bit what it was.
         let mut z = z0 + dzx * fx0 + dzy * fy;
         let mut iw = p0.inv_w + dwx * fx0 + dwy * fy;
         for k in 0..nattr {
             vals[k] = base[k] + ddx[k] * fx0 + ddy[k] * fy;
         }
-        let mut inside_seen = false;
-        for px in px0..=px1 {
-            if px > px0 {
-                e[0] += step_x[0];
-                e[1] += step_x[1];
-                e[2] += step_x[2];
+        for _ in 0..lo {
+            z += dzx;
+            iw += dwx;
+            for k in 0..nattr {
+                vals[k] += ddx[k];
+            }
+        }
+        let first = px0 + lo as i32;
+        for px in first..=px0 + hi as i32 {
+            if px > first {
                 z += dzx;
                 iw += dwx;
                 for k in 0..nattr {
                     vals[k] += ddx[k];
                 }
             }
-            if e[0] < 0 || e[1] < 0 || e[2] < 0 {
-                if inside_seen {
-                    // Triangles are convex: once out on this row, the rest is out too.
-                    break;
-                }
-                continue;
-            }
-            inside_seen = true;
             let idx = py as usize * EFB_WIDTH + px as usize;
             let zi = z.clamp(0.0, 16_777_215.0) as u32;
             if s.pe.z_early && s.pe.z_enable && !target.depth_test(&s.pe, idx, zi) {
