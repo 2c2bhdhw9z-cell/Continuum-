@@ -156,20 +156,31 @@ struct NetpacketInterface {
 /// The version of cBoy's own cable talk. Two phones must agree on it or the frontend tells them
 /// so instead of letting the games get out of step. Bump it if the packet ever changes shape.
 const LINK_PROTOCOL: &[u8] = b"cboy-link-1\0";
+/// The Advance's: its own, so a phone playing a Game Boy game never links to one playing an
+/// Advance game.
+const ADVANCE_LINK_PROTOCOL: &[u8] = b"cboy-advance-link-1\0";
 
 /// This phone's end of the cable, and the frontend's way of putting a packet on it. Kept apart
 /// from `CORE` on purpose: the frontend touches these from its own thread, between frames, and a
 /// callback that waited for the machine's own lock could sit there for a whole frame.
 static LINK: Mutex<crate::link::Cable> = Mutex::new(crate::link::Cable::new());
 static LINK_SEND: Mutex<Option<NetpacketSendFn>> = Mutex::new(None);
+/// The Advance's end of the cable (`gba::sio`). Only one of the two is ever in use: the game
+/// loaded says which, and each refuses the other's packets.
+static ADVANCE_LINK: Mutex<gba::sio::Cable> = Mutex::new(gba::sio::Cable::new());
 
 /// The app has joined this phone to another one.
-unsafe extern "C" fn netpacket_start(_client: u16, send: Option<NetpacketSendFn>, _poll_receive: Option<NetpacketPollReceiveFn>) {
+unsafe extern "C" fn netpacket_start(client: u16, send: Option<NetpacketSendFn>, _poll_receive: Option<NetpacketPollReceiveFn>) {
     if let Ok(mut s) = LINK_SEND.lock() {
         *s = send;
     }
     if let Ok(mut c) = LINK.lock() {
         c.start();
+    }
+    // The phone that hosted the session (client 0) is the parent in the Advance's multi-player
+    // mode, the one that joined is the child.
+    if let Ok(mut c) = ADVANCE_LINK.lock() {
+        c.start(client == 0);
     }
     log_line("linked up with another phone");
 }
@@ -183,6 +194,9 @@ unsafe extern "C" fn netpacket_receive(buf: *const c_void, len: usize, _client: 
     if let Ok(mut c) = LINK.lock() {
         c.deliver(bytes);
     }
+    if let Ok(mut c) = ADVANCE_LINK.lock() {
+        c.deliver(bytes);
+    }
 }
 
 /// Between frames: everything the machine has put on the cable goes over now.
@@ -191,7 +205,12 @@ unsafe extern "C" fn netpacket_poll() {
     let mut queued = Vec::new();
     if let Ok(mut c) = LINK.lock() {
         while let Some(p) = c.take_out() {
-            queued.push(p);
+            queued.push(p.to_vec());
+        }
+    }
+    if let Ok(mut c) = ADVANCE_LINK.lock() {
+        while let Some(p) = c.take_out() {
+            queued.push(p.to_vec());
         }
     }
     // Outside the lock: the frontend may answer a send by handing a packet straight back.
@@ -208,12 +227,15 @@ unsafe extern "C" fn netpacket_stop() {
     if let Ok(mut c) = LINK.lock() {
         c.stop();
     }
+    if let Ok(mut c) = ADVANCE_LINK.lock() {
+        c.stop();
+    }
     log_line("the other phone is gone, so the cable is unplugged");
 }
 
 /// Offers the frontend cBoy's side of a two-phone link. A frontend that has no such thing says
 /// no and nothing changes: the console simply has nothing plugged into it.
-unsafe fn offer_the_link(env: EnvFn) {
+unsafe fn offer_the_link(env: EnvFn, advance: bool) {
     let mut cb = NetpacketInterface {
         start: Some(netpacket_start),
         receive: Some(netpacket_receive),
@@ -221,7 +243,7 @@ unsafe fn offer_the_link(env: EnvFn) {
         poll: Some(netpacket_poll),
         connected: None,
         disconnected: None,
-        protocol_version: LINK_PROTOCOL.as_ptr() as *const c_char,
+        protocol_version: if advance { ADVANCE_LINK_PROTOCOL } else { LINK_PROTOCOL }.as_ptr() as *const c_char,
     };
     if !env(ENV_SET_NETPACKET_INTERFACE, &mut cb as *mut NetpacketInterface as *mut c_void) {
         log_line("this app cannot join two phones up, so the link cable has nothing on the end");
@@ -1322,10 +1344,12 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     if let Ok(mut c) = LINK.lock() {
         c.stop();
     }
-    // Only a Game Boy game: the Advance's own link is not modelled yet. Two Game Boys on this
-    // phone are already joined to each other.
-    if let (Some(env), true) = (env, gba_machine.is_none() && second.is_none()) {
-        offer_the_link(env);
+    // Two Game Boys on this phone are already joined to each other.
+    if let Ok(mut c) = ADVANCE_LINK.lock() {
+        c.stop();
+    }
+    if let (Some(env), true) = (env, second.is_none()) {
+        offer_the_link(env, gba_machine.is_some());
     }
     if gba_machine.is_some() {
         log_line("loaded a Game Boy Advance ROM");
@@ -1380,6 +1404,9 @@ pub extern "C" fn retro_unload_game() {
     }
     // The cable goes with the game: the next one starts with nothing attached.
     if let Ok(mut c) = LINK.lock() {
+        c.stop();
+    }
+    if let Ok(mut c) = ADVANCE_LINK.lock() {
         c.stop();
     }
     if let Ok(mut s) = LINK_SEND.lock() {
@@ -1487,6 +1514,9 @@ pub unsafe extern "C" fn retro_run() {
             c.attach(&mut core.gb.bus);
         }
     }
+    if let (Some(g), Ok(c)) = (core.gba.as_mut(), ADVANCE_LINK.lock()) {
+        c.attach(&mut g.bus);
+    }
     let inputs = core.read_inputs(input);
     if let Some(PlayerReset::Held(left)) = core.player_reset {
         // Held after a Game Boy Player reset: nothing runs, the screen is dark, no sound.
@@ -1530,6 +1560,9 @@ pub unsafe extern "C" fn retro_run() {
     let ahead = s.run_ahead;
     // The real frame. With run-ahead it is never drawn: the picture comes from the frames ahead.
     core.run_one(ahead == 0 && !skip);
+    if let (Some(g), Ok(mut c)) = (core.gba.as_mut(), ADVANCE_LINK.lock()) {
+        c.pump(&mut g.bus);
+    }
     if core.gba.is_none() {
         core.watch_lockup(vblanks);
         // One frame's worth of cable: what the other phone sent goes into the machine, and what

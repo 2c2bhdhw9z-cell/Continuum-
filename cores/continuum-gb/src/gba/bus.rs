@@ -14,7 +14,7 @@ use super::save::{Save, SaveKind};
 use crate::apu::Apu;
 
 pub const CPU_HZ: u64 = 16_777_216;
-const LINE: u32 = 1232;
+pub(super) const LINE: u32 = 1232;
 const HBLANK_AT: u32 = 1006;
 
 pub const IRQ_VBLANK: u16 = 1;
@@ -296,6 +296,9 @@ pub struct Bus {
     /// Saved on its own after the rest (see `BusTiming`).
     #[serde(skip)]
     pub tm: BusTiming,
+    /// The link port's transfer, and whether a second phone is on the cable (`sio.rs`).
+    #[serde(skip)]
+    pub sio: super::sio::Sio,
 }
 
 impl Bus {
@@ -316,6 +319,7 @@ impl Bus {
             gbp: false,
             vba_compat: true,
             gbp_i: 0,
+            sio: Default::default(),
             gbp_motor: false,
             bios: mini_bios(),
             real_bios: false,
@@ -365,11 +369,11 @@ impl Bus {
         }
     }
 
-    fn io16(&self, a: usize) -> u16 {
+    pub(super) fn io16(&self, a: usize) -> u16 {
         u16::from(self.io[a]) | u16::from(self.io[a + 1]) << 8
     }
 
-    fn set_io16(&mut self, a: usize, v: u16) {
+    pub(super) fn set_io16(&mut self, a: usize, v: u16) {
         self.io[a] = v as u8;
         self.io[a + 1] = (v >> 8) as u8;
     }
@@ -848,7 +852,7 @@ impl Bus {
             return self.io[a];
         }
         match a {
-            0x04..=0x07 | 0x100..=0x10F | 0x130 | 0x131 | 0x200..=0x203 => {
+            0x04..=0x07 | 0x100..=0x10F | 0x128 | 0x129 | 0x130 | 0x131 | 0x200..=0x203 => {
                 let h = self.io_read16(a & !1);
                 (if a & 1 != 0 { h >> 8 } else { h }) as u8
             }
@@ -868,6 +872,7 @@ impl Bus {
             0x06 => self.line as u16,
             0x100 | 0x104 | 0x108 | 0x10C => self.timer_count((a - 0x100) / 4, self.cycles),
             0x102 | 0x106 | 0x10A | 0x10E => self.timers[(a - 0x100) / 4].ctrl,
+            0x128 => self.siocnt_read(),
             0x130 => 0x3FF & !self.keys,
             0x60..=0x9F => u16::from(self.io_read8(a)) | u16::from(self.io_read8(a + 1)) << 8,
             // Write-only registers read as 0.
@@ -902,7 +907,7 @@ impl Bus {
         }
     }
 
-    fn io_write16(&mut self, a: usize, v: u16) {
+    pub(super) fn io_write16(&mut self, a: usize, v: u16) {
         match a {
             0x04 => {
                 let cur = self.io16(4);
@@ -976,9 +981,13 @@ impl Bus {
                 p.enabled = on;
             }
             0x128 => {
-                self.set_io16(a, v);
+                // The busy bit of a transfer still running is the port's, not the write's.
+                let busy = if self.sio_busy() { 0x80 } else { 0 };
+                self.set_io16(a, v | busy);
                 if self.gbp && v & 0x80 != 0 && (v >> 12) & 3 == 1 && v & 1 == 0 {
                     self.gbp_clock();
+                } else if v & 0x80 != 0 && busy == 0 {
+                    self.sio_start();
                 }
             }
             0x130 => {}
@@ -1380,6 +1389,7 @@ impl Bus {
     }
 
     fn next_line(&mut self) {
+        self.sio_line();
         self.line += 1;
         if self.line == 228 {
             self.line = 0;

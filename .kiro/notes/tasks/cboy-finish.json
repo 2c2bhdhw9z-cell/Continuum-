@@ -72,7 +72,8 @@
       "id": "B8",
       "done": false,
       "title": "Game Boy Advance link: cable multiplayer and the wireless adapter",
-      "notes": "Gap gpsp_serial. The Game Boy/Color cable between two phones exists (Built, untested; link.rs)."
+      "notes": "Gap gpsp_serial. The Game Boy/Color cable between two phones exists (Built, untested; link.rs).",
+      "result": "Cable done: cores/continuum-gb/src/gba/sio.rs. Normal 8/32-bit and multi-player (16-bit) modes go to a second phone through the app's existing two-phone session (same netpacket interface as the Game Boy cable, own protocol name cboy-advance-link-1, own 7-byte packets). The hosting phone is the parent. The driving console's transfer stays busy until the other phone answers, gives up after 6 frames reading all 1s; with no second phone a transfer finishes on its own reading all 1s (before, the busy bit stuck for ever). Tests: sio.rs unit tests, link_e2e an_advance_word_crosses_to_the_other_phone_and_back and an_advance_on_its_own_reads_nobody. NOT done: the wireless adapter (a large command protocol that only real games such as Pokemon FireRed/Emerald could check, and none are here); UART and JOY Bus modes; more than two players."
     },
     {
       "id": "B9",

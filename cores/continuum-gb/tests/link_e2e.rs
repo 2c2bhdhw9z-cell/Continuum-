@@ -278,3 +278,90 @@ fn rubbish_off_the_network_cannot_reach_the_game() {
         retro_deinit();
     }
 }
+
+/// An Advance cartridge in multi-player mode: it puts $AAAA up to send, starts the transfer,
+/// waits for it, and writes what the other console sent (SIOMULTI1) to the start of its RAM.
+fn advance_sender_rom() -> Vec<u8> {
+    let code: [u32; 19] = [
+        0xE3A0_0301, // MOV R0, #$04000000
+        0xE3A0_1000, // MOV R1, #0
+        0xE280_2C01, // ADD R2, R0, #$100
+        0xE1C2_13B4, // STRH R1, [R2, #$34]   RCNT: the serial modes
+        0xE3A0_3A02, // MOV R3, #$2000
+        0xE383_3003, // ORR R3, R3, #3        multi-player, 115200 baud
+        0xE1C2_32B8, // STRH R3, [R2, #$28]   SIOCNT
+        0xE3A0_4CAA, // MOV R4, #$AA00
+        0xE384_40AA, // ORR R4, R4, #$AA
+        0xE1C2_42BA, // STRH R4, [R2, #$2A]   SIOMLT_SEND
+        0xE383_3080, // ORR R3, R3, #$80
+        0xE1C2_32B8, // STRH R3, [R2, #$28]   start
+        0xE1D2_52B8, // LDRH R5, [R2, #$28]   <- wait
+        0xE315_0080, // TST R5, #$80
+        0x1AFF_FFFC, // BNE wait
+        0xE1D2_62B2, // LDRH R6, [R2, #$22]   SIOMULTI1
+        0xE3A0_7402, // MOV R7, #$02000000
+        0xE1C7_60B0, // STRH R6, [R7]
+        0xEAFF_FFFE, // B .
+    ];
+    let mut rom = vec![0u8; 0x400];
+    rom[..4].copy_from_slice(&0xEA00_002Eu32.to_le_bytes()); // B $080000C0, over the header
+    rom[0xB2] = 0x96;
+    for (i, w) in code.iter().enumerate() {
+        rom[0xC0 + i * 4..0xC4 + i * 4].copy_from_slice(&w.to_le_bytes());
+    }
+    rom
+}
+
+/// The Advance's own cable: the hosting phone is the parent, its word leaves the phone in a
+/// block of the Advance's own kind, under the Advance's own protocol name, and the other phone's
+/// word comes back into the game.
+#[test]
+fn an_advance_word_crosses_to_the_other_phone_and_back() {
+    use continuum_gb::gba::sio;
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    reset_app(true);
+    unsafe {
+        load(&advance_sender_rom());
+        let iface = app().iface.expect("cBoy did not offer the Advance link");
+        assert_eq!(app().protocol, "cboy-advance-link-1", "never mixed up with a Game Boy game's cable");
+        (iface.start.unwrap())(0, Some(send), None);
+        for _ in 0..3 {
+            frame(&iface);
+        }
+        let out: Vec<sio::Packet> = app().sent.iter().map(|(flags, client, bytes)| {
+            assert_eq!((*flags & 1, *client, bytes.len()), (1, 0xFFFF, sio::PACKET_LEN));
+            sio::Packet::decode(bytes).unwrap()
+        }).collect();
+        assert_eq!(out.first(), Some(&sio::Packet::Clock { seq: 0, mode: sio::MODE_MULTI, word: 0xAAAA }), "{out:?}");
+        let ram = retro_get_memory_data(2) as *const u16;
+        assert_eq!(*ram, 0, "the game is still waiting for the answer");
+        let answer = sio::Packet::Answer { seq: 0, word: 0xBBBB }.encode();
+        (iface.receive.unwrap())(answer.as_ptr() as *const c_void, answer.len(), 0);
+        for _ in 0..3 {
+            frame(&iface);
+        }
+        assert_eq!(*ram, 0xBBBB, "the game read the other phone's word");
+        (iface.stop.unwrap())();
+        retro_unload_game();
+        retro_deinit();
+    }
+}
+
+/// With no second phone, the same game finishes its transfer reading $FFFF instead of waiting
+/// for ever.
+#[test]
+fn an_advance_on_its_own_reads_nobody() {
+    let _turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    reset_app(true);
+    unsafe {
+        load(&advance_sender_rom());
+        let iface = app().iface.unwrap();
+        for _ in 0..3 {
+            frame(&iface);
+        }
+        assert_eq!(*(retro_get_memory_data(2) as *const u16), 0xFFFF);
+        assert!(app().sent.is_empty(), "nothing goes out with no session");
+        retro_unload_game();
+        retro_deinit();
+    }
+}

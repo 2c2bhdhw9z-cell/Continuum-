@@ -143,7 +143,7 @@ Extracted keys: **132**. Covered by cBoy: 110. Gaps: 1. Deliberately not done: 4
 | gpsp | `gpsp_rtc` | yes | `cboy_gba_hardware` |  |
 | gpsp | `gpsp_rtc_time_source` | yes | `cboy_gba_clock` | Phone clock, or game time counted from the machine's own running time |
 | gpsp | `gpsp_rumble` | yes | `cboy_rumble` |  |
-| gpsp | `gpsp_serial` | gap |  | Advance link modes (wireless adapter, multiplayer): comes with the two-console link |
+| gpsp | `gpsp_serial` | gap |  | the cable to a second phone is done (normal and multi-player modes, `gba/sio.rs`, the app's Link cable to a second phone); the wireless adapter is not |
 | gpsp | `gpsp_sound_rate` | yes | `cboy_sample_rate` |  |
 | gpsp | `gpsp_sprlim` | yes | `cboy_gba_sprite_limit` |  |
 | gpsp | `gpsp_turbo_period` | yes | `cboy_turbo` |  |
