@@ -11,6 +11,8 @@ Run 40190766636 (started by hand) passed with no compile errors. Release build-2
 0.8.0 (225), 38 `_libretro_ios.dylib`, Frameworks/continuum_gc_libretro_ios.dylib, and
 PlugIns/ContinuumJITHelper.appex (dev.continuum.app.JITHelper, 0.8.0 (225), arm64, universal.js and
 legacy.js inside). Handed to the owner with the test steps from step 3 below. Waiting on his report.
+OWNER: he did NOT use the Release's get-task-allow.plist when signing (he just installs the .ipa), and
+JIT with StikDebug still worked. Never tell him to use that file or imply he did; he only needs the .ipa link.
 
 ## START HERE (25 October 2026, about 7:50 AM Eastern): built-in JIT written, NOT BUILT, NOT COMPILED
 
