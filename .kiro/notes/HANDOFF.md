@@ -64,8 +64,10 @@ runner crashes at launch, so it needs SideStore or Scripts/sign-ipa.sh (codesign
 his CertDrop .p12, password and development .mobileprovision as repo secrets). Reaching it from the cloud
 sandbox: an SSH reverse tunnel from iSH on the phone (apk add openssh-client; cat /dev/location > /dev/null &
 keeps iSH alive in the background; ssh -R 80:127.0.0.1:8200 nokey@localhost.run gives a public https URL; the
-sandbox reaches localhost.run). No second VPN, so LocalDevVPN and JIT stay up. Answered with the time it takes;
-waiting for his yes before writing the signing workflow (outside cores/continuum-gc: a new file of its own).
+sandbox reaches localhost.run). No second VPN, so LocalDevVPN and JIT stay up. Answered with the time it takes
+(about an hour the first time, 2-3 minutes a session). 6:35 PM: he said save it as an idea for later and he
+tests 233 first: PARKED in .kiro/notes/docs/ideas/phone-control-ictrl.md. Do not start it unless he asks.
+NEXT: his 233 upload (Animal Crossing in town, the GPU drawer's lines).
 
 
 WHAT IT IS (cores/continuum-gc/src/gx/gpu/, tasks/gamecube.json G6 has the detail): everything before
