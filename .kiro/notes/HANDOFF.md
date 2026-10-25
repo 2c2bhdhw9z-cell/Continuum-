@@ -5,7 +5,40 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (25 October 2026, about 1:00 PM Eastern): build 229, GameCube sound fixed
+## START HERE (25 October 2026, about 2:00 PM Eastern): build 230 = ALL the telemetry, in one go
+
+OWNER ON 229 (upload c6xury): GameCube sound came out at the right amount when fast enough, but he saw
+as low as ~10 fps, and was furious that I quoted "39-60 FPS": my line counted EMULATOR FRAMES (retro_run
+calls), not pictures on screen. Animal Crossing puts up a new picture every other field at best, and fewer
+when it falls behind. NEVER quote emulator frames as FPS again: read "SCREEN n new pictures/s" (cGC line)
+and the "screen:" line's presents. 229 measured frame time avg 15-24 ms (needs <16.7) for ~40 s of it,
+i.e. the GameCube is ~1.5x too slow in Animal Crossing's town.
+He also said: add ALL the telemetry at once, no more one-thing-per-build. Build 230 carries:
+- cGC per-second line (cores/continuum-gc/src/libretro.rs `Tel`): SCREEN new pictures/s and repeats,
+  fields and % speed, lines, run ms/s split into cpu/draw/wait/sound/picture, worst field, Gekko cycles,
+  idle-skip %, JIT % / blocks compiled / resets / handler %, interpreted M, blocks built/invalidated,
+  not-compiled reasons, gx tris/pixels/efb/xfb copies/display lists/commands, sound DMA on % and 32 kHz %,
+  stream, disc reads/KB/errors, ARAM DMAs/KB, and the 6 hottest 256-byte code blocks (map with acsym.py).
+- GameCube picture: converted only when the TV picture changed (raw XFB compare), otherwise sent to the
+  app as a repeat (null frame); the read-out panel forces a fresh picture when switched off (the
+  frontend test caught that regression before the build). Drawing helper threads and the XFB copy
+  threads ask for user-interactive scheduling (Apple QoS), so the scheduler stops parking them on
+  efficiency cores while the main thread waits (the WAIT figure).
+- Engine (telemetry.rs / native_core.rs): every setting each emulator reads and the value it got
+  ("setting key = value", once per game), every environment request and whether it was granted, and the
+  per-second line now splits emulator frames into new pictures and repeats.
+- C (telemetry.c watchdog): every second, processor time per thread by name (game, gx draw N, audio...)
+  plus memory used and still allowed; every 5 s a profile of the game thread (100 samples a second, by
+  library + offset; symbolize offsets with llvm-nm on the same build's .ipa dylibs).
+- Swift: "screen:" line every second (display-link ticks, late ticks and worst gap, emulator frames per
+  tick 0/1/2/3+, dropped, resyncs, presented, tick time on the main thread avg/max, pacer fps, thermal
+  state, Low Power Mode); screen max Hz and the link's requested range once; "sound device:" once per
+  graph (route, rate, IO buffer, output latency, ring and prime); about.txt has the JIT settings, thermal
+  state and Low Power Mode.
+NEXT: his 230 upload gives the profile; speed work goes where it points (CPU drawer -> GPU drawer, or
+emu64's display-list code in the JIT, or the main-thread wait).
+
+## Earlier (25 October 2026, about 1:00 PM Eastern): build 229, GameCube sound fixed
 
 OWNER'S UPLOAD ON 228 (litter.catbox.moe/oksf9q): no crash anywhere. **PSP works** (Midnight Club:
 60 fps, 44100 sound frames a second, no gaps; the IR interpreter still logs one recovered "[JIT] Jump

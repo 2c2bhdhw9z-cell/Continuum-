@@ -329,6 +329,10 @@ pub struct Hw {
     pub audio_out: Vec<i16>,
     /// Video lines run since start (`vi_line_count`).
     vi_lines_run: u64,
+    /// The last picture `vi_picture_if_new` converted: its layout and raw bytes.
+    last_xfb: Option<(XfbKey, Vec<u8>)>,
+    /// Telemetry counters.
+    pub tel: HwTel,
     /// Audio clock: DMA samples owed, in hundredths of a video line.
     audio_phase: u64,
     /// Resampling 32 kHz to 48 kHz: the previous input frame and the position between frames.
@@ -375,6 +379,8 @@ impl Hw {
             dsp_time: std::time::Duration::ZERO,
             audio_out: Vec::with_capacity(4096),
             vi_lines_run: 0,
+            last_xfb: None,
+            tel: HwTel::default(),
             audio_phase: 0,
             audio_prev: (0, 0),
             audio_t: 0.0,
@@ -748,6 +754,72 @@ impl Hw {
 
     /// The picture VI is showing, converted from the external framebuffer's YUV to 0RGB.
     /// Returns (width, height, pixels); nothing until a program has turned the display on.
+    /// `vi_picture`, but only when the picture on the TV changed since the last call: the
+    /// framebuffer's bytes, where it is and its shape are compared with the last picture's (a
+    /// byte compare, far cheaper than converting 300,000 pixels from YUV every frame).
+    /// `Picture::Same` means the frontend can keep showing what it has.
+    pub fn vi_picture_if_new(&mut self) -> Picture {
+        let t = std::time::Instant::now();
+        let p = self.vi_picture_if_new_inner();
+        self.tel.picture_time += t.elapsed();
+        match p {
+            Picture::New(..) => self.tel.pictures_new += 1,
+            Picture::Same => self.tel.pictures_same += 1,
+            Picture::Off => {}
+        }
+        p
+    }
+
+    fn vi_picture_if_new_inner(&mut self) -> Picture {
+        let Some((key, raw)) = self.xfb_raw() else {
+            self.last_xfb = None;
+            return Picture::Off;
+        };
+        if let Some((k, r)) = &self.last_xfb {
+            if *k == key && *r == raw {
+                return Picture::Same;
+            }
+        }
+        let (width, height) = (key.3, key.4);
+        let mut out = vec![0u32; (width * height) as usize];
+        for (o, px) in out.chunks_exact_mut(2).zip(raw.chunks_exact(4)) {
+            o[0] = yuv_to_rgb(px[0], px[1], px[3]);
+            o[1] = yuv_to_rgb(px[2], px[1], px[3]);
+        }
+        self.last_xfb = Some((key, raw));
+        Picture::New(width, height, out)
+    }
+
+    /// The framebuffer VI shows, as raw YUYV rows in display order, with what decides its layout.
+    fn xfb_raw(&mut self) -> Option<(XfbKey, Vec<u8>)> {
+        let dcr = self.vi.regs[1];
+        if dcr & 1 == 0 {
+            return None;
+        }
+        let progressive = dcr & 4 != 0;
+        let acv = ((self.vi.regs[0] >> 4) & 0x3FF) as u32;
+        let hsw = self.vi.regs[0x48 / 2];
+        let width = ((hsw >> 8) & 0x7F) as u32 * 16;
+        let stride = (hsw & 0xFF) as u32 * 32;
+        if width == 0 || acv == 0 {
+            return None;
+        }
+        let fb_addr = |reg: u32| if reg & 0x1000_0000 != 0 { (reg & 0x00FF_FFFF) << 5 } else { reg & 0x00FF_FFFF };
+        let top = fb_addr(self.vi_reg32(0x1C));
+        let bottom = fb_addr(self.vi_reg32(0x24));
+        let height = if progressive { acv } else { acv * 2 };
+        let row_bytes = (width * 2) as usize;
+        let mut raw = Vec::with_capacity(row_bytes * height as usize);
+        for y in 0..height {
+            let (base, row) = if progressive { (top, y) } else if y % 2 == 0 { (top, y / 2) } else { (bottom, y / 2) };
+            match self.ram((base + row * stride) & 0x1FFF_FFFF, row_bytes as u32) {
+                Some(r) => raw.extend_from_slice(r),
+                None => raw.resize(raw.len() + row_bytes, 0),
+            }
+        }
+        Some(((top, bottom, stride, width, height, progressive), raw))
+    }
+
     pub fn vi_picture(&mut self) -> Option<(u32, u32, Vec<u32>)> {
         let dcr = self.vi.regs[1];
         if dcr & 1 == 0 {
@@ -1296,6 +1368,11 @@ impl Hw {
                     }
                     None => error = true,
                 }
+                self.tel.disc_reads += 1;
+                self.tel.disc_bytes += len as u64;
+                if error {
+                    self.tel.disc_errors += 1;
+                }
                 if !error {
                     let mar = self.di.mar;
                     self.dma_write(mar, &buf);
@@ -1501,6 +1578,8 @@ impl Hw {
     /// of expansion that was really the start of ARAM again.)
     fn aram_dma(&mut self) {
         let len = (self.dsp.ar_cnt & 0x03FF_FFE0) as usize;
+        self.tel.aram_dmas += 1;
+        self.tel.aram_bytes += len as u64;
         let to_main = self.dsp.ar_cnt & 0x8000_0000 != 0;
         let aram = (self.dsp.ar_addr & 0x03FF_FFE0) as usize;
         let mm = self.dsp.ar_mm & 0x03FF_FFE0;
@@ -1679,7 +1758,19 @@ impl Hw {
         self.audio_phase += rate * 100;
         while self.audio_phase >= lines_x100 {
             self.audio_phase -= lines_x100;
+            let running = self.dsp.dma_ctl & 0x8000 != 0;
             let f = self.audio_dma_frame();
+            if running {
+                self.tel.dma_frames += 1;
+            } else {
+                self.tel.dma_silent += 1;
+            }
+            if rate == 32_000 {
+                self.tel.dma_32k += 1;
+            }
+            if self.ai.cr & 1 != 0 && self.di.stream.playing {
+                self.tel.stream_frames += 1;
+            }
             if rate == 48_000 {
                 let (l, r) = self.with_stream(f);
                 self.audio_out.extend_from_slice(&[l, r]);
@@ -1702,6 +1793,38 @@ impl Hw {
             }
         }
     }
+}
+
+/// Running totals for the telemetry line (libretro.rs): never saved, never read by the machine.
+#[derive(Default, Clone, Copy)]
+pub struct HwTel {
+    pub disc_reads: u64,
+    pub disc_bytes: u64,
+    pub disc_errors: u64,
+    pub aram_dmas: u64,
+    pub aram_bytes: u64,
+    /// Output sound frames whose DMA was running, and those it was not (silence).
+    pub dma_frames: u64,
+    pub dma_silent: u64,
+    /// Sound frames made at the 32 kHz DMA rate.
+    pub dma_32k: u64,
+    pub stream_frames: u64,
+    pub pictures_new: u64,
+    pub pictures_same: u64,
+    pub picture_time: std::time::Duration,
+}
+
+/// What decides how VI lays a framebuffer out: top and bottom field addresses, stride, width,
+/// height, progressive.
+type XfbKey = (u32, u32, u32, u32, u32, bool);
+
+/// `Hw::vi_picture_if_new`'s answer.
+pub enum Picture {
+    /// The display is off.
+    Off,
+    /// The same picture as last time.
+    Same,
+    New(u32, u32, Vec<u32>),
 }
 
 /// BT.601 limited-range YUV to 0RGB.

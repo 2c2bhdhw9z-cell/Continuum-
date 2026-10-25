@@ -576,6 +576,14 @@ pub fn clear_last_core_log_line() {
 /// the option/descriptor/geometry/message families that a core announces but a minimal
 /// host need only tolerate.
 unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
+    let accepted = unsafe { on_environment_inner(cmd, data) };
+    // Telemetry: every kind of request the emulator makes and whether it was granted, once per
+    // game, so a feature the emulator wanted and did not get shows up in the diagnostics.
+    crate::telemetry::request(cmd, accepted);
+    accepted
+}
+
+unsafe extern "C" fn on_environment_inner(cmd: c_uint, data: *mut c_void) -> bool {
     // Step 4: Vulkan SET_HW_RENDER / GET_HW_RENDER_INTERFACE / preferred / negotiation.
     if let Some(handled) = unsafe { vulkan_hw::try_environment(cmd, data) } {
         return handled;
@@ -650,8 +658,16 @@ unsafe extern "C" fn on_environment(cmd: c_uint, data: *mut c_void) -> bool {
                 let key = unsafe { CStr::from_ptr(key_ptr) }.to_string_lossy();
                 if let Some(value) = super::options::answer(&key) {
                     unsafe { (*var).value = value };
+                    // Telemetry: the value the emulator really runs with, once per key per game.
+                    let shown = if value.is_null() {
+                        String::new()
+                    } else {
+                        unsafe { CStr::from_ptr(value) }.to_string_lossy().into_owned()
+                    };
+                    crate::telemetry::option_read(&key, Some(&shown));
                     return true;
                 }
+                crate::telemetry::option_read(&key, None);
             }
             unsafe { (*var).value = std::ptr::null() };
             false
@@ -1059,6 +1075,8 @@ pub struct NativeLibretroCore {
     /// Frames the core reported as dupes. Worth counting rather than discarding: a core
     /// duping steadily is the signature of a stalled hardware path.
     duped_frames: u64,
+    /// The last frame repeated the picture before it (telemetry).
+    last_frame_duped: bool,
     /// The pixel format `video()` reports. Seeded from the descriptor's declared format and
     /// overwritten by whatever the core chose through `SET_PIXEL_FORMAT` during load.
     negotiated_format: PixelFormat,
@@ -1339,6 +1357,7 @@ impl NativeLibretroCore {
             present_as_rgba: false,
             audio: Vec::new(),
             duped_frames: 0,
+            last_frame_duped: false,
             negotiated_format,
             library_version,
             need_fullpath,
@@ -1664,6 +1683,7 @@ impl EmulatorCore for NativeLibretroCore {
         EXCHANGE.with(|cell| {
             let mut exchange = cell.borrow_mut();
             self.last_was_hardware = exchange.hardware_frame;
+            self.last_frame_duped = exchange.duped;
             if exchange.duped {
                 self.duped_frames += 1;
             } else if !exchange.hardware_frame && !exchange.pixels.is_empty() {
@@ -1702,7 +1722,7 @@ impl EmulatorCore for NativeLibretroCore {
             std::mem::swap(&mut self.audio, &mut exchange.audio);
         });
         crate::telemetry::rate_changed(self.descriptor.audio_sample_rate);
-        crate::telemetry::frame_done(frame_started, frame_ran, &self.audio);
+        crate::telemetry::frame_done(frame_started, frame_ran, &self.audio, !self.last_frame_duped);
 
         self.frame_count += 1;
         Ok(())

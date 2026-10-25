@@ -111,7 +111,14 @@ struct DiagnosticsUploadRows: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             SettingsButton(title: upload.busy ? "Uploading..." : "Upload a diagnostic file", role: .normal) {
-                upload.upload(about: "\(EngineHost.versionLabel)\n\(DiagnosticsUpload.phoneLine())\nstatus: \(host.status)")
+                let jit = BuiltInJIT.shared
+                upload.upload(about: "\(EngineHost.versionLabel)\n\(DiagnosticsUpload.phoneLine())\n"
+                    + "status: \(host.status)\n"
+                    + "JIT method: \(jit.method.label), pairing file \(jit.pairingPresent ? "imported" : "missing"), "
+                    + "turn on at game start \(jit.onGameStart ? "on" : "off"), "
+                    + "use JIT when available \(host.useJitWhenAvailable ? "on" : "off")\n"
+                    + "thermal \(ProcessInfo.processInfo.thermalState.rawValue) (0 cool .. 3 critical), "
+                    + "Low Power Mode \(ProcessInfo.processInfo.isLowPowerModeEnabled ? "on" : "off")")
             }
             .disabled(upload.busy)
             SettingsNote("Sends the logs, any crash and the last 30 seconds of game sound. The link lasts 3 days.")

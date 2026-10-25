@@ -102,6 +102,10 @@ final class MetalCanvas: UIView {
     /// and the audio graph must outlive that.
     var audio: AudioOutput?
 
+    /// Once a second while a game runs, one `app:` line in the core log about the screen side:
+    /// see `ScreenTelemetry`.
+    private var screenTelemetry = ScreenTelemetry()
+
     /// Reports how attaching went, so the harness can show it instead of a black screen.
     var onAttach: ((Result<String, Error>) -> Void)?
 
@@ -326,6 +330,7 @@ final class MetalCanvas: UIView {
         if onBeforeTick?() == true {
             return
         }
+        let tickStarted = CACurrentMediaTime()
         let telemetry = engine.tick(nowMillis: link.targetTimestamp * 1000.0)
         onAfterTick?()
 
@@ -334,6 +339,7 @@ final class MetalCanvas: UIView {
         // would always be a frame behind. Before the callback, so the HUD reads a ring depth
         // that is current rather than one drain stale.
         audio?.pump()
+        screenTelemetry.tick(link: link, telemetry: telemetry, spent: CACurrentMediaTime() - tickStarted)
 
         onTelemetry?(telemetry)
     }
@@ -374,5 +380,98 @@ final class MetalCanvas: UIView {
         // Rebuilt rather than unpaused, inside `resume`: the route may have changed while the
         // app was away, and with it the rate the graph was built for.
         audio?.resume()
+    }
+}
+
+
+/// What the screen side did each second while a game ran, as one `app:` line in the core log
+/// (owner, 25 October 2026: "add all the telemetry"). The display link's ticks and how many
+/// were late (a missed screen refresh), how many emulator frames each tick ran (0 means the
+/// game fell behind or was paced, 2+ means catching up), pictures actually put on the screen,
+/// how long the tick held the main thread, the screen's refresh rate, and the phone's thermal
+/// state and Low Power Mode, which both slow the processor down.
+struct ScreenTelemetry {
+    private var since: CFTimeInterval = 0
+    private var lastTimestamp: CFTimeInterval = 0
+    private var lastFrameCount: UInt64 = 0
+    private var ticks = 0
+    private var late = 0
+    private var worstGap: CFTimeInterval = 0
+    private var steps = [0, 0, 0, 0]
+    private var stepTotal = 0
+    private var dropped = 0
+    private var resynced = 0
+    private var presented = 0
+    private var hardware = 0
+    private var spentTotal: CFTimeInterval = 0
+    private var spentMax: CFTimeInterval = 0
+    private var displayFps: Double = 0
+    private var announced = false
+
+    mutating func tick(link: CADisplayLink, telemetry: TickTelemetry, spent: CFTimeInterval) {
+        let now = link.timestamp
+        if lastTimestamp > 0 {
+            let gap = now - lastTimestamp
+            worstGap = max(worstGap, gap)
+            if link.duration > 0, gap > link.duration * 1.5 {
+                late += 1
+            }
+        }
+        lastTimestamp = now
+        if since == 0 {
+            since = now
+        }
+        ticks += 1
+        let n = Int(telemetry.steps)
+        steps[min(n, 3)] += 1
+        stepTotal += n
+        dropped += Int(telemetry.dropped)
+        if telemetry.resynced { resynced += 1 }
+        if telemetry.presented { presented += 1 }
+        if telemetry.hardwareFrame { hardware += 1 }
+        spentTotal += spent
+        spentMax = max(spentMax, spent)
+        displayFps = telemetry.displayFps
+        guard now - since >= 1 else { return }
+        // Only while a game is running: the frame count moves.
+        if telemetry.frameCount != lastFrameCount {
+            if !announced {
+                announced = true
+                let maxFps = UIScreen.main.maximumFramesPerSecond
+                let range = link.preferredFrameRateRange
+                telemetryNote(line: "screen: up to \(maxFps) Hz, the game's display link asks for "
+                    + "\(Int(range.minimum))-\(Int(range.maximum)) (preferred \(Int(range.preferred ?? 0)))")
+            }
+            let info = ProcessInfo.processInfo
+            let thermal: String
+            switch info.thermalState {
+            case .nominal: thermal = "cool"
+            case .fair: thermal = "warm"
+            case .serious: thermal = "HOT (the phone is slowing itself down)"
+            case .critical: thermal = "CRITICAL (the phone is slowing itself down hard)"
+            @unknown default: thermal = "unknown"
+            }
+            let secs = now - since
+            telemetryNote(line: String(
+                format: "screen: %ld ticks in %.2f s (%ld late, worst gap %.1f ms), emulator frames per tick "
+                    + "0:%ld 1:%ld 2:%ld 3+:%ld (%ld frames, %ld dropped, %ld resyncs), %ld presented (%ld from the GPU), "
+                    + "tick held the main thread avg %.1f ms max %.1f ms, pacer at %.2f fps; phone %@, Low Power Mode %@",
+                ticks, secs, late, worstGap * 1000, steps[0], steps[1], steps[2], steps[3], stepTotal, dropped,
+                resynced, presented, hardware, spentTotal * 1000 / Double(max(ticks, 1)), spentMax * 1000,
+                displayFps, thermal, info.isLowPowerModeEnabled ? "ON" : "off"))
+        }
+        lastFrameCount = telemetry.frameCount
+        since = now
+        ticks = 0
+        late = 0
+        worstGap = 0
+        steps = [0, 0, 0, 0]
+        stepTotal = 0
+        dropped = 0
+        resynced = 0
+        presented = 0
+        hardware = 0
+        spentTotal = 0
+        spentMax = 0
     }
 }

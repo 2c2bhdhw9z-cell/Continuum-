@@ -60,6 +60,11 @@ unsafe extern "C" fn env(cmd: u32, data: *mut c_void) -> bool {
 }
 unsafe extern "C" fn video(d: *const c_void, w: u32, _h: u32, _p: usize) {
     FRAMES.fetch_add(1, Ordering::SeqCst);
+    // Null is libretro's "same picture as last time" (the core sends it when the TV picture
+    // did not change); the corner is then whatever it was.
+    if d.is_null() {
+        return;
+    }
     CORNER.store(*(d as *const u32).add(4 * w as usize + 6), Ordering::SeqCst);
     LAST_W.store(w, Ordering::SeqCst);
 }

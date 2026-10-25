@@ -102,6 +102,11 @@ struct Core {
     notice_at: Option<std::time::Instant>,
     /// The speed read-out, when it is on (the `cgc_speed_readout` option).
     readout: Option<Readout>,
+    /// The always-on telemetry line (`Tel`).
+    tel: Option<Tel>,
+    /// The read-out panel was drawn onto `frame`: the next field converts the picture again even
+    /// if the game's picture did not change, so a switched-off panel does not stay on screen.
+    overlaid: bool,
 }
 
 /// The speed read-out: every second, how fast the game ran and where the time went, drawn in
@@ -187,6 +192,146 @@ impl Readout {
     }
 }
 
+/// The always-on telemetry: one `cGC:` line a second into the app's core log (which the
+/// diagnostics upload carries), saying what the machine did and where the time went. Owner,
+/// 25 October 2026: "add all the telemetry".
+struct Tel {
+    since: std::time::Instant,
+    seconds: u64,
+    fields: u64,
+    run: std::time::Duration,
+    run_max: std::time::Duration,
+    start: Counters,
+    hw: crate::hw::HwTel,
+    lines: u64,
+    gx: (u64, u64, u64, u64, u64, u64),
+    fast: (u64, u64, u64, u64, [u64; 6]),
+    jit: (u64, u64, u64, u64),
+}
+
+impl Tel {
+    fn snapshot(m: &Machine) -> (crate::hw::HwTel, u64, (u64, u64, u64, u64, u64, u64), (u64, u64, u64, u64, [u64; 6]), (u64, u64, u64, u64)) {
+        let g = &m.hw.gx.stats;
+        let f = m.fast.as_ref();
+        let fast = f.map_or((0, 0, 0, 0, [0; 6]), |f| {
+            (f.stats.blocks_built, f.stats.invalidations, f.stats.interp_instructions, f.stats.idle_skips, f.stats.not_compiled)
+        });
+        let jit = f.and_then(|f| f.jit.as_ref()).map_or((0, 0, 0, 0), |j| {
+            (j.stats.compiled, j.stats.resets, j.stats.native_instructions, j.stats.handler_instructions)
+        });
+        (m.hw.tel, m.hw.vi_line_count(), (g.triangles, g.pixels, g.efb_copies, g.xfb_copies, g.display_lists, g.commands), fast, jit)
+    }
+
+    fn new(m: &Machine) -> Tel {
+        let (hw, lines, gx, fast, jit) = Self::snapshot(m);
+        Tel {
+            since: std::time::Instant::now(),
+            seconds: 0,
+            fields: 0,
+            run: std::time::Duration::ZERO,
+            run_max: std::time::Duration::ZERO,
+            start: Counters::of(m),
+            hw,
+            lines,
+            gx,
+            fast,
+            jit,
+        }
+    }
+
+    fn field(&mut self, m: &mut Machine, run: std::time::Duration, drain_hot: bool) {
+        self.fields += 1;
+        self.run += run;
+        self.run_max = self.run_max.max(run);
+        let secs = self.since.elapsed().as_secs_f64();
+        if secs < 1.0 {
+            return;
+        }
+        self.seconds += 1;
+        let now = Counters::of(m);
+        let (hw, lines, gx, fast, jit) = Self::snapshot(m);
+        let ms = |d: std::time::Duration| (d.as_secs_f64() * 1000.0 / secs).round() as i64;
+        let (draw, wait, sound) = (now.draw - self.start.draw, now.wait - self.start.wait, now.sound - self.start.sound);
+        let picture = hw.picture_time.saturating_sub(self.hw.picture_time);
+        let cpu = self.run.saturating_sub(draw + wait + sound);
+        let emulated = now.cycles.saturating_sub(self.start.cycles).max(1);
+        let idle = now.idle.saturating_sub(self.start.idle);
+        let busy = emulated.saturating_sub(idle);
+        let jit_n = now.jit.saturating_sub(self.start.jit);
+        let interp = fast.2.saturating_sub(self.fast.2);
+        let new_pics = hw.pictures_new - self.hw.pictures_new;
+        let same_pics = hw.pictures_same - self.hw.pictures_same;
+        let dma_on = hw.dma_frames - self.hw.dma_frames;
+        let dma_off = hw.dma_silent - self.hw.dma_silent;
+        let dma_32 = hw.dma_32k - self.hw.dma_32k;
+        let stream = hw.stream_frames - self.hw.stream_frames;
+        let total_dma = (dma_on + dma_off).max(1);
+        let handler = jit.3 - self.jit.3;
+        let native = jit.2 - self.jit.2;
+        let nc: Vec<u64> = (0..6).map(|k| fast.4[k] - self.fast.4[k]).collect();
+        let hot = m.hot.as_mut().map(|h| {
+            let total: u32 = h.values().sum::<u32>().max(1);
+            let mut v: Vec<(u32, u32)> = h.iter().map(|(a, n)| (*a, *n)).collect();
+            v.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+            let text: Vec<String> = v.iter().take(6).map(|(pc, n)| format!("{pc:08X} {}%", 100 * n / total)).collect();
+            if drain_hot {
+                h.clear();
+            }
+            text.join(", ")
+        });
+        log_line(&format!(
+            "second {}: SCREEN {} new pictures/s ({} repeats); {} fields ({}% speed), {} lines; \
+             run {} ms/s (worst field {:.1} ms) = cpu {} + draw {} + wait {} + sound {} + picture {}; \
+             gekko {:.0}M cycles/s, {}% idle-skipped, jit {}% of run instructions (compiled {} blocks, \
+             {} resets, {}% of compiled ops via handlers), interpreted {:.1}M; blocks built {}, \
+             invalidated {}, not compiled {:?}; gx {} tris, {:.1}M px, {} efb copies, {} xfb copies, \
+             {} display lists, {} commands; sound dma on {}%, 32 kHz {}%, stream {}; disc {} reads \
+             {} KB ({} errors); aram {} dmas {} KB; hot {}",
+            self.seconds,
+            new_pics,
+            same_pics,
+            self.fields,
+            (100.0 * self.fields as f64 / secs / FPS).round() as i64,
+            lines - self.lines,
+            ms(self.run),
+            self.run_max.as_secs_f64() * 1000.0,
+            ms(cpu),
+            ms(draw),
+            ms(wait),
+            ms(sound),
+            ms(picture),
+            emulated as f64 / secs / 1e6,
+            100 * idle / emulated,
+            100 * jit_n / busy.max(1),
+            jit.0 - self.jit.0,
+            jit.1 - self.jit.1,
+            100 * handler / (handler + native).max(1),
+            interp as f64 / secs / 1e6,
+            fast.0 - self.fast.0,
+            fast.1 - self.fast.1,
+            nc,
+            gx.0 - self.gx.0,
+            (gx.1 - self.gx.1) as f64 / 1e6,
+            gx.2 - self.gx.2,
+            gx.3 - self.gx.3,
+            gx.4 - self.gx.4,
+            gx.5 - self.gx.5,
+            100 * dma_on / total_dma,
+            100 * dma_32 / total_dma,
+            stream,
+            hw.disc_reads - self.hw.disc_reads,
+            (hw.disc_bytes - self.hw.disc_bytes) / 1024,
+            hw.disc_errors - self.hw.disc_errors,
+            hw.aram_dmas - self.hw.aram_dmas,
+            (hw.aram_bytes - self.hw.aram_bytes) / 1024,
+            hot.unwrap_or_default(),
+        ));
+        let seconds = self.seconds;
+        *self = Tel::new(m);
+        self.seconds = seconds;
+    }
+}
+
 /// How long a game may show nothing before the status screen replaces the black picture.
 const NOTICE_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
 /// How often the status screen's numbers are brought up to date.
@@ -204,6 +349,8 @@ impl Core {
             notice_frame: Vec::new(),
             notice_at: None,
             readout: None,
+            tel: None,
+            overlaid: false,
         }
     }
 
@@ -212,8 +359,8 @@ impl Core {
         if on && self.readout.is_none() {
             self.readout = Some(Readout::new(&mut self.machine));
         } else if !on {
+            // The hot-block sampling stays on: the always-on telemetry line uses it too.
             self.readout = None;
-            self.machine.hot = None;
         }
     }
 
@@ -507,20 +654,53 @@ pub extern "C" fn retro_run() {
     let t = std::time::Instant::now();
     core.machine.run_one_field();
     let ran = t.elapsed();
-    if let Some((w, h, px)) = core.machine.hw.vi_picture() {
-        core.frame = px;
-        core.size = (w, h);
-    }
+    // Converted only when the TV picture changed (`vi_picture_if_new`); otherwise the app is told
+    // it is the same picture (a dupe) and keeps showing it, unless something is drawn over it.
+    let same = match core.machine.hw.vi_picture_if_new() {
+        crate::hw::Picture::New(w, h, px) => {
+            core.frame = px;
+            core.size = (w, h);
+            false
+        }
+        crate::hw::Picture::Same if core.overlaid && core.readout.is_none() => {
+            // The panel was drawn over this picture and is off now: the clean picture again.
+            if let Some((w, h, px)) = core.machine.hw.vi_picture() {
+                core.frame = px;
+                core.size = (w, h);
+            }
+            core.overlaid = false;
+            false
+        }
+        crate::hw::Picture::Same => true,
+        crate::hw::Picture::Off => false,
+    };
     core.notice();
+    if core.tel.is_none() {
+        if core.machine.hot.is_none() {
+            core.machine.hot = Some(Default::default());
+        }
+        core.tel = Some(Tel::new(&core.machine));
+    }
+    let drain_hot = core.readout.is_none();
+    if let Some(t) = core.tel.as_mut() {
+        t.field(&mut core.machine, ran, drain_hot);
+    }
     if let Some(r) = core.readout.as_mut() {
         r.field(&mut core.machine, ran);
         let (w, h) = (core.size.0 as usize, core.size.1 as usize);
         crate::notice::draw_panel(&mut core.frame, w, h, &r.lines);
+        core.overlaid = true;
     }
+    let dupe = same && core.pictured && core.readout.is_none();
     if let Some(video) = video {
         let (w, h) = core.size;
-        // SAFETY: `frame` holds w*h pixels of 4 bytes, and lives until the call returns.
-        unsafe { video(core.frame.as_ptr() as *const c_void, w, h, w as usize * 4) };
+        if dupe {
+            // SAFETY: a null frame is libretro's "same as last time" (the app said it can dupe).
+            unsafe { video(std::ptr::null(), w, h, w as usize * 4) };
+        } else {
+            // SAFETY: `frame` holds w*h pixels of 4 bytes, and lives until the call returns.
+            unsafe { video(core.frame.as_ptr() as *const c_void, w, h, w as usize * 4) };
+        }
     }
     if let Some(audio) = audio {
         let out = std::mem::take(&mut core.machine.hw.audio_out);

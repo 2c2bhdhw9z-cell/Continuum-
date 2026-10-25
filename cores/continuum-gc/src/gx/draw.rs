@@ -453,7 +453,25 @@ impl Drop for Threads {
     }
 }
 
+/// Asks the system to run this thread at the same priority class as the app's main thread,
+/// which runs the game. On an iPhone a new thread starts at the default class, and the scheduler
+/// may keep it on the slower efficiency cores while the main thread waits for its pixels (the
+/// read-out's WAIT). User-interactive is the class the main thread itself has. The picture is the
+/// same either way; only where and how fast the helpers run can change.
+pub fn interactive_thread() {
+    #[cfg(target_vendor = "apple")]
+    {
+        extern "C" {
+            fn pthread_set_qos_class_self_np(qos: u32, relative_priority: i32) -> i32;
+        }
+        const QOS_CLASS_USER_INTERACTIVE: u32 = 0x21;
+        // SAFETY: sets this thread's own scheduling class; no pointers.
+        unsafe { pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0) };
+    }
+}
+
 fn helper(s: &Shared) {
+    interactive_thread();
     let mut st = lock(s);
     loop {
         if st.quit {

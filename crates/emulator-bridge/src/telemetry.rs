@@ -67,6 +67,36 @@ pub fn frame_end() {
     };
 }
 
+// ------------------------------------------------------------------------- settings and requests
+
+static SEEN: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(None);
+
+/// A setting the emulator read and the value it got (None: refused). Once per key per game.
+pub fn option_read(key: &str, value: Option<&str>) {
+    let mut guard = SEEN.lock().unwrap_or_else(|p| p.into_inner());
+    let seen = guard.get_or_insert_with(Default::default);
+    let entry = format!("option {key}");
+    if !seen.insert(entry) {
+        return;
+    }
+    drop(guard);
+    match value {
+        Some(v) => note(&format!("setting {key} = {v}")),
+        None => note(&format!("setting {key} refused (the emulator uses its own default)")),
+    }
+}
+
+/// An environment request the emulator made, and whether the app said yes. Once per kind per game.
+pub fn request(cmd: u32, accepted: bool) {
+    let mut guard = SEEN.lock().unwrap_or_else(|p| p.into_inner());
+    let seen = guard.get_or_insert_with(Default::default);
+    if !seen.insert(format!("env {cmd} {accepted}")) {
+        return;
+    }
+    drop(guard);
+    note(&format!("emulator asked for environment call {cmd}: {}", if accepted { "yes" } else { "no" }));
+}
+
 // ------------------------------------------------------------------------- the sound recorder
 
 const KEEP_SECONDS: usize = 30;
@@ -85,12 +115,16 @@ struct Recorder {
     last_end: Option<Instant>,
     sound_frames: u64,
     seconds: u64,
+    /// Frames this second that brought a new picture, and those that repeated the last one.
+    pictures: u32,
+    repeats: u32,
 }
 
 static RECORDER: Mutex<Option<Recorder>> = Mutex::new(None);
 
 /// A game started on `core` at `rate` Hz: the recording starts again.
 pub fn game_started(core: &str, rate: u32) {
+    *SEEN.lock().unwrap_or_else(|p| p.into_inner()) = None;
     *RECORDER.lock().unwrap_or_else(|p| p.into_inner()) = Some(Recorder {
         core: core.to_string(),
         rate: rate.max(1),
@@ -103,6 +137,8 @@ pub fn game_started(core: &str, rate: u32) {
         last_end: None,
         sound_frames: 0,
         seconds: 0,
+        pictures: 0,
+        repeats: 0,
     });
     note(&format!("game started: {core}, sound at {rate} Hz"));
 }
@@ -119,8 +155,9 @@ pub fn rate_changed(rate: u32) {
     }
 }
 
-/// After one frame: how long it took, and the sound it made.
-pub fn frame_done(started: Instant, run: Duration, sound: &[i16]) {
+/// After one frame: how long it took, the sound it made, and whether it brought a new picture
+/// (false: the emulator repeated the last one).
+pub fn frame_done(started: Instant, run: Duration, sound: &[i16], new_picture: bool) {
     let mut guard = RECORDER.lock().unwrap_or_else(|p| p.into_inner());
     let Some(r) = guard.as_mut() else { return };
     let cap = r.rate as usize * 2 * KEEP_SECONDS;
@@ -134,6 +171,11 @@ pub fn frame_done(started: Instant, run: Duration, sound: &[i16]) {
     }
     r.last_end = Some(started + run);
     r.frames += 1;
+    if new_picture {
+        r.pictures += 1;
+    } else {
+        r.repeats += 1;
+    }
     r.run_total += run;
     r.run_max = r.run_max.max(run);
     r.sound_frames += (sound.len() / 2) as u64;
@@ -142,10 +184,12 @@ pub fn frame_done(started: Instant, run: Duration, sound: &[i16]) {
     if span >= Duration::from_secs(1) {
         r.seconds += 1;
         let line = format!(
-            "second {}: {} frames, frame time avg {:.1} ms max {:.1} ms, longest gap {:.1} ms, \
-             sound {} frames ({:.0}/s at {} Hz)",
+            "second {}: {} emulator frames ({} new pictures, {} repeats), frame time avg {:.1} ms \
+             max {:.1} ms, longest gap {:.1} ms, sound {} frames ({:.0}/s at {} Hz)",
             r.seconds,
             r.frames,
+            r.pictures,
+            r.repeats,
             r.run_total.as_secs_f64() * 1000.0 / r.frames.max(1) as f64,
             r.run_max.as_secs_f64() * 1000.0,
             r.gap_max.as_secs_f64() * 1000.0,
@@ -159,6 +203,8 @@ pub fn frame_done(started: Instant, run: Duration, sound: &[i16]) {
         r.run_max = Duration::ZERO;
         r.gap_max = Duration::ZERO;
         r.sound_frames = 0;
+        r.pictures = 0;
+        r.repeats = 0;
         drop(guard);
         note(&line);
     }
@@ -244,7 +290,7 @@ mod tests {
         game_started("test", 1000);
         let t = Instant::now();
         for i in 0..40 {
-            frame_done(t + Duration::from_millis(i * 1000), Duration::from_millis(5), &vec![1i16; 2000]);
+            frame_done(t + Duration::from_millis(i * 1000), Duration::from_millis(5), &vec![1i16; 2000], true);
         }
         let (core, bytes) = sound_wav().unwrap();
         assert_eq!(core, "test");

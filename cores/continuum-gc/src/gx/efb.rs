@@ -327,6 +327,7 @@ impl Gx {
                 for (t, chunk) in out.chunks_mut(per * bytes).enumerate() {
                     let line_of = &line_of;
                     sc.spawn(move || {
+                        super::draw::interactive_thread();
                         let mut rgb = Vec::with_capacity(w);
                         for (k, line) in chunk.chunks_mut(bytes).enumerate() {
                             line_of(t * per + k, line, &mut rgb);

@@ -496,6 +496,14 @@ final class AudioOutput {
         if noteAt == 0 {
             noteAt = now
             noteBase = (ring.underruns, ring.silenceFrames, ring.droppedFrames, ring.renderedFrames, ticks)
+            // Once per graph: where the sound goes and how the phone's audio is set up.
+            let session = AVAudioSession.sharedInstance()
+            let outputs = session.currentRoute.outputs.map { "\($0.portName) (\($0.portType.rawValue))" }
+            telemetryNote(line: String(
+                format: "sound device: %@; %.0f Hz, IO buffer %.1f ms, output latency %.1f ms, "
+                    + "app ring %ld frames, primed at %.0f ms",
+                outputs.joined(separator: ", "), session.sampleRate, session.ioBufferDuration * 1000,
+                session.outputLatency * 1000, ring.capacityFrames, Self.primeSeconds * 1000))
             return
         }
         guard now - noteAt >= 1 else { return }
