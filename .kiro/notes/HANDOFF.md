@@ -5,6 +5,13 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
+## UPDATE (25 October 2026, about 8:15 AM Eastern): build 225 is out, built first try
+
+Run 40190766636 (started by hand) passed with no compile errors. Release build-225-174e619. Checked:
+0.8.0 (225), 38 `_libretro_ios.dylib`, Frameworks/continuum_gc_libretro_ios.dylib, and
+PlugIns/ContinuumJITHelper.appex (dev.continuum.app.JITHelper, 0.8.0 (225), arm64, universal.js and
+legacy.js inside). Handed to the owner with the test steps from step 3 below. Waiting on his report.
+
 ## START HERE (25 October 2026, about 7:50 AM Eastern): built-in JIT written, NOT BUILT, NOT COMPILED
 
 The owner ended the chat here because it got too long. Everything is pushed with [skip ci]; nothing
