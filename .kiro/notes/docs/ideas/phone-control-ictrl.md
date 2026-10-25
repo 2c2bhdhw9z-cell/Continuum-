@@ -65,3 +65,18 @@ JSON-RPC calls. Rules for Kiro while driving: only open Continuum; never kill th
 Anyone could find the link, but nothing works until he approves the request on his phone, and
 everything sent is scrambled. While it is on, it can control the whole phone, so it should be turned
 off when the session ends.
+
+## The owner's own signer could replace the GitHub job (checked 25 October, about 6:55 PM Eastern)
+
+The owner is writing his own on-device signer, Signer (repo 2c2bhdhw9z-cell/snes-tas-studio, its own
+engine, not zsign); he has installed Continuum with it. Signer as it is now was run here on iCTRL's real
+runner (v1.98.12) with Signer's own stand-in test certificate (one-ID profile, get-task-allow true):
+- it re-signed the inner `PlugIns/iCTRLUITests.xctest` with the certificate's team and the SAME app ID
+  as the runner (the release ships both as com.openminis.ictrl.uitests.xctrunner; with a one-ID profile
+  Signer moves both to the profile's ID together), which is exactly what ESign and Feather fail to do;
+- it signed `Frameworks/libXCTCompatShim.dylib` and the runner, kept the .xctest (it only removes .appex
+  extensions for one-ID profiles), and its own installer-style check said clean.
+Differences from iCTRL's `sign-ipa.sh`: Signer also puts a copy of the profile and the app's
+entitlements on the .xctest; the script signs the .xctest without either. Probably harmless; if the
+runner crashes at launch when signed by Signer, change that first. Not yet tried on the phone. If it
+works there, steps 1's GitHub job and its three secrets are not needed: sign the runner in Signer.
