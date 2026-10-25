@@ -1,0 +1,23 @@
+# continuum-sms (crate continuum_sms, working name): Continuum's own Sega 8-bit core, written from
+# scratch, for the Master System, the Game Gear and the SG-1000, to be exposed as a libretro core
+# (.kiro/notes/tasks/cboy-finish.json, S1; the settings it will have are in
+# .kiro/notes/docs/SMS_OPTIONS_INVENTORY.md). A standalone crate (its own empty [workspace]) like
+# cores/continuum-gb, so it builds and tests without the app's engine. Pure Rust, no C. The Z80 is
+# cArcade's own (cores/continuum-arcade/src/z80.rs), compiled in from that one file.
+[package]
+name = "continuum_sms"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+bincode = "1.3"
+
+[profile.test]
+opt-level = 2
+
+[workspace]
