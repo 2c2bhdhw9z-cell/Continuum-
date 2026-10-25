@@ -30,6 +30,11 @@ StikDebug + LocalDevVPN. He will try a known-JIT emulator (Manic) first, then Co
 already speaks the iOS 26/27 universal-script protocol (PLATFORM_LIMITS, top of the JIT section).
 Signing Continuum for JIT: the Release's get-task-allow.plist as ESign's entitlements file (Feather:
 keep get-task-allow). Then Technical details, "Turn on JIT with StikDebug".
+6:47 AM: owner on iOS 27.0.1 (iPhone17Pro_Max, TXM present per Manic), Manic installed with the CertDrop
+development (JIT) certificate; Manic's JIT page: built-in debugger, pairing file not imported. Told him:
+StikPair (github.com/StikDebug/StikPair/releases/download/v1.2.0/StikPair.ipa) -> pairing file, LocalDevVPN,
+import into Manic, Prepare JIT, Enable JIT. Continuum has no built-in debugger: it needs StikDebug
+(github.com/StikDebug/StikDebug/releases, 3.1.15) with the same pairing file.
 
 ## Earlier (24 October 2026, about 9 PM Eastern): the read-out's answer, build 224
 
