@@ -4,7 +4,8 @@
 //!
 //! VK_ICD_FILENAMES=.../vk_swiftshader_icd.json LD_LIBRARY_PATH=... \
 //!   cargo run --release --example gpucheck -- game.dol fields
-//! (CGC_SD / CGC_ARGV / CGC_ENV as boot; CGC_SHOW=n writes field n's two pictures as PPM files.)
+//! (CGC_SD / CGC_ARGV / CGC_ENV as boot, each machine on its own copy of the SD card image;
+//! CGC_SHOW=n writes field n's two pictures as PPM files.)
 #[path = "../src/gx/gpu/test_vulkan.rs"]
 mod test_vulkan;
 
@@ -12,10 +13,13 @@ use continuum_gc::gx::gpu::GpuDrawer;
 use continuum_gc::libretro::open;
 use continuum_gc::machine::Machine;
 
-fn boot(path: &str) -> Machine {
+fn boot(path: &str, which: &str) -> Machine {
     let mut m = open(path).expect("boots");
     if let Ok(d) = std::env::var("CGC_SD") {
-        m.hw.sd = Some(continuum_gc::sd::SdCard::open(&d).expect("sd image"));
+        // The game writes to its card: each machine gets a fresh copy.
+        let copy = format!("/tmp/gpucheck-sd-{which}.img");
+        std::fs::copy(&d, &copy).expect("copy the SD image");
+        m.hw.sd = Some(continuum_gc::sd::SdCard::open(&copy).expect("sd image"));
     }
     if let Ok(args) = std::env::var("CGC_ARGV") {
         let env = std::env::var("CGC_ENV").unwrap_or_default();
@@ -38,8 +42,8 @@ fn main() {
     let fields: u32 = a[2].parse().expect("fields");
     let show: Option<u32> = std::env::var("CGC_SHOW").ok().and_then(|s| s.parse().ok());
     let vk = test_vulkan::vulkan().expect("a Vulkan device (SwiftShader: set VK_ICD_FILENAMES and LD_LIBRARY_PATH)");
-    let mut cpu = boot(&a[1]);
-    let mut gpu = boot(&a[1]);
+    let mut cpu = boot(&a[1], "cpu");
+    let mut gpu = boot(&a[1], "gpu");
     // SAFETY: live handles, outliving the drawer.
     let g = unsafe { GpuDrawer::new(&vk.handles) }.expect("GPU drawer");
     eprintln!("device: {}", g.device_name);
