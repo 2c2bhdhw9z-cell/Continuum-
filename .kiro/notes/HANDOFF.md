@@ -26,6 +26,9 @@ interpreter), 1.7x on .scratch/fpbench.dol (examples/fpbench.rs; x86 needs RUSTF
 to be fair, the phone has hardware FMA). Neverball 1,500 fields 101 -> 86 s.
 FOUND, NOT FIXED: examples/compare.rs on Neverball differs plain vs fast after field 33 (fast 10 cycles ahead,
 pc equal) - already so at session start (0d4edda), not from today's changes. Track down later.
+BUILD 224 DONE 9:15 PM Eastern (54ab3e5, started by hand, green). Checked: 0.8.0 (224), 38 emulator files,
+continuum_gc dylib 1,499,664 bytes. Link and steps given:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-224-54ab3e5/Continuum-224.ipa
 NEXT: more interpreter speed (the dispatch loop itself is ~50% of interpreter time; superinstructions or
 fewer per-op stores; stmw/lmw and cr ops still go generic), then the pacer for heavy cores if needed.
 Neverball test image: `.scratch/mkfat.py img 256 .scratch/homebrew/neverball/neverball` (pyfatfs in
