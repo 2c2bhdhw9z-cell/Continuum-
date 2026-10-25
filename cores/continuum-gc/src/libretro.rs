@@ -504,9 +504,8 @@ pub extern "C" fn retro_run() {
             core.set_readout(unsafe { crate::options::speed_readout(env) });
         }
     }
-    let per_field = core.machine.cpu_hz / 60;
     let t = std::time::Instant::now();
-    core.machine.run_field(per_field);
+    core.machine.run_one_field();
     let ran = t.elapsed();
     if let Some((w, h, px)) = core.machine.hw.vi_picture() {
         core.frame = px;

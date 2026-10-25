@@ -499,6 +499,13 @@ final class AudioOutput {
             return
         }
         guard now - noteAt >= 1 else { return }
+        // The ring was emptied (a new game, a route change): its counters started again, so this
+        // second's differences would come out negative. Start counting from here instead.
+        if ring.renderedFrames < noteBase.rendered || ring.underruns < noteBase.underruns {
+            noteAt = now
+            noteBase = (ring.underruns, ring.silenceFrames, ring.droppedFrames, ring.renderedFrames, ticks)
+            return
+        }
         let line = "sound out: \(ring.renderedFrames - noteBase.rendered) frames played at \(rateText) Hz, "
             + "\(ring.underruns - noteBase.underruns) gaps (\(ring.silenceFrames - noteBase.silence) silent frames), "
             + "\(ring.droppedFrames - noteBase.dropped) dropped, \(ring.bufferedFrames) buffered, "

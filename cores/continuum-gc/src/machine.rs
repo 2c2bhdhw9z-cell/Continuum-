@@ -444,6 +444,18 @@ impl Machine {
     // ------------------------------------------------------------------ running
 
     /// Runs until the video interface finishes a field (one picture), or `max_cycles` pass.
+    /// One whole video field: what the frontend calls once per frame.
+    ///
+    /// Runs until the video interface reaches the next field, with two fields' worth of cycles
+    /// only as a safety cap. The cap used to be cpu_hz / 60, which is a hair SHORT of one NTSC
+    /// field (262.5 lines at 59.94 a second): every call stopped one line before the field's end,
+    /// so every third call ran just that one line. The machine ran at two thirds of real time,
+    /// and the sound came out a third short (owner's iPhone, builds 227 and 228: 32031 sound
+    /// frames a second for 48000 Hz; the app filled the rest with silence).
+    pub fn run_one_field(&mut self) {
+        self.run_field(self.cpu_hz / 30);
+    }
+
     pub fn run_field(&mut self, max_cycles: u64) {
         self.hw.vi.field_done = false;
         let per_line = self.cycles_per_line();

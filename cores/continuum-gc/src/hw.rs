@@ -327,6 +327,8 @@ pub struct Hw {
     pub dsp_time: std::time::Duration,
     /// Sound for the frontend: interleaved left/right 16-bit samples at 48 kHz.
     pub audio_out: Vec<i16>,
+    /// Video lines run since start (`vi_line_count`).
+    vi_lines_run: u64,
     /// Audio clock: DMA samples owed, in hundredths of a video line.
     audio_phase: u64,
     /// Resampling 32 kHz to 48 kHz: the previous input frame and the position between frames.
@@ -372,6 +374,7 @@ impl Hw {
             now: 0,
             dsp_time: std::time::Duration::ZERO,
             audio_out: Vec::with_capacity(4096),
+            vi_lines_run: 0,
             audio_phase: 0,
             audio_prev: (0, 0),
             audio_t: 0.0,
@@ -703,7 +706,13 @@ impl Hw {
 
     /// One video line passed. Raises display interrupts and marks the end of each field; the
     /// clock and the memory card's erases and programs move on with it.
+    /// Video lines run since the machine started (tests and the read-out).
+    pub fn vi_line_count(&self) -> u64 {
+        self.vi_lines_run
+    }
+
     pub fn vi_line(&mut self) {
+        self.vi_lines_run += 1;
         self.irq_dirty = true;
         let total = self.vi_lines_per_frame();
         // Lines a second, in hundredths: 525 x 29.97 (NTSC) or 625 x 25 (PAL).

@@ -941,3 +941,51 @@ fn animal_crossings_sound_program_starts_and_renders_frames() {
     }
     assert!(!dsp_mail_waiting(&mut m), "nothing left over");
 }
+
+/// One emulated second through `run_field`, the way retro_run drives it, with the audio DMA
+/// running at the DSP rate `cr` selects. The core tells the app its sound is 48000 Hz, so it must
+/// hand over ~48000 frames for each second, at either DMA rate. On the owner's iPhone (227, 228)
+/// Animal Crossing got ~32031 a second, a third short, filled with silence by the app.
+fn sound_frames_in_one_second(fast: bool, cr: u32) -> usize {
+    let mut m = booted(&dol(&[(0x8000_3100, vec![HANG])], 0x8000_3100));
+    if !fast {
+        m.fast = None;
+    }
+    m.hw.ai.cr = cr;
+    m.hw.ai.vr = 0xFFFF;
+    let mut frames = 0;
+    for field in 0..120 {
+        m.hw.audio_out.clear();
+        m.run_one_field();
+        if field >= 60 {
+            frames += m.hw.audio_out.len() / 2;
+        }
+    }
+    frames
+}
+
+#[test]
+fn the_machine_hands_over_48000_sound_frames_a_second_at_either_dma_rate() {
+    for fast in [false, true] {
+        for (cr, what) in [(0x01u32, "48 kHz DMA"), (0x41, "32 kHz DMA"), (0x43, "32 kHz DMA, 48 kHz stream")] {
+            let got = sound_frames_in_one_second(fast, cr);
+            eprintln!("fast {fast}, {what}: {got} frames in one emulated second");
+            assert!((got as i64 - 48_000).abs() < 800, "fast {fast}, {what}: {got} frames, not ~48000");
+        }
+    }
+}
+
+#[test]
+fn every_call_runs_one_whole_field() {
+    let mut m = booted(&dol(&[(0x8000_3100, vec![HANG])], 0x8000_3100));
+    let mut lines = Vec::new();
+    for _ in 0..12 {
+        let l0 = m.hw.vi_line_count();
+        m.run_one_field();
+        lines.push(m.hw.vi_line_count() - l0);
+    }
+    // 262 and 263 lines in turn (an NTSC frame is 525), never the one-line call that used to
+    // come every third time.
+    assert!(lines[2..].iter().all(|&n| n == 262 || n == 263), "lines per call: {lines:?}");
+    assert_eq!(lines[2..].iter().sum::<u64>(), 525 * 5);
+}
