@@ -79,7 +79,18 @@ JIT26PrepareRegion(address, length) // mov x16, #1 ; brk #0xf00d ; ret
 **Not implemented in Continuum.** It is Part 1 of StikJIT's integration guide. A `brk` with no
 script attached crashes the process, so this is gated work rather than a flag.
 
-### JIT is not reachable for this owner
+### JIT for this owner: reachable without a computer from iOS 27 (25 October 2026)
+
+**Superseded in part.** StikPair (github.com/StikDebug/StikPair, by the StikDebug team) makes the
+pairing file ON the phone on iOS 27+: Settings > Privacy & Security > Developer Mode > "Pair with
+StikPair", enter the PIN from its Live Activity, export the file to StikDebug. No computer. On 25
+October 2026 the owner is updating to iOS 27 and buying a development certificate (for
+`get-task-allow`) to sign with Feather/ESign. The app side is done too: `jit26.c` speaks StikJIT's
+universal-script breakpoint protocol (512 MB region, `continuum_jit_region` slices; the GameCube
+core takes 64 MB), and Settings > Technical details has "Turn on JIT with StikDebug", which asks for
+the universal script. Nothing of it has run on a phone yet. The old reasoning below is history.
+
+### JIT was not reachable for this owner (history, before iOS 27)
 
 The owner's stated position (29 Sept 2026): no computer, not even once, and no library or
 borrowed machine. That alone rules JIT out, whatever certificate is bought:

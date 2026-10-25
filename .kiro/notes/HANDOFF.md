@@ -24,6 +24,12 @@ record what he reports.) The GameCube JIT (cores/continuum-gc/src/jit) has only 
 never on a real iPhone. How to tell it is on: Settings, Technical details, JIT line; and in a GameCube game
 the speed read-out shows a "JIT n%" line (share of instructions run as compiled code) only when it is on.
 If it crashes: Settings, Technical details, "Use JIT when it's available" off goes back to the interpreter.
+OWNER, 6:15 AM (Gemini screenshots): updating to iOS 27.0.1, a $14 CertDrop development certificate,
+Feather/ESign, StikPair for an on-device pairing file (verified: StikPair README says iOS 27+, on-device),
+StikDebug + LocalDevVPN. He will try a known-JIT emulator (Manic) first, then Continuum. Continuum
+already speaks the iOS 26/27 universal-script protocol (PLATFORM_LIMITS, top of the JIT section).
+Signing Continuum for JIT: the Release's get-task-allow.plist as ESign's entitlements file (Feather:
+keep get-task-allow). Then Technical details, "Turn on JIT with StikDebug".
 
 ## Earlier (24 October 2026, about 9 PM Eastern): the read-out's answer, build 224
 
