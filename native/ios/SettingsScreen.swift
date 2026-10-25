@@ -581,6 +581,9 @@ struct SettingsScreen: View {
             SettingsButton(title: "Turn on JIT with StikDebug", role: .normal) {
                 host.askStikDebugForJit()
             }
+            if !host.jitAskLine.isEmpty {
+                SettingsNote(host.jitAskLine)
+            }
         }
 
         // Only on a phone that needs its code memory blessed and where that has not happened yet.

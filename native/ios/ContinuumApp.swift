@@ -2148,6 +2148,11 @@ final class EngineHost: ObservableObject {
     /// back to the front and before a core loads, because a JIT app can switch it on at any time.
     @Published var jitReport: JitReport?
 
+    /// What happened to the last "Turn on JIT with StikDebug" tap, shown under the button. Empty
+    /// until it is tapped. Without it a phone with no StikDebug showed nothing at all (owner,
+    /// build 224: "it does nothing absolutely nothing").
+    @Published var jitAskLine: String = ""
+
     /// "Use JIT when it's available". On unless the user turns it off; applies from the next game.
     @Published var useJitWhenAvailable: Bool =
         UserDefaults.standard.object(forKey: "continuum.useJit") as? Bool ?? true {
@@ -2166,6 +2171,7 @@ final class EngineHost: ObservableObject {
     func refreshJit() {
         let report = engine.prepareJit(askedForIt: false)
         jitReport = report
+        if report.on { jitAskLine = "" }
         let frameworks = Bundle.main.privateFrameworksURL
         let present = Self.jitBuilds.filter { build in
             frameworks.map {
@@ -2215,11 +2221,17 @@ final class EngineHost: ObservableObject {
             items.append(URLQueryItem(name: "script-name", value: script))
         }
         parts.queryItems = items
-        guard let url = parts.url else { return }
+        guard let url = parts.url else {
+            jitAskLine = "Couldn't ask StikDebug. Try again."
+            return
+        }
+        jitAskLine = "Opening StikDebug..."
         UIApplication.shared.open(url) { [weak self] opened in
             Task { @MainActor in
                 if !opened {
-                    self?.status = "Couldn't open StikDebug. Is it installed?"
+                    let line = "StikDebug didn't open. Install StikDebug, open it once, then tap this again."
+                    self?.status = line
+                    self?.jitAskLine = line
                 }
             }
         }
