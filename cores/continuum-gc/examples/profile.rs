@@ -37,7 +37,13 @@ fn main() {
     let mut parents: HashMap<(String, String), usize> = HashMap::new();
     let mut incl: HashMap<String, usize> = HashMap::new();
     let mut total = 0;
+    // CGC_THREAD=name: only samples from threads whose name has `name` (the CPU's thread is
+    // "main" here; the drawing helpers are "gx draw n").
+    let only = std::env::var("CGC_THREAD").ok();
     for (frames, count) in report.data.iter() {
+        if only.as_ref().is_some_and(|t| !frames.thread_name.contains(t.as_str())) {
+            continue;
+        }
         let count = *count as usize;
         total += count;
         let names: Vec<String> = frames.frames.iter().flat_map(|f| f.iter().map(|s| s.name())).collect();

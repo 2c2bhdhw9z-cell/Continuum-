@@ -136,7 +136,7 @@ pub fn round_c25(b: u64) -> u64 {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum Op {
+pub(crate) enum Op {
     Add,
     Sub,
     Mul,
@@ -179,11 +179,13 @@ impl Cpu {
         }
     }
 
-    fn set_fprf(&mut self, b: u64) {
+    #[inline]
+    pub(crate) fn set_fprf(&mut self, b: u64) {
         self.fpscr = (self.fpscr & !FPRF_MASK) | (fprf(b) << FPRF_SHIFT);
     }
 
-    fn flush_denormal(&self, b: u64) -> u64 {
+    #[inline]
+    pub(crate) fn flush_denormal(&self, b: u64) -> u64 {
         if self.fpscr & NI != 0 && (b >> 52) & 0x7FF == 0 {
             b & 0x8000_0000_0000_0000
         } else {
@@ -197,11 +199,13 @@ impl Cpu {
         self.farith_impl(op, a, b, c, single, true)
     }
 
-    fn farith_impl(&mut self, op: Op, a: u64, b: u64, c: u64, single: bool, allow_quick: bool) -> Option<u64> {
-        // The common case first: every operand that takes part is an ordinary number (not
-        // infinite or NaN), and a division's divisor is not zero. Then no NaN rule, invalid
-        // case or zero-divide can apply, and only the overflow flag and the flush of
-        // denormals remain: exactly what the full path below does for these inputs.
+    /// The common case of `farith` on its own: every operand that takes part is an ordinary
+    /// number (not infinite or NaN), and a division's divisor is not zero. Then no NaN rule,
+    /// invalid case or zero-divide can apply, and only the overflow flag and the flush of
+    /// denormals remain: exactly what the full path does for these inputs. None (and nothing
+    /// changed) for any other inputs. The fast interpreter's own handlers call it directly.
+    #[inline(always)]
+    pub(crate) fn farith_quick(&mut self, op: Op, a: u64, b: u64, c: u64, single: bool) -> Option<u64> {
         let fin = |x: u64| (x >> 52) & 0x7FF != 0x7FF;
         // frC as the multiplier sees it (single precision rounds it first, which can carry it
         // up to infinity).
@@ -212,27 +216,37 @@ impl Cpu {
             Op::Div => fin(a) && fin(b) && !is_zero(b),
             Op::Madd { .. } => fin(a) && fin(b) && fin(c),
         };
-        if quick && allow_quick {
-            let (fa, fb, fc) = (f64::from_bits(a), f64::from_bits(b), f64::from_bits(c));
-            let r = match op {
-                Op::Add => fa + fb,
-                Op::Sub => fa - fb,
-                Op::Mul => fa * fc,
-                Op::Div => fa / fb,
-                Op::Madd { sub, .. } => fa.mul_add(fc, if sub { -fb } else { fb }),
-            };
-            let mut bits = r.to_bits();
-            if let Op::Madd { neg: true, .. } = op {
-                bits ^= 1 << 63;
-            }
-            if single {
-                bits = round_single(bits);
-            }
-            if is_inf(bits) {
-                self.fpscr_exc(OX | XX);
-            }
-            return Some(self.flush_denormal(bits));
+        if !quick {
+            return None;
         }
+        let (fa, fb, fc) = (f64::from_bits(a), f64::from_bits(b), f64::from_bits(c));
+        let r = match op {
+            Op::Add => fa + fb,
+            Op::Sub => fa - fb,
+            Op::Mul => fa * fc,
+            Op::Div => fa / fb,
+            Op::Madd { sub, .. } => fa.mul_add(fc, if sub { -fb } else { fb }),
+        };
+        let mut bits = r.to_bits();
+        if let Op::Madd { neg: true, .. } = op {
+            bits ^= 1 << 63;
+        }
+        if single {
+            bits = round_single(bits);
+        }
+        if is_inf(bits) {
+            self.fpscr_exc(OX | XX);
+        }
+        Some(self.flush_denormal(bits))
+    }
+
+    fn farith_impl(&mut self, op: Op, a: u64, b: u64, c: u64, single: bool, allow_quick: bool) -> Option<u64> {
+        if allow_quick {
+            if let Some(r) = self.farith_quick(op, a, b, c, single) {
+                return Some(r);
+            }
+        }
+        let c = if single && matches!(op, Op::Mul | Op::Madd { .. }) { round_c25(c) } else { c };
         let used: &[u64] = match op {
             Op::Mul => &[a, c],
             Op::Madd { .. } => &[a, b, c],
@@ -320,7 +334,8 @@ impl Cpu {
         Some(self.flush_denormal(bits))
     }
 
-    fn rec_cr1(&mut self, i: u32) {
+    #[inline]
+    pub(crate) fn rec_cr1(&mut self, i: u32) {
         if i & 1 != 0 {
             let v = self.fpscr >> 28;
             self.set_cr_field(1, v);
@@ -369,7 +384,8 @@ impl Cpu {
 
     // ------------------------------------------------------------------ quantized loads and stores
 
-    fn dequantize(&self, raw: u32, ty: u32, scale: u32) -> u64 {
+    #[inline]
+    pub(crate) fn dequantize(&self, raw: u32, ty: u32, scale: u32) -> u64 {
         let s = ((scale as i32) << 26) >> 26;
         let v = match ty {
             4 => raw as u8 as f32,
@@ -381,7 +397,8 @@ impl Cpu {
         ((v * 2f32.powi(-s)) as f64).to_bits()
     }
 
-    fn quantize(&self, d: u64, ty: u32, scale: u32) -> u32 {
+    #[inline]
+    pub(crate) fn quantize(&self, d: u64, ty: u32, scale: u32) -> u32 {
         let s = ((scale as i32) << 26) >> 26;
         if !matches!(ty, 4..=7) {
             return double_to_single(d);
@@ -590,7 +607,7 @@ impl Cpu {
         }
     }
 
-    fn fcmp(&mut self, i: u32, a: u64, b: u64, ordered: bool) {
+    pub(crate) fn fcmp(&mut self, i: u32, a: u64, b: u64, ordered: bool) {
         let (fa, fb) = (f64::from_bits(a), f64::from_bits(b));
         let v = if is_nan(a) || is_nan(b) {
             1

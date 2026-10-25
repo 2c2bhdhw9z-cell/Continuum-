@@ -304,6 +304,294 @@ fp_d!(stfsux, 6, true);
 fp_d!(stfdx, 7, false);
 fp_d!(stfdux, 7, true);
 
+// ---------------------------------------------------------------------- paired singles, quickly
+//
+// The most common floating-point and paired-single instructions have handlers of their own
+// with the plain interpreter's quick case written in (ordinary numbers, floating point and
+// paired singles on, plain main memory): the same helpers in the same order, so the results
+// are bit for bit the plain interpreter's. Anything else (NaNs, infinities, a division by zero,
+// an exception, an address outside the data window) goes to the plain interpreter's own group
+// handler, which works it out from the start. 3D games spend much of their time here
+// (Animal Crossing's N64 graphics emulation is all paired-single maths).
+
+/// Floating point and paired singles both on.
+#[inline(always)]
+fn ps_on(cpu: &Cpu) -> bool {
+    cpu.msr & MSR_FP != 0 && cpu.hid2 & super::HID2_PSE != 0
+}
+
+/// Bytes per element for a quantisation type (0 float; 4/6 eight-bit; 5/7 sixteen-bit).
+#[inline(always)]
+fn q_size(ty: u32) -> u32 {
+    match ty {
+        4 | 6 => 1,
+        5 | 7 => 2,
+        _ => 4,
+    }
+}
+
+#[inline(always)]
+fn be_read(m: &[u8], size: u32) -> u32 {
+    match size {
+        1 => m[0] as u32,
+        2 => u16::from_be_bytes([m[0], m[1]]) as u32,
+        _ => u32::from_be_bytes([m[0], m[1], m[2], m[3]]),
+    }
+}
+
+/// A quantised load (psq_l, psq_lu, psq_lx, psq_lux) from the data window; false to take the
+/// plain path. `ea` is the address, `w` one element only, `q` the GQR index.
+#[inline(always)]
+fn psq_load_quick(cpu: &mut Cpu, hw: &mut Hw, d: usize, ea: u32, w: bool, q: usize) -> bool {
+    let gqr = cpu.gqr[q];
+    let (ty, scale) = ((gqr >> 16) & 7, (gqr >> 24) & 0x3F);
+    let size = q_size(ty);
+    let n = if w { size } else { 2 * size };
+    let off = ea.wrapping_sub(0x8000_0000);
+    if cpu.msr & MSR_DR == 0 || off >= mmu::data_window(cpu) || (ea & 0xFFF) + n > 0x1000 {
+        return false;
+    }
+    let p = off as usize;
+    let m = &hw.mem1[p..p + n as usize];
+    let a = be_read(m, size);
+    let b = if w { None } else { Some(be_read(&m[size as usize..], size)) };
+    cpu.ps0[d] = cpu.dequantize(a, ty, scale);
+    cpu.ps1[d] = match b {
+        Some(b) => cpu.dequantize(b, ty, scale),
+        None => 1.0f64.to_bits(),
+    };
+    true
+}
+
+/// A quantised store from the data window; false to take the plain path.
+#[inline(always)]
+fn psq_store_quick(cpu: &mut Cpu, hw: &mut Hw, s: usize, ea: u32, w: bool, q: usize) -> bool {
+    let gqr = cpu.gqr[q];
+    let (ty, scale) = (gqr & 7, (gqr >> 8) & 0x3F);
+    let size = q_size(ty);
+    let n = if w { size } else { 2 * size };
+    let off = ea.wrapping_sub(0x8000_0000);
+    if cpu.msr & MSR_DR == 0 || off >= mmu::data_window(cpu) || (ea & 0xFFF) + n > 0x1000 {
+        return false;
+    }
+    let a = cpu.quantize(cpu.ps0[s], ty, scale);
+    let b = if w { 0 } else { cpu.quantize(cpu.ps1[s], ty, scale) };
+    let p = off as usize;
+    let put = |m: &mut [u8], v: u32| match size {
+        1 => m[0] = v as u8,
+        2 => m[..2].copy_from_slice(&(v as u16).to_be_bytes()),
+        _ => m[..4].copy_from_slice(&v.to_be_bytes()),
+    };
+    put(&mut hw.mem1[p..], a);
+    if !w {
+        put(&mut hw.mem1[p + size as usize..], b);
+    }
+    if hw.touch_page((p >> 12) as u32) {
+        cpu.exit = true;
+        cpu.pc = cpu.cur_pc.wrapping_add(4);
+    }
+    true
+}
+
+/// psq_l, psq_lu, psq_st, psq_stu (opcodes 56, 57, 60, 61).
+fn psq_quick(cpu: &mut Cpu, hw: &mut Hw, op: &Op) {
+    if ps_on(cpu) {
+        let i = op.inst;
+        let opc = i >> 26;
+        let update = opc == 57 || opc == 61;
+        let a = op.a as usize;
+        let base = if update || a != 0 { cpu.gpr[a] } else { 0 };
+        let ea = base.wrapping_add(op.imm);
+        let w = (i >> 15) & 1 != 0;
+        let q = ((i >> 12) & 7) as usize;
+        let done = if opc <= 57 { psq_load_quick(cpu, hw, op.d as usize, ea, w, q) } else { psq_store_quick(cpu, hw, op.d as usize, ea, w, q) };
+        if done {
+            if update {
+                cpu.gpr[a] = ea;
+            }
+            return;
+        }
+    }
+    psq(cpu, hw, op);
+}
+
+/// psq_lx, psq_stx, psq_lux, psq_stux (opcode 4, extended 6, 7, 38, 39).
+fn psqx_quick(cpu: &mut Cpu, hw: &mut Hw, op: &Op) {
+    if ps_on(cpu) {
+        let i = op.inst;
+        let xo = (i >> 1) & 0x3F;
+        let update = xo >= 38;
+        let a = op.a as usize;
+        let base = if update || a != 0 { cpu.gpr[a] } else { 0 };
+        let ea = base.wrapping_add(cpu.gpr[op.b as usize]);
+        let w = (i >> 10) & 1 != 0;
+        let q = ((i >> 7) & 7) as usize;
+        let done = if xo & 1 == 0 { psq_load_quick(cpu, hw, op.d as usize, ea, w, q) } else { psq_store_quick(cpu, hw, op.d as usize, ea, w, q) };
+        if done {
+            if update {
+                cpu.gpr[a] = ea;
+            }
+            return;
+        }
+    }
+    ps4(cpu, hw, op);
+}
+
+use super::fpu::Op as F;
+
+/// The arithmetic the quick handlers do: which operation, and which halves of frA, frB and frC
+/// each result half takes (0: ps0, 1: ps1) for opcode 4; `op.imm` holds the kind.
+const PS_ADD: u32 = 0;
+const PS_SUB: u32 = 1;
+const PS_MUL: u32 = 2;
+const PS_MADD: u32 = 3;
+const PS_MSUB: u32 = 4;
+const PS_NMADD: u32 = 5;
+const PS_NMSUB: u32 = 6;
+const PS_MULS0: u32 = 7;
+const PS_MULS1: u32 = 8;
+const PS_MADDS0: u32 = 9;
+const PS_MADDS1: u32 = 10;
+const PS_SUM0: u32 = 11;
+const PS_SUM1: u32 = 12;
+
+/// The plain interpreter's `farith` for one result, the quick case only.
+#[inline(always)]
+fn quick(cpu: &mut Cpu, f: F, a: u64, b: u64, c: u64, single: bool) -> Option<u64> {
+    cpu.farith_quick(f, a, b, c, single)
+}
+
+/// Paired-single arithmetic (opcode 4): ps_add, ps_sub, ps_mul, ps_madd, ps_msub, ps_nmadd,
+/// ps_nmsub, ps_muls0/1, ps_madds0/1, ps_sum0/1.
+fn ps_arith(cpu: &mut Cpu, hw: &mut Hw, op: &Op) {
+    if ps_on(cpu) {
+        let (d, a, b, c) = (op.d as usize, op.a as usize, op.b as usize, op.c as usize);
+        let (a0, a1, b0, b1, c0, c1) = (cpu.ps0[a], cpu.ps1[a], cpu.ps0[b], cpu.ps1[b], cpu.ps0[c], cpu.ps1[c]);
+        let madd = |sub: bool, neg: bool| F::Madd { sub, neg };
+        // (operation, half 0's a, b, c; half 1's a, b, c), as the plain interpreter pairs them.
+        let pair = |f: F, x: (u64, u64, u64), y: (u64, u64, u64)| (f, x, y);
+        let r = match op.imm {
+            PS_ADD => Some(pair(F::Add, (a0, b0, 0), (a1, b1, 0))),
+            PS_SUB => Some(pair(F::Sub, (a0, b0, 0), (a1, b1, 0))),
+            PS_MUL => Some(pair(F::Mul, (a0, 0, c0), (a1, 0, c1))),
+            PS_MADD => Some(pair(madd(false, false), (a0, b0, c0), (a1, b1, c1))),
+            PS_MSUB => Some(pair(madd(true, false), (a0, b0, c0), (a1, b1, c1))),
+            PS_NMADD => Some(pair(madd(false, true), (a0, b0, c0), (a1, b1, c1))),
+            PS_NMSUB => Some(pair(madd(true, true), (a0, b0, c0), (a1, b1, c1))),
+            PS_MULS0 => Some(pair(F::Mul, (a0, 0, c0), (a1, 0, c0))),
+            PS_MULS1 => Some(pair(F::Mul, (a0, 0, c1), (a1, 0, c1))),
+            PS_MADDS0 => Some(pair(madd(false, false), (a0, b0, c0), (a1, b1, c0))),
+            PS_MADDS1 => Some(pair(madd(false, false), (a0, b0, c1), (a1, b1, c1))),
+            _ => None,
+        };
+        let done = match r {
+            Some((f, x, y)) => match quick(cpu, f, x.0, x.1, x.2, true) {
+                // Half 1 is worked out before anything is stored, as the plain interpreter does.
+                Some(r0) => match quick(cpu, f, y.0, y.1, y.2, true) {
+                    Some(r1) => {
+                        cpu.ps0[d] = r0;
+                        cpu.ps1[d] = r1;
+                        cpu.set_fprf(r0);
+                        true
+                    }
+                    None => false,
+                },
+                None => false,
+            },
+            // ps_sum0: (a0 + b1, c1); ps_sum1: (c0, a0 + b1).
+            None => match quick(cpu, F::Add, a0, b1, 0, true) {
+                Some(s) => {
+                    let (r0, r1) = if op.imm == PS_SUM0 { (s, super::fpu::round_single(c1)) } else { (super::fpu::round_single(c0), s) };
+                    cpu.ps0[d] = r0;
+                    cpu.ps1[d] = r1;
+                    cpu.set_fprf(r0);
+                    true
+                }
+                None => false,
+            },
+        };
+        if done {
+            cpu.rec_cr1(op.inst);
+            return;
+        }
+    }
+    ps4(cpu, hw, op);
+}
+
+/// Single-precision arithmetic (opcode 59): fadds, fsubs, fmuls, fdivs, fmadds, fmsubs,
+/// fnmadds, fnmsubs.
+fn fp59_arith(cpu: &mut Cpu, hw: &mut Hw, op: &Op) {
+    if cpu.msr & MSR_FP != 0 {
+        let (fa, fb, fc) = (cpu.ps0[op.a as usize], cpu.ps0[op.b as usize], cpu.ps0[op.c as usize]);
+        if let Some(r) = fp_kind(op.imm).and_then(|(f, uses_c)| quick(cpu, f, fa, if uses_c && !matches!(f, F::Madd { .. }) { 0 } else { fb }, if uses_c { fc } else { 0 }, true)) {
+            let d = op.d as usize;
+            cpu.ps0[d] = r;
+            cpu.ps1[d] = r;
+            cpu.set_fprf(r);
+            cpu.rec_cr1(op.inst);
+            return;
+        }
+    }
+    fp59(cpu, hw, op);
+}
+
+/// Double-precision arithmetic (opcode 63): fadd, fsub, fmul, fdiv, fmadd, fmsub, fnmadd,
+/// fnmsub (frD's second half is left alone).
+fn fp63_arith(cpu: &mut Cpu, hw: &mut Hw, op: &Op) {
+    if cpu.msr & MSR_FP != 0 {
+        let (fa, fb, fc) = (cpu.ps0[op.a as usize], cpu.ps0[op.b as usize], cpu.ps0[op.c as usize]);
+        if let Some(r) = fp_kind(op.imm).and_then(|(f, uses_c)| quick(cpu, f, fa, if uses_c && !matches!(f, F::Madd { .. }) { 0 } else { fb }, if uses_c { fc } else { 0 }, false)) {
+            cpu.ps0[op.d as usize] = r;
+            cpu.set_fprf(r);
+            cpu.rec_cr1(op.inst);
+            return;
+        }
+    }
+    fp63(cpu, hw, op);
+}
+
+/// The operation for opcodes 59 and 63's extended codes 18-31, and whether it takes frC.
+#[inline(always)]
+fn fp_kind(xo5: u32) -> Option<(F, bool)> {
+    Some(match xo5 {
+        18 => (F::Div, false),
+        20 => (F::Sub, false),
+        21 => (F::Add, false),
+        25 => (F::Mul, true),
+        28 => (F::Madd { sub: true, neg: false }, true),
+        29 => (F::Madd { sub: false, neg: false }, true),
+        30 => (F::Madd { sub: true, neg: true }, true),
+        31 => (F::Madd { sub: false, neg: true }, true),
+        _ => return None,
+    })
+}
+
+/// Paired-single moves and merges (opcode 4: ps_neg, ps_mr, ps_nabs, ps_abs, ps_merge00/01/
+/// 10/11): no rounding but the merges' frA half, no flags.
+fn ps_move(cpu: &mut Cpu, hw: &mut Hw, op: &Op) {
+    if ps_on(cpu) {
+        let (a, b) = (op.a as usize, op.b as usize);
+        let (a0, a1, b0, b1) = (cpu.ps0[a], cpu.ps1[a], cpu.ps0[b], cpu.ps1[b]);
+        let sign = 1u64 << 63;
+        let (r0, r1) = match (op.inst >> 1) & 0x3FF {
+            40 => (b0 ^ sign, b1 ^ sign),
+            72 => (b0, b1),
+            136 => (b0 | sign, b1 | sign),
+            264 => (b0 & !sign, b1 & !sign),
+            528 => (super::fpu::round_single(a0), b0),
+            560 => (super::fpu::round_single(a0), b1),
+            592 => (a1, b0),
+            _ => (a1, b1),
+        };
+        let d = op.d as usize;
+        cpu.ps0[d] = r0;
+        cpu.ps1[d] = r1;
+        cpu.rec_cr1(op.inst);
+        return;
+    }
+    ps4(cpu, hw, op);
+}
+
 /// Paired singles (opcode 4) and the quantised loads and stores (56, 57, 60, 61): the plain
 /// interpreter's own group handlers, decoded once.
 fn ps4(cpu: &mut Cpu, hw: &mut Hw, op: &Op) {
@@ -891,10 +1179,16 @@ pub fn decode(i: u32) -> Op {
         53 => mk(stfsu, simm(i), 0),
         54 => mk(stfd, simm(i), 0),
         55 => mk(stfdu, simm(i), 0),
-        4 => mk(ps4, 0, 0),
-        56 | 57 | 60 | 61 => mk(psq, 0, 0),
-        59 => mk(fp59, 0, 0),
-        63 => mk(fp63, 0, 0),
+        4 => decode4(i),
+        56 | 57 | 60 | 61 => mk(psq_quick, (((i & 0xFFF) << 20) as i32 >> 20) as u32, ((i >> 6) & 31) as u8),
+        59 => match (i >> 1) & 0x1F {
+            x @ (18 | 20 | 21 | 25 | 28..=31) => mk(fp59_arith, x, ((i >> 6) & 31) as u8),
+            _ => mk(fp59, 0, 0),
+        },
+        63 => match (i >> 1) & 0x1F {
+            x @ (18 | 20 | 21 | 25 | 28..=31) => mk(fp63_arith, x, ((i >> 6) & 31) as u8),
+            _ => mk(fp63, 0, 0),
+        },
         _ => mk(generic, 0, 0),
     }
     .fix_updates()
@@ -918,6 +1212,43 @@ impl Op {
         }
         self
     }
+}
+
+/// Opcode 4: the quantised indexed loads and stores, the common paired-single arithmetic and
+/// moves get their own handlers; the rest the plain interpreter's group handler.
+fn decode4(i: u32) -> Op {
+    let (d, a, b, c) = (((i >> 21) & 31) as u8, ((i >> 16) & 31) as u8, ((i >> 11) & 31) as u8, ((i >> 6) & 31) as u8);
+    let mk = |f: Handler, imm: u32| Op { f, inst: i, d, a, b, c, imm };
+    let (xo5, xo6, xo10) = ((i >> 1) & 0x1F, (i >> 1) & 0x3F, (i >> 1) & 0x3FF);
+    if xo10 == 1014 {
+        return mk(ps4, 0);
+    }
+    if matches!(xo6, 6 | 7 | 38 | 39) {
+        return mk(psqx_quick, 0);
+    }
+    let kind = match xo5 {
+        10 => Some(PS_SUM0),
+        11 => Some(PS_SUM1),
+        12 => Some(PS_MULS0),
+        13 => Some(PS_MULS1),
+        14 => Some(PS_MADDS0),
+        15 => Some(PS_MADDS1),
+        20 => Some(PS_SUB),
+        21 => Some(PS_ADD),
+        25 => Some(PS_MUL),
+        28 => Some(PS_MSUB),
+        29 => Some(PS_MADD),
+        30 => Some(PS_NMSUB),
+        31 => Some(PS_NMADD),
+        _ => None,
+    };
+    if let Some(k) = kind {
+        return mk(ps_arith, k);
+    }
+    if matches!(xo10, 40 | 72 | 136 | 264 | 528 | 560 | 592 | 624) {
+        return mk(ps_move, 0);
+    }
+    mk(ps4, 0)
 }
 
 fn decode31(i: u32, d: u8, a: u8, b: u8, rec: u8) -> Op {
@@ -1014,11 +1345,26 @@ mod tests {
         cpu.ibat[0] = [0x8000_1FFF, 0x0000_0002];
         cpu.dbat[0] = [0x8000_1FFF, 0x0000_0002];
         cpu.msr = MSR_IR | MSR_DR | if rng.next() % 16 == 0 { 0 } else { MSR_FP };
+        // Floating-point values: plain numbers of every size, numbers a single holds, and the
+        // special ones (zeros, infinities, NaNs, single denormals), so both the quick and the
+        // full paths are taken.
+        let fp = |rng: &mut Rng| -> u64 {
+            match rng.next() % 8 {
+                0 => ((rng.next() as u64) << 32) | rng.next() as u64,
+                1 => [0u64, 1 << 63, 0x7FF0_0000_0000_0000, 0xFFF0_0000_0000_0000, 0x7FF8_0000_0000_0000, 0x7FF4_0000_0000_0001, 0x3810_0000_0000_0000, 0x3690_0000_0000_0000, 0x47EF_FFFF_E000_0000][(rng.next() % 9) as usize],
+                2 => super::super::single_to_double(rng.next() & 0x807F_FFFF),
+                _ => super::super::single_to_double(rng.next()),
+            }
+        };
         for r in 0..32 {
-            cpu.ps0[r] = ((rng.next() as u64) << 32) | rng.next() as u64;
-            cpu.ps1[r] = ((rng.next() as u64) << 32) | rng.next() as u64;
+            cpu.ps0[r] = fp(rng);
+            cpu.ps1[r] = fp(rng);
         }
-        cpu.hid2 = HID2_PSE | HID2_LSQE;
+        for q in 0..8 {
+            cpu.gqr[q] = if rng.next() & 1 == 0 { 0 } else { rng.next() & 0x3F07_3F07 };
+        }
+        cpu.fpscr = if rng.next() & 1 == 0 { 0 } else { rng.next() & !0x0000_0800 };
+        cpu.hid2 = if rng.next() & 15 == 0 { HID2_LSQE } else { HID2_PSE | HID2_LSQE };
         for r in 0..32 {
             // Mostly addresses inside the test window, some small numbers, some anything.
             cpu.gpr[r] = match rng.next() % 8 {
@@ -1040,7 +1386,7 @@ mod tests {
 
     /// Instruction templates: primary opcode (and extended opcode for 19/31), with random fields.
     fn random_inst(rng: &mut Rng) -> u32 {
-        let pick = [7u32, 8, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 29, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 48, 49, 50, 51, 52, 53, 54, 55, 48, 50, 52, 54, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31];
+        let pick = [7u32, 8, 10, 11, 12, 13, 14, 15, 16, 18, 19, 20, 21, 23, 24, 25, 26, 27, 28, 29, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 48, 49, 50, 51, 52, 53, 54, 55, 48, 50, 52, 54, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 4, 4, 4, 4, 4, 4, 4, 4, 56, 57, 60, 61, 59, 59, 59, 59, 63, 63, 63, 63];
         let op = pick[(rng.next() as usize) % pick.len()];
         let fields = rng.next() & 0x03FF_FFFF;
         match op {
@@ -1061,6 +1407,20 @@ mod tests {
                     i |= rng.next() & 0x400;
                 }
                 i
+            }
+            4 => {
+                // Paired singles: mostly the arithmetic, moves and indexed quantised accesses.
+                let xo = [10u32, 11, 12, 13, 14, 15, 18, 20, 21, 23, 24, 25, 26, 28, 29, 30, 31][(rng.next() % 17) as usize];
+                match rng.next() % 4 {
+                    0 => (4 << 26) | (fields & 0x03FF_FFC1) | (xo << 1),
+                    1 => (4 << 26) | (fields & 0x03FF_F801) | ([40u32, 72, 136, 264, 528, 560, 592, 624, 0, 32, 64, 96][(rng.next() % 12) as usize] << 1),
+                    2 => (4 << 26) | (fields & 0x03FF_FF81) | ([6u32, 7, 38, 39][(rng.next() % 4) as usize] << 1),
+                    _ => (4 << 26) | fields,
+                }
+            }
+            59 | 63 => {
+                let xo = [18u32, 20, 21, 24, 25, 26, 28, 29, 30, 31, 23][(rng.next() % 11) as usize];
+                (op << 26) | (fields & 0x03FF_FFC1) | (xo << 1)
             }
             _ => (op << 26) | fields,
         }
@@ -1094,7 +1454,7 @@ mod tests {
             b.faulted = false;
             (op.f)(&mut b, &mut hw_b, &op);
             b.advance_time(1);
-            let same = a.ps0 == b.ps0 && a.ps1 == b.ps1 && a.gpr == b.gpr && a.cr == b.cr && a.xer == b.xer && a.lr == b.lr && a.ctr == b.ctr && a.pc == b.pc && a.msr == b.msr && a.srr0 == b.srr0 && a.srr1 == b.srr1 && a.dar == b.dar && a.dsisr == b.dsisr && a.cycles == b.cycles;
+            let same = a.ps0 == b.ps0 && a.ps1 == b.ps1 && a.fpscr == b.fpscr && a.gpr == b.gpr && a.cr == b.cr && a.xer == b.xer && a.lr == b.lr && a.ctr == b.ctr && a.pc == b.pc && a.msr == b.msr && a.srr0 == b.srr0 && a.srr1 == b.srr1 && a.dar == b.dar && a.dsisr == b.dsisr && a.cycles == b.cycles;
             assert!(same, "instruction {inst:08X} (case {n}) differs:\n plain gpr {:08X?} cr {:08X} xer {:08X} lr {:08X} ctr {:08X} pc {:08X}\n fast  gpr {:08X?} cr {:08X} xer {:08X} lr {:08X} ctr {:08X} pc {:08X}", a.gpr, a.cr, a.xer, a.lr, a.ctr, a.pc, b.gpr, b.cr, b.xer, b.lr, b.ctr, b.pc);
             assert!(hw_a.mem1[0x10_0000..0x11_0000] == hw_b.mem1[0x10_0000..0x11_0000], "instruction {inst:08X} wrote memory differently");
         }
