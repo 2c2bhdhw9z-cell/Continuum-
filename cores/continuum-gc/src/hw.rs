@@ -1768,3 +1768,52 @@ impl Bus for Hw {
         }
     }
 }
+
+#[cfg(test)]
+mod sound_rate_tests {
+    use super::*;
+
+    /// One second of video lines, as `Machine::run_field` drives them: NTSC is 15734.26 a second.
+    fn one_second(hw: &mut Hw) -> usize {
+        hw.audio_out.clear();
+        // 486 MHz / 30888 cycles a line = 15734 lines a second (Machine::cycles_per_line).
+        for _ in 0..15_734 {
+            hw.audio_line();
+            // Taken every frame by retro_run, so it never reaches the overflow drain.
+            if hw.audio_out.len() > 4096 {
+                hw.audio_out.clear();
+            }
+        }
+        hw.audio_out.clear();
+        let mut frames = 0;
+        for _ in 0..15_734 {
+            hw.audio_line();
+            frames += hw.audio_out.len() / 2;
+            hw.audio_out.clear();
+        }
+        frames
+    }
+
+    /// The app is told the sound is 48000 Hz (`SAMPLE_RATE` in libretro.rs), so the core must hand
+    /// it 48000 frames for every second it emulates, at BOTH DMA rates. On the owner's iPhone
+    /// (build 227) it handed over 32031 a second, and the app had to fill the missing third with
+    /// silence: 14% of a 30-second recording, in gaps of up to 1.3 seconds.
+    #[test]
+    fn the_core_emits_48000_frames_a_second_at_either_dma_rate() {
+        for (cr, what) in [(0u32, "48 kHz"), (0x40, "32 kHz")] {
+            let mut hw = Hw::new(false);
+            hw.ai.cr = cr | 1;
+            hw.ai.vr = 0xFFFF;
+            // A running DMA buffer, so every output frame is a real sample rather than silence.
+            hw.dsp.dma_addr = 0x0010_0000;
+            hw.dsp.dma_ctl = 0x8000 | 0x7FFF;
+            let frames = one_second(&mut hw);
+            let off = (frames as i64 - 48_000).abs();
+            assert!(
+                off < 600,
+                "{what}: the core emitted {frames} frames in one second, not ~48000 \
+                 (out by {off}); the app fills the difference with silence"
+            );
+        }
+    }
+}
