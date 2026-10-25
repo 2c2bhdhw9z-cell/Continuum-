@@ -13,6 +13,9 @@ PlugIns/ContinuumJITHelper.appex (dev.continuum.app.JITHelper, 0.8.0 (225), arm6
 legacy.js inside). Handed to the owner with the test steps from step 3 below. Waiting on his report.
 OWNER: he did NOT use the Release's get-task-allow.plist when signing (he just installs the .ipa), and
 JIT with StikDebug still worked. Never tell him to use that file or imply he did; he only needs the .ipa link.
+225 ON HIS PHONE (8:30 AM): "Import pairing file" opened the picker, his rp_pairing_file.plist showed, tapping
+it did nothing (SwiftUI .fileImporter, the known no-callback failure). Build 226 (f27fedc) uses FilePicker
+like every other import. Checked: 0.8.0 (226), 38 cores, GC core, helper appex 226. Waiting on his report.
 
 ## START HERE (25 October 2026, about 7:50 AM Eastern): built-in JIT written, NOT BUILT, NOT COMPILED
 
