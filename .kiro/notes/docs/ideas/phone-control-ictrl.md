@@ -80,3 +80,9 @@ Differences from iCTRL's `sign-ipa.sh`: Signer also puts a copy of the profile a
 entitlements on the .xctest; the script signs the .xctest without either. Probably harmless; if the
 runner crashes at launch when signed by Signer, change that first. Not yet tried on the phone. If it
 works there, steps 1's GitHub job and its three secrets are not needed: sign the runner in Signer.
+
+**7:00 PM Eastern, on the owner's phone:** he installed the runner (v1.98.12) and tapped it; it went
+straight back to the Home Screen with the notification "iCTRL Server Ready, This device only, Running on
+127.0.0.1:8200 (local only)". That is the runner working: it has no screen, only that notification.
+(A copy signed by ESign or Feather would close at launch, per iCTRL's README.) Left for later: the iSH
+tunnel and pairing; "This device only" should be enough for it, because the tunnel starts on the phone.
