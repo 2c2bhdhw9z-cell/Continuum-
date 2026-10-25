@@ -11,6 +11,7 @@
     ".kiro/notes/docs/CBOY_EVENING.md and CBOY_NIGHT.md"
   ],
   "hard_rules": [
+    "FOLDERS (owner, 25 October: two chats at once must not get in each other's way). This chat works ONLY in cores/continuum-gb/** for B1 to B5. B6 to B8 (the phone's camera, two Game Boys on one screen, the Advance link between phones) are the only items allowed to change the app or the engine (native/**, crates/**); they come last on purpose. Before starting them, read HANDOFF.md for anything the GameCube chat has asked for or changed there. The GameCube chat stays inside cores/continuum-gc/** and does not touch the app or the engine.",
     "cBoy's own code only: cores/continuum-gb/**. App or engine changes that an item needs (camera, two screens) are allowed, and must keep every other core working; run the engine tests too.",
     "Another chat may be working on the GameCube core at the same time: never touch cores/continuum-gc/**, and pull before every push (git pull --rebase).",
     "Never copy another emulator's code (owner rule). Read SameBoy, mGBA, Gambatte, NanoBoyAdvance etc. for behaviour only; cBoy is written from scratch.",
@@ -19,15 +20,66 @@
     "Every look or behaviour change gets a setting with a sensible default (owner: everything is customisable)."
   ],
   "items": [
-    {"id": "B1", "done": false, "title": "Game Boy Camera: the phone's camera feeds a Camera cartridge", "notes": "cBoy runs Camera cartridges already (cart.rs); the app already hands camera frames to cores through RETRO_ENVIRONMENT_GET_CAMERA_INTERFACE (crates/emulator-bridge/src/peripherals, used for the 3DS). Add the setting for which camera (mgba's 'camera' gap in the inventory)."},
-    {"id": "B2", "done": false, "title": "Game Boy Advance timing: the cartridge prefetch buffer and exact wait states", "notes": "Today a simple prefetch model. Measure with the jsmolka/AGS-style timing tests and mGBA's suite (mgba-suite) before and after; some demanding games depend on it."},
-    {"id": "B3", "done": false, "title": "Real Advance games: the commercial-game compatibility pass", "notes": "The owner has Advance games; ask him once (with the test steps) to try a list on the phone with cBoy selected, and use the diagnostics upload (Settings, Technical details) for anything wrong. Fix what it shows."},
-    {"id": "B4", "done": false, "title": "Sound accuracy: SameSuite's APU tests", "notes": "STATUS: SameSuite's APU tests mostly fail; normal game sound is fine. Follow SameBoy's APU model."},
-    {"id": "B5", "done": false, "title": "Two Game Boys on one phone (dual console, linked by cable)", "notes": "Gaps: sameboy_screen_layout, sameboy_audio_output, tgbdual_* (5), savePlayerId. Two machines in one core, both screens drawn side by side or one above the other, which one is heard, swap."},
-    {"id": "B6", "done": false, "title": "Game Boy Advance link: cable multiplayer and the wireless adapter", "notes": "Gap gpsp_serial. The Game Boy/Color cable between two phones exists (Built, untested; link.rs)."},
-    {"id": "B7", "done": false, "title": "The small setting gaps", "notes": "Pick Pocket/SGB2 and Advance mode automatically for games that check (bgb gaps), the Game Boy Player's fade and pause, faster-than-real SGB transfers, Waitloop detection on Game Boy (idle skip is Advance-only now), and the network-link rows (gambatte_gb_link_*) mapped to the two-phone link. Regenerate the inventory."},
-    {"id": "B8", "done": false, "title": "The rare Color picture cases from CBOY_EXACT_DRAWER.md 'What is left'", "notes": "Double-speed write landing, Color revisions (CGB D+ palette and SCY timing), the five access-blocking edges. Only where a test can measure it; never guess."},
-    {"id": "B9", "done": false, "title": "One build, the phone checks, then ask the owner whether cBoy becomes the default for Game Boy games", "notes": "Hand over the link and numbered steps (owner rules)."},
-    {"id": "S1", "done": false, "title": "Start the Sega 8-bit core: Master System, Game Gear, SG-1000 (working name continuum-sms; owner: never ask about names, decide and note)", "notes": "Why this one is next: Continuum already has its own Z80 (cores/continuum-arcade/src/z80.rs) passing SingleStepTests' Z80 suite, ZEXDOC and ZEXALL. The rest: the VDP (TMS9918 modes plus Mode 4, Game Gear palette and window), the SN76489 sound chip, the YM2413 FM chip (Japanese Master System), the Sega, Codemasters and Korean mappers, the Game Gear start button and link, light phaser and paddle. The bar: Gearsystem (the app's current core) and Genesis Plus GX; settings = every setting Gearsystem, Genesis Plus GX, PicoDrive, SMS Plus GX and Emulicious offer, plus our own (do a settings inventory first, like cBoy's and the GameCube's). Tests: ZEXALL for the Z80 on the real memory map, the SMS VDP test ROMs (Flubba's VDPTEST, the SMS Test Suite), and real open-licence homebrew. Replaces Gearsystem (GPL v3) when it matches it."}
-  ]
+    {
+      "id": "B1",
+      "done": false,
+      "title": "Game Boy Advance timing: the cartridge prefetch buffer and exact wait states",
+      "notes": "Today a simple prefetch model. Measure with the jsmolka/AGS-style timing tests and mGBA's suite (mgba-suite) before and after; some demanding games depend on it."
+    },
+    {
+      "id": "B2",
+      "done": false,
+      "title": "Sound accuracy: SameSuite's APU tests",
+      "notes": "STATUS: SameSuite's APU tests mostly fail; normal game sound is fine. Follow SameBoy's APU model."
+    },
+    {
+      "id": "B3",
+      "done": false,
+      "title": "The small setting gaps",
+      "notes": "Pick Pocket/SGB2 and Advance mode automatically for games that check (bgb gaps), the Game Boy Player's fade and pause, faster-than-real SGB transfers, Waitloop detection on Game Boy (idle skip is Advance-only now), and the network-link rows (gambatte_gb_link_*) mapped to the two-phone link. Regenerate the inventory."
+    },
+    {
+      "id": "B4",
+      "done": false,
+      "title": "The rare Color picture cases from CBOY_EXACT_DRAWER.md 'What is left'",
+      "notes": "Double-speed write landing, Color revisions (CGB D+ palette and SCY timing), the five access-blocking edges. Only where a test can measure it; never guess."
+    },
+    {
+      "id": "B5",
+      "done": false,
+      "title": "Real Advance games: the commercial-game compatibility pass",
+      "notes": "The owner has Advance games; ask him once (with the test steps) to try a list on the phone with cBoy selected, and use the diagnostics upload (Settings, Technical details) for anything wrong. Fix what it shows."
+    },
+    {
+      "id": "B6",
+      "done": false,
+      "title": "Game Boy Camera: the phone's camera feeds a Camera cartridge",
+      "notes": "cBoy runs Camera cartridges already (cart.rs); the app already hands camera frames to cores through RETRO_ENVIRONMENT_GET_CAMERA_INTERFACE (crates/emulator-bridge/src/peripherals, used for the 3DS). Add the setting for which camera (mgba's 'camera' gap in the inventory)."
+    },
+    {
+      "id": "B7",
+      "done": false,
+      "title": "Two Game Boys on one phone (dual console, linked by cable)",
+      "notes": "Gaps: sameboy_screen_layout, sameboy_audio_output, tgbdual_* (5), savePlayerId. Two machines in one core, both screens drawn side by side or one above the other, which one is heard, swap."
+    },
+    {
+      "id": "B8",
+      "done": false,
+      "title": "Game Boy Advance link: cable multiplayer and the wireless adapter",
+      "notes": "Gap gpsp_serial. The Game Boy/Color cable between two phones exists (Built, untested; link.rs)."
+    },
+    {
+      "id": "B9",
+      "done": false,
+      "title": "One build, the phone checks, then ask the owner whether cBoy becomes the default for Game Boy games",
+      "notes": "Hand over the link and numbered steps (owner rules)."
+    },
+    {
+      "id": "S1",
+      "done": false,
+      "title": "Start the Sega 8-bit core: Master System, Game Gear, SG-1000 (working name continuum-sms; owner: never ask about names, decide and note)",
+      "notes": "Why this one is next: Continuum already has its own Z80 (cores/continuum-arcade/src/z80.rs) passing SingleStepTests' Z80 suite, ZEXDOC and ZEXALL. The rest: the VDP (TMS9918 modes plus Mode 4, Game Gear palette and window), the SN76489 sound chip, the YM2413 FM chip (Japanese Master System), the Sega, Codemasters and Korean mappers, the Game Gear start button and link, light phaser and paddle. The bar: Gearsystem (the app's current core) and Genesis Plus GX; settings = every setting Gearsystem, Genesis Plus GX, PicoDrive, SMS Plus GX and Emulicious offer, plus our own (do a settings inventory first, like cBoy's and the GameCube's). Tests: ZEXALL for the Z80 on the real memory map, the SMS VDP test ROMs (Flubba's VDPTEST, the SMS Test Suite), and real open-licence homebrew. Replaces Gearsystem (GPL v3) when it matches it."
+    }
+  ],
+  "order_note": "Reordered 25 October evening so the app-touching items come last: B1 Advance timing, B2 sound accuracy, B3 small settings, B4 rare Color picture cases, B5 real Advance games on the phone, B6 camera, B7 two Game Boys on one phone, B8 Advance link, B9 build and the default question, then S1."
 }

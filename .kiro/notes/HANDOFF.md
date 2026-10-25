@@ -16,6 +16,17 @@ SG-1000 in one core, working name continuum-sms, built on the arcade core's own 
 passes ZEXALL and SingleStepTests). Another chat may be working on the GameCube core in
 `cores/continuum-gc` at the same time: never touch it, and pull before every push.
 
+FOLDERS, so two chats never get in each other's way (owner, 25 October): the GameCube chat works
+ONLY in `cores/continuum-gc/**` and never touches the app or the engine (`native/**`, `crates/**`).
+It needs nothing there for the GPU drawer: the app already has the graphics-chip hookup the PSP and
+3DS use (libretro Vulkan, `crates/emulator-bridge/src/gfx/vulkan_hw.rs`). If it ever needs an app or
+engine change, it writes the request under "Requests between chats" here and does not make it. The
+cBoy chat works only in `cores/continuum-gb/**`, except its last three items (camera, two Game Boys
+on one phone, the Advance link), which may change the app and engine; it reads this file first.
+
+### Requests between chats
+(none yet)
+
 GameCube state for whoever picks it up: build 231 (below). Animal Crossing in the town at about 85%
 of real speed, 42-61 pictures a second; what is missing from the core, by group, is in the owner's
 list of 25 October (speed: GPU drawer first, then the JIT's floating point and paired singles and a
