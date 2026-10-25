@@ -17,6 +17,13 @@ pub const LINES_PAL: u16 = 313;
 /// Pixels in a line of the picture.
 pub const WIDTH: usize = 256;
 
+/// The TMS9918's sixteen colours (0 is see-through, shown as black), as commonly measured from
+/// its video output (the values MAME and openMSX use for the TMS9918A).
+pub const TMS_RGB: [u32; 16] = [
+    0x000000, 0x000000, 0x21C842, 0x5EDC78, 0x5455ED, 0x7D76FC, 0xD4524D, 0x42EBF5,
+    0xFC5554, 0xFF7978, 0xD4C154, 0xE6CE80, 0x21B03B, 0xC95BBA, 0xCCCCCC, 0xFFFFFF,
+];
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Vdp {
     pub vram: Vec<u8>,
@@ -245,6 +252,10 @@ impl Vdp {
     /// flips, second palette and priority, then up to eight sprites, with the overflow and
     /// collision flags. From Charles MacDonald's VDP documentation, "Mode 4".
     fn draw_line(&mut self, line: u16) {
+        if self.regs[0] & 0x04 == 0 {
+            self.draw_tms_line(line);
+            return;
+        }
         let mut row = [0u32; WIDTH];
         let backdrop = self.colour(16 + usize::from(self.regs[7] & 15));
         if self.regs[1] & 0x40 == 0 {
@@ -341,6 +352,119 @@ impl Vdp {
         self.put_row(line, &row);
     }
 
+    /// One line of the TMS9918's modes, which the SG-1000 has and the Master System keeps:
+    /// graphics I and II, text and multicolour, with up to four sprites a line (the fifth one's
+    /// number goes in the status register). From Texas Instruments' TMS9918A data manual
+    /// (section 2) and Sean Young's "TMS9918 VDP documentation".
+    fn draw_tms_line(&mut self, line: u16) {
+        let r = &self.regs;
+        let backdrop = usize::from(r[7] & 15);
+        let mut idx = [backdrop as u8; WIDTH];
+        let (m1, m2, m3) = (r[1] & 0x10 != 0, r[0] & 0x02 != 0, r[1] & 0x08 != 0);
+        let names = usize::from(r[2] & 0x0F) << 10;
+        let y = usize::from(line);
+        if r[1] & 0x40 != 0 {
+            if m1 {
+                // Text: 40 characters of 6 pixels, inside an 8-pixel border each side.
+                let (fg, bg) = (r[7] >> 4, r[7] & 15);
+                for col in 0..40 {
+                    let name = self.vram[(names + (y / 8) * 40 + col) & 0x3FFF];
+                    let bits = self.vram[((usize::from(r[4] & 7) << 11) + usize::from(name) * 8 + y % 8) & 0x3FFF];
+                    for px in 0..6 {
+                        idx[8 + col * 6 + px] = if bits & (0x80 >> px) != 0 { fg } else { bg };
+                    }
+                }
+            } else {
+                for col in 0..32 {
+                    let name = usize::from(self.vram[(names + (y / 8) * 32 + col) & 0x3FFF]);
+                    let (bits, colours) = if m3 {
+                        // Multicolour: each name is a 4x4-pixel pair of colours per two rows.
+                        let at = (usize::from(r[4] & 7) << 11) + name * 8 + ((y / 8) & 3) * 2 + (y % 8) / 4;
+                        (0xF0u8, self.vram[at & 0x3FFF])
+                    } else if m2 {
+                        // Graphics II: a pattern and colour table each for every third of the screen.
+                        let n = (y / 64) * 256 + name;
+                        let pat = (usize::from(r[4] & 4) << 11) + (n & (usize::from(r[4] & 3) << 8 | 0xFF)) * 8 + y % 8;
+                        let col_at = (usize::from(r[3] & 0x80) << 6) + (n & (usize::from(r[3] & 0x7F) << 3 | 7)) * 8 + y % 8;
+                        (self.vram[pat & 0x3FFF], self.vram[col_at & 0x3FFF])
+                    } else {
+                        // Graphics I: one colour byte for each eight names.
+                        let pat = (usize::from(r[4] & 7) << 11) + name * 8 + y % 8;
+                        (self.vram[pat & 0x3FFF], self.vram[((usize::from(r[3]) << 6) + name / 8) & 0x3FFF])
+                    };
+                    for px in 0..8 {
+                        let c = if bits & (0x80 >> px) != 0 { colours >> 4 } else { colours & 15 };
+                        if c != 0 {
+                            idx[col * 8 + px] = c;
+                        }
+                    }
+                }
+                self.tms_sprites(line, &mut idx);
+            }
+        }
+        let mut row = [0u32; WIDTH];
+        for x in 0..WIDTH {
+            row[x] = TMS_RGB[usize::from(idx[x] & 15)];
+        }
+        self.put_row(line, &row);
+    }
+
+    fn tms_sprites(&mut self, line: u16, idx: &mut [u8; WIDTH]) {
+        let sat = usize::from(self.regs[5] & 0x7F) << 7;
+        let pats = usize::from(self.regs[6] & 7) << 11;
+        let size = if self.regs[1] & 0x02 != 0 { 16 } else { 8 };
+        let mag = if self.regs[1] & 0x01 != 0 { 2 } else { 1 };
+        let mut taken = [false; WIDTH];
+        let mut found = 0;
+        for n in 0..32 {
+            let at = sat + n * 4;
+            let y = self.vram[at & 0x3FFF];
+            if y == 0xD0 {
+                break;
+            }
+            let top = if y > 0xD0 { i32::from(y) - 255 } else { i32::from(y) + 1 };
+            let dy = i32::from(line) - top;
+            if dy < 0 || dy >= size * mag {
+                continue;
+            }
+            if found == 4 {
+                if self.status & 0x40 == 0 {
+                    self.status = (self.status & 0xE0) | 0x40 | n as u8;
+                }
+                break;
+            }
+            found += 1;
+            let attr = self.vram[(at + 3) & 0x3FFF];
+            let x0 = i32::from(self.vram[(at + 1) & 0x3FFF]) - if attr & 0x80 != 0 { 32 } else { 0 };
+            let mut name = usize::from(self.vram[(at + 2) & 0x3FFF]);
+            if size == 16 {
+                name &= 0xFC;
+            }
+            let ry = (dy / mag) as usize;
+            for px in 0..size * mag {
+                let x = x0 + px;
+                if !(0..WIDTH as i32).contains(&x) {
+                    continue;
+                }
+                let cx = (px / mag) as usize;
+                // 16x16: four 8x8 patterns, top-left, bottom-left, top-right, bottom-right.
+                let byte = pats + name * 8 + (cx / 8) * 16 + ry;
+                if self.vram[byte & 0x3FFF] & (0x80 >> (cx % 8)) == 0 {
+                    continue;
+                }
+                let x = x as usize;
+                if taken[x] {
+                    self.status |= 0x20;
+                    continue;
+                }
+                taken[x] = true;
+                if attr & 15 != 0 {
+                    idx[x] = attr & 15;
+                }
+            }
+        }
+    }
+
     /// Colour 0-15 of one pixel of a tile: four bitplanes, one byte each per row.
     fn tile_pixel(&self, tile: usize, y: usize, x: usize) -> u8 {
         let at = (tile * 32 + y * 4) & 0x3FFF;
@@ -388,7 +512,7 @@ mod tests {
     /// palette entry 3 bright red.
     fn dotted() -> Vdp {
         let mut v = Vdp::default();
-        v.regs[0] = 0; // the left column not masked
+        v.regs[0] = 0x04; // mode 4, the left column not masked
         v.regs[1] = 0x40;
         v.regs[2] = 0xFF; // names at $3800
         v.regs[5] = 0xFF; // sprites at $3F00
@@ -433,7 +557,7 @@ mod tests {
         v.vram[0x3F09] = 0xD0;
         v.start_line(10);
         assert_eq!(px(&v, 100, 10), 0x0000FF);
-        v.regs[0] = 0x20;
+        v.regs[0] = 0x24;
         v.start_line(0);
         assert_eq!((px(&v, 0, 0), px(&v, 8, 0)), (v.colour(16), 0xFF0000), "the left column masked");
         assert_eq!(v.status & 0x60, 0x60, "nine on one line: overflow; overlapping: collision");
@@ -457,6 +581,45 @@ mod tests {
         // Screen (0, 0) is picture (48, 24): a tile's top-left dot (48 is a multiple of 8).
         assert_eq!(out[0], 0xFF00FF);
         assert_eq!(out[1], 0);
+    }
+
+    #[test]
+    fn graphics_ii_draws_each_third_from_its_own_tables_and_text_mode_has_a_border() {
+        let mut v = Vdp::default();
+        v.regs = [0x02, 0x40, 0x0E, 0xFF, 0x03, 0x76, 0x03, 0x01, 0, 0, 0, 0, 0, 0, 0, 0];
+        // Names at $3800 all 0; patterns at $0000, colours at $2000, sprites none.
+        v.vram[0x3B00] = 0xD0;
+        v.vram[0x0000] = 0x80; // third 0, name 0, row 0: one dot
+        v.vram[0x2000] = 0xF4; // white on dark blue
+        v.vram[0x0800] = 0xFF; // third 1, name 0, row 0: a full row
+        v.vram[0x2800] = 0x6F; // dark red on white
+        v.start_line(0);
+        assert_eq!((px(&v, 0, 0), px(&v, 1, 0)), (0xFFFFFF, 0x5455ED));
+        v.start_line(64);
+        assert_eq!((px(&v, 0, 64), px(&v, 7, 64)), (0xD4524D, 0xD4524D));
+        // Text: the border is the backdrop (register 7's low half), the first column starts at 8.
+        v.regs = [0x00, 0x50, 0x0E, 0, 0x00, 0, 0, 0xF4, 0, 0, 0, 0, 0, 0, 0, 0];
+        v.vram[0x3800] = 1;
+        v.vram[8] = 0x80;
+        v.start_line(0);
+        assert_eq!((px(&v, 7, 0), px(&v, 8, 0), px(&v, 9, 0)), (0x5455ED, 0xFFFFFF, 0x5455ED));
+    }
+
+    #[test]
+    fn a_fifth_sprite_on_a_line_sets_the_flag_with_its_number() {
+        let mut v = Vdp::default();
+        v.regs = [0x00, 0x40, 0x0E, 0xFF, 0x03, 0x76, 0x03, 0x01, 0, 0, 0, 0, 0, 0, 0, 0];
+        for n in 0..6 {
+            let at = 0x3B00 + n * 4;
+            v.vram[at] = 9;
+            v.vram[at + 1] = (n * 20) as u8;
+            v.vram[at + 3] = 15;
+        }
+        v.vram[0x3B00 + 24] = 0xD0;
+        v.vram[0x1800] = 0xFF; // sprite pattern 0, row 0
+        v.start_line(10);
+        assert_eq!(v.status & 0x5F, 0x40 | 4, "the fifth sprite is number 4");
+        assert_eq!((px(&v, 0, 10), px(&v, 80, 10)), (0xFFFFFF, 0x000000), "four drawn, the fifth not");
     }
 
     #[test]
