@@ -40,6 +40,16 @@ Manic's JIT page "JIT Available, Active Debugger: Built-in Debugger"; Rogue Lead
 ~60 fps on its select screen). Next: StikDebug + Continuum signed with the development cert and
 get-task-allow.plist, then Technical details, "Turn on JIT with StikDebug" (checked: StikDebug 3.1.15
 takes stikdebug://enable-jit with pid, bundle-id and script-name, and bundles universal.js).
+~7:30 AM: Continuum 224 signed for JIT (the "Turn on JIT with StikDebug" button shows, so get-task-allow is
+in), but tapping it "does nothing". The only silent path: UIApplication.open(stikdebug://...) returned
+false (StikDebug not installed/registered) and the failure went to `status`, which Settings never shows.
+8f717bf (not built): `jitAskLine` under the button says Opening StikDebug... or that it didn't open.
+Told him the route that needs no build: StikDebug installed, pairing file imported, LocalDevVPN on; in
+StikDebug's "Apps with get-task-allow" long-press Continuum, Assign Script, universal.js; tap Continuum
+there (launches it with JIT); then Continuum, Technical details, "Finish setting JIT up" (needs_setup).
+Manic has its own built-in debugger (StikJIT-style, "Enable JIT on Launch"); Continuum has none: a
+parity item worth raising later, not started (rule 16).
+NOT BUILT YET, waiting for the batch: 0d68444 (GameCube backup) and 8f717bf (JIT button line).
 
 ## Earlier (24 October 2026, about 9 PM Eastern): the read-out's answer, build 224
 
