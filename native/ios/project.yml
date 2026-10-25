@@ -505,6 +505,9 @@ targets:
       # JIT, every way it can be turned on: built in (the JIT helper below), StikDebug, or another
       # JIT app. The method, the pairing file, and turning JIT on when a game starts.
       - path: BuiltInJIT.swift
+      # "Upload a diagnostic file": the telemetry (core logs, crashes, watchdog samples, the last
+      # 30 s of game sound) as one .zip on a 3-day file host, for the link to be pasted in chat.
+      - path: DiagnosticsUpload.swift
       # The secret way in to the experimental GameCube core (seven taps on Settings, ABOUT,
       # Version) and its celebration. Remove it, and follow the compiler, when GameCube is ready
       # for everyone; the file's header says how.

@@ -620,6 +620,10 @@ final class FeedbackCenter: ObservableObject {
         // install by them, and queues the emulator heads-ups.
         let updates = coreUpdatesOpen(dir: dir.path)
         feedbackLogOpen(dir: dir.path)
+        // Every emulator's log lines, the crash catcher and the frame watchdog (telemetry.c),
+        // in the same folder, so the diagnostics upload finds all of it together.
+        telemetryOpen(dir: dir.path)
+        telemetryNote(line: "\(EngineHost.versionLabel), \(DiagnosticsUpload.phoneLine())")
         if !updates.isEmpty { Self.record(updates) }
         let closed = feedbackSessionOpen(dir: dir.path, build: EngineHost.versionLabel,
                                          started: FeedbackStamp.longNow())

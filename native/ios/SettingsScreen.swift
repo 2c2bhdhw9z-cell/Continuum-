@@ -460,6 +460,8 @@ struct SettingsScreen: View {
         SettingsSection(title: "TECHNICAL DETAILS") {
             jitRows
 
+            DiagnosticsUploadRows(host: host)
+
             AppleOverlayToggle()
 
             Toggle(isOn: $host.showDiagnostics) {

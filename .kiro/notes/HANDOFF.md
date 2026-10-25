@@ -5,6 +5,30 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
+## START HERE (25 October 2026, about 10:30 AM Eastern): build 227 = telemetry + 3DS JIT fix
+
+OWNER ON 226 (JIT on, Built in works, "JIT script finished (region blessed, detached)"): 3DS crashes
+(Animal Crossing New Leaf), PSP opens but black and silent (Midnight Club), GameCube faster (JIT 99%) but
+still hiccups to ~20 fps and the sound is "absolutely terrible". Then: "PUT the telemetry to GET what you
+need, the logs don't do shit" and "I would LOVE to let you hear the audio".
+DONE IN 227:
+- jit26.c: 4096 slices instead of 32. Azahar's shader recompiler takes one oaknut CodeBlock per shader
+  program (shader_jit_a64_compiler.cpp:1050) under a new name; 8 dynarmic instances (2 per core) + a couple
+  dozen shaders used the 32 up, then oaknut fell back to a plain RX mapping, which a TXM phone can't run.
+  Likely the 3DS crash; telemetry will confirm ("jit memory: REFUSED" lines would show it).
+- scripts/jit-check.sh + .github/workflows/jit-check.yml (manual): on an Apple Silicon runner, PPSSPP's
+  pspautotests with its JIT and dynarmic's A32 tests, plain memory vs Continuum's two-address memory
+  (jit26.c built with CONTINUUM_JIT_TEST). RESULT (run 40199171792): identical, all pass (dynarmic 200561
+  assertions; PPSSPP all tests). So the PSP black screen is NOT the dual-mapping write path; telemetry next.
+- Telemetry (crates/emulator-bridge/src/telemetry.c + telemetry.rs, Swift DiagnosticsUpload.swift):
+  core-log.txt gets EVERY core log line (before: os_log only), app: notes (JIT memory hand-outs/refusals,
+  per-second frame time avg/max/gap + sound frames, Swift "sound out" gaps/dropped/buffered); crash catcher
+  (registers + named backtrace) to crash.txt; watchdog samples the game thread on frames >50 ms ("slow")
+  and every 2 s when stuck >3 s ("STUCK"); 30 s recording of the core's sound -> sound.wav. Settings,
+  Technical details, "Upload a diagnostic file": zip to litterbox.catbox.moe (72 h), link copied; the owner
+  pastes it in chat; download with curl (works from the sandbox). Symbolize offsets with llvm-nm on the
+  same build's .ipa dylibs (ppsspp/azahar keep local symbols). Tested on the Mac runner (jit-check telemetry).
+
 ## UPDATE (25 October 2026, about 8:15 AM Eastern): build 225 is out, built first try
 
 Run 40190766636 (started by hand) passed with no compile errors. Release build-225-174e619. Checked:

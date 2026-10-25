@@ -137,3 +137,24 @@ pub fn feedback_compose(report: FeedbackReportRecord) -> FeedbackMessage {
     });
     FeedbackMessage { subject, body }
 }
+
+/// Starts the telemetry files in `dir` (telemetry.rs): once per launch, with the activity log.
+#[uniffi::export]
+pub fn telemetry_open(dir: String) {
+    crate::telemetry::open(Path::new(&dir));
+}
+
+/// One `app:` line in the core log (the app's own per-second sound figures, for one).
+#[uniffi::export]
+pub fn telemetry_note(line: String) {
+    crate::telemetry::note(&line);
+}
+
+/// Builds the diagnostics .zip in `out_dir`. Its path, or `error: <why>`.
+#[uniffi::export]
+pub fn telemetry_package(out_dir: String, about: String) -> String {
+    match crate::telemetry::package(Path::new(&out_dir), &about) {
+        Ok(path) => path.to_string_lossy().into_owned(),
+        Err(e) => format!("error: {e}"),
+    }
+}

@@ -74,6 +74,7 @@
 // thread.
 
 import AVFoundation
+import QuartzCore
 import Foundation
 
 /// A single-producer, single-consumer ring of interleaved stereo float samples.
@@ -466,6 +467,7 @@ final class AudioOutput {
     func pump() {
         guard isRunning else { return }
         ring.publish()
+        noteSecond()
 
         let room = min(ring.freeFrames, Self.maxDrainFrames)
         guard room > 0 else { return }
@@ -477,6 +479,33 @@ final class AudioOutput {
         let samples = engine.drainAudio(maxFrames: UInt32(room))
         guard !samples.isEmpty else { return }
         samples.withUnsafeBufferPointer { ring.append($0) }
+    }
+
+    // MARK: - Telemetry
+
+    private var noteAt: CFTimeInterval = 0
+    private var noteBase = (underruns: 0, silence: 0, dropped: 0, rendered: 0, ticks: 0)
+    private var ticks = 0
+
+    /// Once a second, one `app:` line in the core log with what the device side of the sound
+    /// did: buffered, played, gaps (underruns: the phone asked for sound and there was none,
+    /// heard as a click or a drop-out) and sound thrown away because the ring was full.
+    private func noteSecond() {
+        ticks += 1
+        let now = CACurrentMediaTime()
+        if noteAt == 0 {
+            noteAt = now
+            noteBase = (ring.underruns, ring.silenceFrames, ring.droppedFrames, ring.renderedFrames, ticks)
+            return
+        }
+        guard now - noteAt >= 1 else { return }
+        let line = "sound out: \(ring.renderedFrames - noteBase.rendered) frames played at \(rateText) Hz, "
+            + "\(ring.underruns - noteBase.underruns) gaps (\(ring.silenceFrames - noteBase.silence) silent frames), "
+            + "\(ring.droppedFrames - noteBase.dropped) dropped, \(ring.bufferedFrames) buffered, "
+            + "\(ticks - noteBase.ticks) ticks"
+        noteAt = now
+        noteBase = (ring.underruns, ring.silenceFrames, ring.droppedFrames, ring.renderedFrames, ticks)
+        telemetryNote(line: line)
     }
 
     // MARK: - Building the graph
