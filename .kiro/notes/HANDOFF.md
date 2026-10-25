@@ -5,7 +5,52 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (25 October 2026, about 10:30 AM Eastern): build 227 = telemetry + 3DS JIT fix
+## START HERE (25 October 2026, about 12:15 PM Eastern): build 228, the three 227 faults diagnosed
+
+The telemetry worked: he uploaded three diagnostic .zips and every fault was named from them
+(litter.catbox.moe/3xmbkp, 2e3e6u, f0mes9; downloaded with curl, kept in .scratch/diag).
+
+1. **3DS crash: found and FIXED in 228.** crash-previous.txt: SIGBUS writing 0x126c00000 at
+   `Dynarmic::EmitSpinLockLock` from `SpinLockImpl::Initialize` inside `ARM_Dynarmic::Run`.
+   dynarmic's spin lock (externals/dynarmic/src/dynarmic/common/spin_lock_arm64.cpp) built its own
+   4 KB oaknut CodeBlock with `code{mem.ptr(), mem.ptr()}`: it WROTE through the run address, which
+   on a TXM phone is read+execute only. Azahar's shader recompiler had the same bug
+   (shader_jit_a64_compiler.cpp: `memcpy(code_mem->ptr(), ...)`). Both now use `wptr_base()`; both
+   hunks are appended to scripts/patches/azahar-ios-jit-region.patch. Verified in run 40208522630:
+   azahar re-cloned, patch applied, dynarmic recompiled, so the fix is really in the .ipa.
+   (The 4096-slice change in 227 was NOT the cause, but it was a real limit and stays.)
+2. **PSP black and silent: found and FIXED in 228 (by turning its recompiler off).** The log shows
+   Midnight Club loading, Vulkan up, the first frames presenting, then `[JIT] Jump to invalid
+   address: 00000000`, `Detected rounding mode usage, rebuilding jit with checks`, and
+   `Bad execution access detected, halting: 0ffffffc (last known pc ffffffff)`. Thousands of
+   `[MemMap] Bad memory access ... at block27_..._strlen` first. PPSSPP's native arm64 recompiler
+   does not work with MASKED_PSP_MEMORY, which iOS forces (Core/MemMap.h:94). MEASURED off the
+   phone: `scripts/jit-check.sh ppsspp` with PPSSPP_MASKED=1 (run 40207666136) — IR interpreter
+   458/458 pspautotests, native recompiler 0/458, with ordinary memory AND with ours. So
+   `("ppsspp", _, true)` is back to `Locked("IR JIT")` (options.rs, with the evidence in the
+   comment). Do not re-enable without that check passing. GET_JIT_CAPABLE still answers yes, which
+   is what gives PPSSPP its JIT vertex decoder.
+3. **GameCube sound: measured exactly, NOT yet fixed. THIS IS THE NEXT JOB.** With JIT on the core
+   hands the app **32031 sound frames a second while declaring 48000 Hz** (`app: second N` lines),
+   so the device fills the missing third with silence: `sound out: ... 14-18 gaps (8900-9400 silent
+   frames)` every second. Measured in sound.wav (30 s, 48 kHz): **14.2% of it is exact silence**,
+   41 runs of 64+ samples, many of 6380 samples (133 ms each) and one of 64449 (1.3 s), peak 20244,
+   no clicks. That is what "absolutely terrible" is: a third of the sound missing in 133 ms holes.
+   The core's own sound code is NOT the fault: the new test
+   `hw.rs sound_rate_tests::the_core_emits_48000_frames_a_second_at_either_dma_rate` drives
+   `audio_line` at 15734 lines a second and gets ~48000 frames at both DMA rates (32 and 48 kHz).
+   So **fewer video lines are being run per field than a second needs, only with JIT on** (~2/3 of
+   them; 32031/48000 = 0.667). Look at `Machine::run_field`: the budget is `cpu_hz/60` cycles and
+   `fast.run(...)` returns the cycles it ran; if the JIT over-reports cycles (or the idle skip
+   advances the clock without the lines being clocked out), the field ends early and the AI gets
+   two thirds of its lines. Also in the same read-out: frame time avg 3-4 ms max 5-7 ms, longest
+   gap 16-17 ms, 60-61 frames a second, so the hiccup to ~20 fps did NOT reproduce in that
+   30 seconds — only the sound did. NEXT: count lines per field against cycles in run_field with
+   the JIT on (examples/compare: plain vs fast), fix the cycle accounting, and add a `cGC:` line a
+   second with lines-per-field so the next phone test proves it.
+4. Still untested since 227: whether the 3DS now runs, and whether the PSP picture comes back.
+
+## Earlier (25 October 2026, about 10:30 AM Eastern): build 227 = telemetry + 3DS JIT fix
 
 OWNER ON 226 (JIT on, Built in works, "JIT script finished (region blessed, detached)"): 3DS crashes
 (Animal Crossing New Leaf), PSP opens but black and silent (Midnight Club), GameCube faster (JIT 99%) but
