@@ -262,6 +262,7 @@ impl Gx {
     pub(super) fn efb_copy(&mut self, ram: &mut Ram, ctl: u32) {
         // Everything drawn so far must be in the EFB first.
         self.sync();
+        let t = std::time::Instant::now();
         let x0 = (self.bp[0x49] & 0x3FF) as usize;
         let y0 = ((self.bp[0x49] >> 10) & 0x3FF) as usize;
         let w = ((self.bp[0x4A] & 0x3FF) + 1) as usize;
@@ -278,6 +279,7 @@ impl Gx {
         if ctl & (1 << 11) != 0 {
             self.efb_clear(x0, y0, w, h);
         }
+        self.stats.copy_time += t.elapsed();
     }
 
     fn efb_clear(&mut self, x0: usize, y0: usize, w: usize, h: usize) {

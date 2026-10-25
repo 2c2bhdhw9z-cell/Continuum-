@@ -173,6 +173,9 @@ pub struct Stats {
     /// Time the CPU's thread spent waiting for (and helping with) the helpers' pixels, or for
     /// the graphics chip.
     pub wait_time: std::time::Duration,
+    /// Time in EFB copies (to the TV picture and to textures) and clears on the CPU's thread,
+    /// after the wait for the pixels.
+    pub copy_time: std::time::Duration,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

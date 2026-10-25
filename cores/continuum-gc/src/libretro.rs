@@ -259,6 +259,7 @@ struct Counters {
     draw: std::time::Duration,
     wait: std::time::Duration,
     sound: std::time::Duration,
+    copies: std::time::Duration,
 }
 
 impl Counters {
@@ -271,6 +272,7 @@ impl Counters {
             draw: m.hw.gx.stats.draw_time,
             wait: m.hw.gx.stats.wait_time,
             sound: m.hw.dsp_time,
+            copies: m.hw.gx.stats.copy_time,
         }
     }
 }
@@ -436,8 +438,8 @@ impl Tel {
              run {} ms/s (worst field {:.1} ms) = cpu {} + draw {} + wait {} + sound {} + picture {}; \
              gekko {:.0}M cycles/s, {}% idle-skipped, jit {}% of run instructions (compiled {} blocks, \
              {} resets, {}% of compiled ops via handlers), interpreted {:.1}M; blocks built {}, \
-             invalidated {}, not compiled {:?}; gx {} tris, {:.1}M px, {} efb copies, {} xfb copies, \
-             {} display lists, {} commands; sound dma on {}%, 32 kHz {}%, stream {}; disc {} reads \
+             invalidated {}, not compiled {:?}; gx {} tris, {:.1}M px, {} efb copies, {} xfb copies \
+             (copies and clears {} ms of the cpu's), {} display lists, {} commands; sound dma on {}%, 32 kHz {}%, stream {}; disc {} reads \
              {} KB ({} errors); aram {} dmas {} KB; hot {}; {}",
             self.seconds,
             new_pics,
@@ -466,6 +468,7 @@ impl Tel {
             (gx.1 - self.gx.1) as f64 / 1e6,
             gx.2 - self.gx.2,
             gx.3 - self.gx.3,
+            ms(now.copies - self.start.copies),
             gx.4 - self.gx.4,
             gx.5 - self.gx.5,
             100 * dma_on / total_dma,
