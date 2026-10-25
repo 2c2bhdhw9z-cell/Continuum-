@@ -141,16 +141,28 @@ int main(int argc, char **argv) {
     continuum_tel_frame_begin(); busy(120); continuum_tel_frame_end();
     if (strcmp(argv[1], "stuck") == 0) { continuum_tel_frame_begin(); busy(5500); continuum_tel_frame_end(); }
     if (strcmp(argv[1], "crash") == 0) { continuum_tel_frame_begin(); crash_here(); }
+    if (strcmp(argv[1], "frames") == 0) {
+        for (int f = 0; f < 420; f++) {
+            continuum_tel_frame_begin();
+            volatile unsigned long x = 0;
+            for (unsigned long i = 0; i < 4000000; i++) x += i * i;
+            continuum_tel_frame_end();
+            usleep(4000);
+        }
+    }
     return 0;
 }
 EOF
   clang -O1 -g -fno-omit-frame-pointer "$ROOT/crates/emulator-bridge/src/telemetry.c" "$WORK/tel.c" -o "$WORK/tel"
   rm -rf "$WORK/tel-out" && mkdir -p "$WORK/tel-out"
   "$WORK/tel" stuck "$WORK/tel-out"
+  "$WORK/tel" frames "$WORK/tel-out"
   "$WORK/tel" crash "$WORK/tel-out" || echo "(crashed with status $?, as it should)"
   for f in "$WORK"/tel-out/*.txt; do echo "==> $(basename "$f")"; cat "$f"; done
-  grep -q "STUCK frame" "$WORK/tel-out/core-log-previous.txt"
-  grep -q "slow frame" "$WORK/tel-out/core-log-previous.txt"
+  grep -q "STUCK frame" "$WORK/tel-out/core-log-older.txt"
+  grep -q "slow frame" "$WORK/tel-out/core-log-older.txt"
+  grep -q "threads: " "$WORK/tel-out/core-log-previous.txt"
+  grep -q "profile of the game thread" "$WORK/tel-out/core-log-previous.txt"
   grep -q "crash_here" "$WORK/tel-out/crash.txt"
 }
 

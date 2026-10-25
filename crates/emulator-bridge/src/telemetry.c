@@ -38,6 +38,9 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#if TARGET_OS_IPHONE
+#include <os/proc.h>
+#endif
 
 static int g_log_fd = -1;
 static int g_crash_fd = -1;
@@ -278,6 +281,168 @@ static void sample_game_thread(const char *what, uint64_t frame, uint64_t elapse
     pthread_mutex_unlock(&g_log_lock);
 }
 
+// ------------------------------------------------------- profiler, threads and memory
+
+// The game thread's program counter, sampled every 10 ms while a frame runs: a statistical
+// profile of where the frame's time goes, reported every 5 seconds by library and offset (the
+// offsets are named off the phone from the same build's symbol tables).
+#define PROF_MAX 1024
+static uint64_t g_prof[PROF_MAX];
+static unsigned g_prof_n;
+static uint64_t g_prof_since;
+
+static void prof_sample(void) {
+    mach_port_t t = g_game_thread;
+    if (t == MACH_PORT_NULL || g_prof_n >= PROF_MAX) return;
+    if (thread_suspend(t) != KERN_SUCCESS) return;
+    arm_thread_state64_t st;
+    mach_msg_type_number_t n = ARM_THREAD_STATE64_COUNT;
+    kern_return_t r = thread_get_state(t, ARM_THREAD_STATE64, (thread_state_t)&st, &n);
+    thread_resume(t);
+    if (r == KERN_SUCCESS) g_prof[g_prof_n++] = (uint64_t)arm_thread_state64_get_pc(st) & 0x0000FFFFFFFFFFFFull;
+}
+
+typedef struct {
+    const void *base;
+    const char *name;
+    unsigned count;
+    uint64_t off[64];
+    unsigned off_n[64];
+    unsigned offs;
+} ProfImage;
+
+static void prof_report(void) {
+    if (g_prof_n == 0) return;
+    static ProfImage img[24];
+    unsigned images = 0, jit = 0;
+    memset(img, 0, sizeof img);
+    for (unsigned i = 0; i < g_prof_n; i++) {
+        Dl_info info;
+        if (!dladdr((const void *)g_prof[i], &info) || info.dli_fbase == NULL) {
+            jit++;
+            continue;
+        }
+        unsigned k = 0;
+        while (k < images && img[k].base != info.dli_fbase) k++;
+        if (k == images) {
+            if (images == 24) continue;
+            images++;
+            img[k].base = info.dli_fbase;
+            img[k].name = base_name(info.dli_fname);
+        }
+        img[k].count++;
+        uint64_t off = (g_prof[i] - (uint64_t)info.dli_fbase) & ~0x3Full;
+        unsigned j = 0;
+        while (j < img[k].offs && img[k].off[j] != off) j++;
+        if (j == img[k].offs) {
+            if (j == 64) continue;
+            img[k].offs++;
+            img[k].off[j] = off;
+        }
+        img[k].off_n[j]++;
+    }
+    char line[2048];
+    int len = snprintf(line, sizeof line, "profile of the game thread over %llu s (%u samples, one per 10 ms inside frames):",
+                       (unsigned long long)((now_ns() - g_prof_since) / 1000000000ull), g_prof_n);
+    if (jit) len += snprintf(line + len, sizeof line - len, " generated code (JIT) %u%%;", 100 * jit / g_prof_n);
+    for (unsigned pass = 0; pass < images && len < (int)sizeof line - 200; pass++) {
+        unsigned best = 0;
+        for (unsigned k = 1; k < images; k++) if (img[k].count > img[best].count) best = k;
+        if (img[best].count == 0) break;
+        ProfImage *m = &img[best];
+        len += snprintf(line + len, sizeof line - len, " %s %u%% [", m->name, 100 * m->count / g_prof_n);
+        for (unsigned shown = 0; shown < 8 && len < (int)sizeof line - 40; shown++) {
+            unsigned bj = 0;
+            for (unsigned j = 1; j < m->offs; j++) if (m->off_n[j] > m->off_n[bj]) bj = j;
+            if (m->off_n[bj] == 0) break;
+            len += snprintf(line + len, sizeof line - len, "%s+0x%llx %u", shown ? ", " : "", (unsigned long long)m->off[bj], m->off_n[bj]);
+            m->off_n[bj] = 0;
+        }
+        len += snprintf(line + len, sizeof line - len, "];");
+        m->count = 0;
+    }
+    log_line("app: ", line);
+    g_prof_n = 0;
+}
+
+// Per-thread processor time over the last second, by thread name, plus memory.
+#define THREADS_MAX 160
+static uint64_t g_thread_id[THREADS_MAX];
+static uint64_t g_thread_us[THREADS_MAX];
+static unsigned g_threads;
+static uint64_t g_threads_at;
+
+static void threads_report(void) {
+    thread_act_array_t list;
+    mach_msg_type_number_t count = 0;
+    if (task_threads(mach_task_self(), &list, &count) != KERN_SUCCESS) return;
+    uint64_t now = now_ns();
+    double secs = g_threads_at ? (double)(now - g_threads_at) / 1e9 : 0;
+    struct { char name[48]; double pct; } top[THREADS_MAX];
+    unsigned tops = 0;
+    double total = 0;
+    uint64_t new_id[THREADS_MAX], new_us[THREADS_MAX];
+    unsigned news = 0;
+    for (mach_msg_type_number_t i = 0; i < count; i++) {
+        thread_identifier_info_data_t idi;
+        mach_msg_type_number_t n1 = THREAD_IDENTIFIER_INFO_COUNT;
+        thread_basic_info_data_t bi;
+        mach_msg_type_number_t n2 = THREAD_BASIC_INFO_COUNT;
+        if (thread_info(list[i], THREAD_IDENTIFIER_INFO, (thread_info_t)&idi, &n1) == KERN_SUCCESS &&
+            thread_info(list[i], THREAD_BASIC_INFO, (thread_info_t)&bi, &n2) == KERN_SUCCESS) {
+            uint64_t us = (uint64_t)bi.user_time.seconds * 1000000 + bi.user_time.microseconds +
+                          (uint64_t)bi.system_time.seconds * 1000000 + bi.system_time.microseconds;
+            if (news < THREADS_MAX) {
+                new_id[news] = idi.thread_id;
+                new_us[news++] = us;
+            }
+            uint64_t before = us;
+            for (unsigned k = 0; k < g_threads; k++) if (g_thread_id[k] == idi.thread_id) { before = g_thread_us[k]; break; }
+            if (secs > 0 && us > before && tops < THREADS_MAX) {
+                double pct = 100.0 * (double)(us - before) / 1e6 / secs;
+                total += pct;
+                top[tops].name[0] = 0;
+                pthread_t pt = pthread_from_mach_thread_np(list[i]);
+                if (pt) pthread_getname_np(pt, top[tops].name, sizeof top[tops].name);
+                if (!top[tops].name[0]) {
+                    if (pthread_equal(pt, g_game_pthread)) snprintf(top[tops].name, sizeof top[tops].name, "game (main)");
+                    else snprintf(top[tops].name, sizeof top[tops].name, "thread %llu", (unsigned long long)idi.thread_id);
+                } else if (pt && pthread_equal(pt, g_game_pthread)) {
+                    strncat(top[tops].name, " (game)", sizeof top[tops].name - strlen(top[tops].name) - 1);
+                }
+                top[tops++].pct = pct;
+            }
+        }
+        mach_port_deallocate(mach_task_self(), list[i]);
+    }
+    vm_deallocate(mach_task_self(), (vm_address_t)list, count * sizeof(thread_act_t));
+    memcpy(g_thread_id, new_id, news * sizeof new_id[0]);
+    memcpy(g_thread_us, new_us, news * sizeof new_us[0]);
+    g_threads = news;
+    g_threads_at = now;
+    if (secs <= 0) return;
+
+    task_vm_info_data_t vm;
+    mach_msg_type_number_t vn = TASK_VM_INFO_COUNT;
+    uint64_t footprint = 0;
+    if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&vm, &vn) == KERN_SUCCESS) footprint = vm.phys_footprint;
+    uint64_t avail = 0;
+#if TARGET_OS_IPHONE
+    avail = os_proc_available_memory();
+#endif
+    char line[2048];
+    int len = snprintf(line, sizeof line, "threads: %u, %.0f%% of one core in all; memory %llu MB used, %llu MB more allowed;",
+                       count, total, (unsigned long long)(footprint >> 20), (unsigned long long)(avail >> 20));
+    for (unsigned shown = 0; shown < 10 && len < (int)sizeof line - 80; shown++) {
+        unsigned b = 0;
+        for (unsigned k = 1; k < tops; k++) if (top[k].pct > top[b].pct) b = k;
+        if (tops == 0 || top[b].pct < 0.5) break;
+        len += snprintf(line + len, sizeof line - len, " %s %.0f%%,", top[b].name, top[b].pct);
+        top[b].pct = -1;
+    }
+    log_line("app: ", line);
+}
+
 static void *watchdog(void *arg) {
     (void)arg;
     pthread_setname_np("Continuum watchdog");
@@ -286,8 +451,31 @@ static void *watchdog(void *arg) {
     unsigned this_second = 0;
     for (;;) {
         usleep(10000);
+        // Once a second while a game runs: processor time per thread, and memory. Every 5 s: the
+        // game thread's profile.
+        {
+            static uint64_t last_report, last_frame_seen;
+            uint64_t t = now_ns();
+            if (t - last_report >= 1000000000ull) {
+                last_report = t;
+                if (g_frame_number != last_frame_seen) {
+                    last_frame_seen = g_frame_number;
+                    threads_report();
+                    if (g_prof_since == 0) g_prof_since = t;
+                    if (t - g_prof_since >= 5000000000ull) {
+                        prof_report();
+                        g_prof_since = t;
+                    }
+                } else {
+                    g_threads_at = 0;
+                    g_prof_n = 0;
+                    g_prof_since = 0;
+                }
+            }
+        }
         uint64_t start = __atomic_load_n(&g_frame_start, __ATOMIC_ACQUIRE);
         if (start == 0) continue;
+        prof_sample();
         uint64_t frame = g_frame_number;
         uint64_t now = now_ns();
         uint64_t elapsed = now > start ? now - start : 0;
