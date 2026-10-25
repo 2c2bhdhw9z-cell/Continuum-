@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Tools
-        run: brew install ninja sdl3 sdl3_ttf || true
+        run: brew install ninja sdl3 sdl3_ttf boost || true
       - name: Probe
         run: scripts/jit-check.sh probe
       - name: Dynarmic (3DS CPU)

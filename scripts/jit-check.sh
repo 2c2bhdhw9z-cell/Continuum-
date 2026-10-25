@@ -57,7 +57,7 @@ ppsspp() {
   fi
   git -C "$src" checkout -q "$sha"
   (cd "$src" && .github/checkout-submodules.sh /macosx/universal/)
-  (cd "$src" && git apply "$ROOT/scripts/patches/ppsspp-ios-jit-region.patch")
+  patch -p1 --forward -d "$src" < "$ROOT/scripts/patches/ppsspp-ios-jit-region.patch"
   # The patch's Continuum code is iPhone-only; switch it on for this Mac build too.
   perl -0pi -e 's/#if PPSSPP_PLATFORM\(IOS\)\n#include <dlfcn.h>/#if PPSSPP_PLATFORM(IOS) || defined(CONTINUUM_JIT_TEST)\n#include <dlfcn.h>/' "$src/Common/MemoryUtil.cpp"
   grep -q "defined(CONTINUUM_JIT_TEST)" "$src/Common/MemoryUtil.cpp"
@@ -85,7 +85,7 @@ dynarmic() {
   git -C "$az" checkout -q "$sha"
   git -C "$az" submodule update -q --init --depth 1 externals/oaknut externals/dynarmic
   git -C "$az/externals/dynarmic" submodule update -q --init --recursive --depth 1
-  (cd "$az" && git apply "$ROOT/scripts/patches/azahar-ios-jit-region.patch")
+  patch -p1 --forward -d "$az" < "$ROOT/scripts/patches/azahar-ios-jit-region.patch"
   # dynarmic's own tests, with the oaknut Azahar ships (patched) in place of dynarmic's copy.
   rm -rf "$az/externals/dynarmic/externals/oaknut"
   cp -R "$az/externals/oaknut" "$az/externals/dynarmic/externals/oaknut"
