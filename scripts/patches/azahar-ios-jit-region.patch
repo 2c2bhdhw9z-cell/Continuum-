@@ -195,3 +195,31 @@ index bfa87d9..5bfcfd2 100644
      std::size_t m_size = 0;
  };
  
+--- a/externals/dynarmic/src/dynarmic/common/spin_lock_arm64.cpp
++++ b/externals/dynarmic/src/dynarmic/common/spin_lock_arm64.cpp
+@@ -54,7 +54,10 @@
+ 
+ SpinLockImpl::SpinLockImpl()
+         : mem{4096}
+-        , code{mem.ptr(), mem.ptr()} {}
++        // Continuum: write through the writable address, run at the executable one (the same
++        // pointer unless the host gave oaknut a separate writable view; see its CodeBlock). Build
++        // 227 crashed here on a TXM iPhone: the lock was written through its run address.
++        , code{mem.wptr_base(), mem.ptr()} {}
+ 
+ void SpinLockImpl::Initialize() {
+     mem.unprotect();
+--- a/src/video_core/shader/shader_jit_a64_compiler.cpp
++++ b/src/video_core/shader/shader_jit_a64_compiler.cpp
+@@ -1053,8 +1053,9 @@
+     program = reinterpret_cast<CompiledShader*>(reinterpret_cast<std::byte*>(code_mem->ptr()) +
+                                                 program_offset);
+ 
+-    // Copy to executable memory
+-    std::memcpy(code_mem->ptr(), code_vec.data(), code_vec.size() * sizeof(u32));
++    // Copy to executable memory. Continuum: through the writable address, which is a different
++    // address from ptr() when the host gave oaknut a separate writable view (see its CodeBlock).
++    std::memcpy(code_mem->wptr_base(), code_vec.data(), code_vec.size() * sizeof(u32));
+ 
+     // Memory is ready to execute
+     code_mem->protect();

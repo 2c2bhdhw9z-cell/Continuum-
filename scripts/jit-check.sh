@@ -61,8 +61,18 @@ ppsspp() {
   # The patch's Continuum code is iPhone-only; switch it on for this Mac build too.
   perl -0pi -e 's/#if PPSSPP_PLATFORM\(IOS\)\n#include <dlfcn.h>/#if PPSSPP_PLATFORM(IOS) || defined(CONTINUUM_JIT_TEST)\n#include <dlfcn.h>/' "$src/Common/MemoryUtil.cpp"
   grep -q "defined(CONTINUUM_JIT_TEST)" "$src/Common/MemoryUtil.cpp"
+  # PPSSPP_MASKED=1: the memory layout an iPhone build uses (Core/MemMap.h turns MASKED_PSP_MEMORY on
+  # for iOS), where every guest address is masked to 30 bits before the base is added.
+  if [ "${PPSSPP_MASKED:-0}" = 1 ]; then
+    perl -pi -e 's/^#if PPSSPP_ARCH\(32BIT\) \|\| PPSSPP_PLATFORM\(UWP\)/#if 1 || PPSSPP_ARCH(32BIT) || PPSSPP_PLATFORM(UWP)/' "$src/Core/MemMap.h"
+    grep -q "^#if 1 || PPSSPP_ARCH(32BIT)" "$src/Core/MemMap.h"
+  fi
   (cd "$src" && CMAKE_ARGS="-DCMAKE_C_FLAGS=-DCONTINUUM_JIT_TEST -DCMAKE_CXX_FLAGS=-DCONTINUUM_JIT_TEST -DCMAKE_EXE_LINKER_FLAGS=$WORK/jit26.o" ./b.sh --headless --no-png)
   local status=0
+  if [ "${PPSSPP_MASKED:-0}" = 1 ]; then
+    echo "==> pspautotests, IR interpreter, masked memory (the reference)"
+    (cd "$src" && CONTINUUM_DUAL=0 python3 test.py -g --graphics=software --cpu=ir 2>&1) | tee "$WORK/ppsspp-ir.txt" | tail -15 || true
+  fi
   for dual in 0 1; do
     echo "==> pspautotests, CPU JIT, CONTINUUM_DUAL=$dual ($([ $dual = 1 ] && echo "Continuum's two-address memory" || echo "plain memory"))"
     (cd "$src" && CONTINUUM_DUAL=$dual python3 test.py -g --graphics=software --cpu=jit 2>&1) | tee "$WORK/ppsspp-dual$dual.txt" | tail -40 || true

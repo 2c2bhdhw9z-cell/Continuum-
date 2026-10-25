@@ -28,3 +28,9 @@ jobs:
       - name: PPSSPP (PSP)
         if: always() && (inputs.which == 'all' || inputs.which == 'ppsspp')
         run: scripts/jit-check.sh ppsspp
+      - name: PPSSPP (PSP), the iPhone's masked memory layout
+        if: always() && (inputs.which == 'all' || inputs.which == 'ppsspp-masked')
+        env:
+          PPSSPP_MASKED: "1"
+          JIT_CHECK_DIR: ${{ github.workspace }}/.jit-check-masked
+        run: scripts/jit-check.sh ppsspp
