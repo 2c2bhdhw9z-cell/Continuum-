@@ -43,9 +43,10 @@
     },
     {
       "id": "B4",
-      "done": false,
+      "done": true,
       "title": "The rare Color picture cases from CBOY_EXACT_DRAWER.md 'What is left'",
-      "notes": "Double-speed write landing, Color revisions (CGB D+ palette and SCY timing), the five access-blocking edges. Only where a test can measure it; never guess."
+      "notes": "Double-speed write landing, Color revisions (CGB D+ palette and SCY timing), the five access-blocking edges. Only where a test can measure it; never guess.",
+      "result": "Color revisions: a CGB D or later and the Advance take palette writes a dot earlier and read SCY only at the tile-number step. Mealybug CPU CGB D pictures 20 of 24 (all but the 4 placeholders; SameBoy 16), pinned. The documented D-only tile-select glitch is not modelled: the hardware photos of a D show the C picture. Double-speed landing and the five access-blocking edges left alone: no test measures them."
     },
     {
       "id": "B5",

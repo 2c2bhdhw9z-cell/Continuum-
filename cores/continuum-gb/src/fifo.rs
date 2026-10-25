@@ -116,6 +116,9 @@ pub(super) struct Fifo {
     /// over.
     last_tileset: bool,
     sel_glitch_data: u8,
+    /// The row worked out at the tile-number step, which a CGB D or later keeps for the two
+    /// bitplane address steps (`fetcher_y`).
+    y: u8,
     /// One colour-0 pixel is handed to the LCD instead of the FIFO's next.
     insert_blank: bool,
     /// The window was switched off while its own first fetch ran, so its colour-0 pixel is
@@ -302,6 +305,11 @@ impl Ppu {
         self.cgb_hardware || self.cgb
     }
 
+    /// A CGB D or later, or an Advance (`ppu::CgbRev`).
+    fn newer_colour(&self) -> bool {
+        self.colour_console() && self.cgb_rev != super::CgbRev::C
+    }
+
     fn wx_seen(&self) -> u8 {
         self.seen(0x4B)
     }
@@ -353,6 +361,7 @@ impl Ppu {
                 let win = self.fifo.win;
                 let map = if (self.lcdc_seen() & 0x08 != 0 && !win) || (self.lcdc_seen() & 0x40 != 0 && win) { 0x1C00u16 } else { 0x1800 };
                 let y = self.fetcher_y();
+                self.fifo.y = y;
                 let x = if win {
                     self.fifo.win_tile_x
                 } else if self.fifo.pos.wrapping_add(16) < 8 {
@@ -379,7 +388,10 @@ impl Ppu {
             LO_A | HI_A => {
                 self.update_wx_glitch();
                 let high = self.fifo.state == HI_A;
-                let y = self.fetcher_y();
+                // A CGB D or later (and an Advance) reads SCY only at the tile-number step, so a
+                // write between the steps cannot mix two rows of a tile (the Mealybug PPU
+                // documentation, "SCY"; SameBoy caches the row the same way).
+                let y = if self.newer_colour() { self.fifo.y } else { self.fetcher_y() };
                 // LCDC bit 4 (tile data select) is sampled on both bitplane address dots, so a
                 // write between them takes one bitplane from each of two tile sets.
                 self.fifo.last_tileset = self.lcdc_seen() & 0x10 != 0;
@@ -437,7 +449,10 @@ impl Ppu {
     ///     `m3_lcdc_tile_sel_change`, `_change2`, `m3_lcdc_tile_sel_win_change` and `_win_change2`
     ///     miss by 8, 186, 8 and 179 pixels, and with the documentation's rule all four pass.
     /// The documentation's third source, the read in progress when the previous line's fetch was
-    /// cut off at its end, no picture here needs, so it is not modelled.
+    /// cut off at its end, no picture here needs, so it is not modelled. Nor is its CPU CGB D
+    /// variant (bitplane 1 read from bitplane 0's address, SameBoy's `cgb_d_glitch`): Mealybug's
+    /// photos of a CGB D running `m3_lcdc_tile_sel_change` and `_win_change` show the same picture
+    /// as the CGB C's, which this rule draws and SameBoy's D variant misses by 520 and 260 pixels.
     fn bitplane_read(&mut self) -> u8 {
         let read = self.vram_at(self.fifo.data_addr);
         let kept = self.fifo.sel_glitch_data;

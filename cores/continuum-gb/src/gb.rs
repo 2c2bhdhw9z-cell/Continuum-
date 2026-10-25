@@ -184,6 +184,11 @@ impl GameBoy {
             gb.bus.sgb = sgb;
             gb.bus.ppu.lcdc = 0;
         }
+        // An Advance draws a Color game's picture the way a CGB E does (the Mealybug PPU
+        // documentation; SameBoy).
+        if model == Model::Agb {
+            gb.bus.ppu.cgb_rev = crate::ppu::CgbRev::E;
+        }
         gb.console = console;
         Ok(gb)
     }
@@ -193,6 +198,14 @@ impl GameBoy {
     pub fn set_cgb_revision_0(&mut self) {
         if self.bus.timer.counter == 0x2674 {
             self.bus.timer.counter = 0x2880;
+        }
+    }
+
+    /// Which Color revision draws the picture (`ppu::CgbRev`). An Advance is not a Color of
+    /// any revision and keeps its own (`with_model`).
+    pub fn set_cgb_revision(&mut self, rev: crate::ppu::CgbRev) {
+        if self.console != Model::Agb {
+            self.bus.ppu.cgb_rev = rev;
         }
     }
 
@@ -378,6 +391,7 @@ impl GameBoy {
         // buttons held for a Color's colour scheme.
         next.bus.cgb_hardware = self.bus.cgb_hardware;
         next.bus.ppu.cgb_hardware = self.bus.ppu.cgb_hardware;
+        next.bus.ppu.cgb_rev = self.bus.ppu.cgb_rev;
         next.bus.boot_buttons = self.bus.boot_buttons;
         next.compat = self.compat;
         next.console = self.console;

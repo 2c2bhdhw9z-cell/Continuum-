@@ -19,6 +19,21 @@ pub const H: usize = 144;
 #[cfg(feature = "trace")]
 pub static TRACE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// The Color revisions that draw differently (the Mealybug PPU documentation; SameBoy). Revisions
+/// 0 to C draw alike, which is what Mealybug's `CPU CGB C` pictures are; a CGB D or later takes
+/// a palette write a dot earlier and reads SCY only at the tile-number step, so a write between
+/// the steps cannot mix two rows of a tile. The D's own tile-select glitch in the documentation
+/// does not show in Mealybug's photos (`fifo.rs::bitplane_read`), so D and E draw alike here (the
+/// D is what Mealybug photographed, so the tests run it). An Advance draws as a CGB E. Only the exact drawer and the dot a
+/// write lands on (`Bus::landing`) look at it, and only on Color hardware.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CgbRev {
+    #[default]
+    C,
+    D,
+    E,
+}
+
 /// The DMG shades as XRGB8888, lightest first.
 pub const SHADES: [u32; 4] = [0x00FF_FFFF, 0x00AA_AAAA, 0x0055_5555, 0x0000_0000];
 
@@ -70,6 +85,10 @@ pub struct Ppu {
     /// part of a save state; gb.rs sets it.
     #[serde(skip)]
     pub cgb_hardware: bool,
+    /// Which Color revision the picture hardware is. Like `cgb_hardware` it comes from the
+    /// console the player picked, so it is not part of a save state; gb.rs sets it.
+    #[serde(skip)]
+    pub cgb_rev: CgbRev,
     pub bg_pal: Vec<u8>,
     pub obj_pal: Vec<u8>,
     pub bcps: u8,
@@ -182,6 +201,7 @@ impl Default for Ppu {
             hblank_at: 252,
             cgb: false,
             cgb_hardware: false,
+            cgb_rev: CgbRev::C,
             bg_pal: vec![0xFF; 64],
             layers: 7,
             no_render: false,

@@ -457,6 +457,8 @@ pub struct Settings {
     pub auto_sgb: bool,
     /// Model Game Boy Color revision 0.
     pub cgb_rev0: bool,
+    /// The Color revision that draws the picture: revision 0 draws as a C, "the usual one" is an E.
+    pub cgb_rev: crate::ppu::CgbRev,
     pub stick_deadzone: f32,
     pub swap_stick: bool,
     pub frameskip_threshold: u32,
@@ -516,7 +518,7 @@ impl Default for Settings {
             newer_pocket: false, newer_advance: false, palette_auto: false, sgb_fast: true, gbp_reset: false,
             gb_layers: 7, gba_layers: 0xFF, gba_bios_skip_logo: false, border_always: false, color_temp: 0,
             contrast: 0, dark: 0, highpass_hz: 28.0, audio_hq: false, rumble_strength: 100, motion_scale: 1.0,
-            opposing: false, stick_dpad: false, sprite_limit: true, sgb_pal: false, auto_sgb: false, cgb_rev0: false, stick_deadzone: 0.15, swap_stick: false,
+            opposing: false, stick_dpad: false, sprite_limit: true, sgb_pal: false, auto_sgb: false, cgb_rev0: false, cgb_rev: crate::ppu::CgbRev::E, stick_deadzone: 0.15, swap_stick: false,
             frameskip_threshold: 85, frameskip_interval: 1, gba_obj_limit: false, force_color: false, gbp: false, gbc_light: 0, frameskip_auto: false, interference: 0,
             exact_renderer: false,
         }
@@ -670,6 +672,10 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     s.gba_game_clock = get(c"cboy_gba_clock").is_some_and(|v| v == "game");
     s.vba_compat = on(c"cboy_vba_compat", true);
     s.cgb_rev0 = get(c"cboy_cgb_revision").is_some_and(|v| v == "0");
+    s.cgb_rev = match get(c"cboy_cgb_revision").as_deref() {
+        Some("0") => crate::ppu::CgbRev::C,
+        _ => crate::ppu::CgbRev::E,
+    };
     s.stick_deadzone = get(c"cboy_stick_deadzone").and_then(|v| v.parse::<f32>().ok()).unwrap_or(15.0).clamp(0.0, 50.0) / 100.0;
     s.swap_stick = on(c"cboy_swap_stick", false);
     s.frameskip_threshold = get(c"cboy_frameskip_threshold").and_then(|v| v.parse().ok()).unwrap_or(85).clamp(30, 100);
@@ -1198,6 +1204,8 @@ mod tests {
         assert!(correct_lit(w, Look::GbcScreen, -1) < correct_lit(w, Look::GbcScreen, 0));
         let r = settings(&[("cboy_gb_model", "auto_sgb"), ("cboy_cgb_revision", "0")]);
         assert!(r.auto_sgb && r.cgb_rev0 && r.model == Model::Auto);
+        assert_eq!(r.cgb_rev, crate::ppu::CgbRev::C, "revision 0 draws as a C");
+        assert_eq!(settings(&[]).cgb_rev, crate::ppu::CgbRev::E, "the usual one is an E");
         assert_eq!(settings(&[("cboy_gb_model", "dmg0")]).model, Model::Dmg0);
         let m = settings(&[("cboy_hybrid_model", "sgb"), ("cboy_gba_model", "gbp"), ("cboy_gba_clock", "game"),
             ("cboy_vba_compat", "off")]);

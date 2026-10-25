@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 
 use continuum_gb::gb::{GameBoy, Model};
+use continuum_gb::ppu::CgbRev;
 
 fn rom(name: &str) -> Option<Vec<u8>> {
     let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms").join(name);
@@ -638,12 +639,40 @@ impl std::fmt::Display for MealyDiff {
     }
 }
 
+/// The consoles Mealybug photographed its pictures on, and how cBoy runs each.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Unit {
+    Dmg,
+    CgbC,
+    /// A CPU CGB D: the Color with `CgbRev::D`.
+    CgbD,
+}
+
+impl Unit {
+    fn folder(self) -> &'static str {
+        match self {
+            Unit::Dmg => "DMG-blob",
+            Unit::CgbC => "CPU CGB C",
+            Unit::CgbD => "CPU CGB D",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Unit::Dmg => "dmg",
+            Unit::CgbC => "cgb",
+            Unit::CgbD => "cgbd",
+        }
+    }
+}
+
 /// One Mealybug Tearoom test on the exact drawer (the one these pictures are for): run to
 /// `LD B,B`, compare the screen. Returns where it differs.
-fn mealybug(name: &str, cgb: bool) -> Option<MealyDiff> {
+fn mealybug(name: &str, unit: Unit) -> Option<MealyDiff> {
+    let cgb = unit != Unit::Dmg;
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/mealybug");
     let data = std::fs::read(dir.join(format!("{name}.gb"))).ok()?;
-    let exp = std::fs::read(dir.join("expected").join(if cgb { "CPU CGB C" } else { "DMG-blob" }).join(format!("{name}.png"))).ok()?;
+    let exp = std::fs::read(dir.join("expected").join(unit.folder()).join(format!("{name}.png"))).ok()?;
     let want = png_rgb(&exp);
     // Every one of these ROMs is a Game Boy cartridge (header $143 = 0, and no test sets the
     // colour flag or asks which console it is), and the folder a reference sits in names the
@@ -655,6 +684,9 @@ fn mealybug(name: &str, cgb: bool) -> Option<MealyDiff> {
     } else {
         GameBoy::new_mode(data, false).ok()?
     };
+    if unit == Unit::CgbD {
+        gb.set_cgb_revision(CgbRev::D);
+    }
     gb.bus.ppu.exact = true;
     for _ in 0..600 {
         gb.run_frame();
@@ -678,7 +710,7 @@ fn mealybug(name: &str, cgb: bool) -> Option<MealyDiff> {
                 }
             }
         }
-        std::fs::write(format!("{d}/{}{name}.ppm", if cgb { "cgb_" } else { "dmg_" }), out).unwrap();
+        std::fs::write(format!("{d}/{}_{name}.ppm", unit.label()), out).unwrap();
     }
     // DMG references are grey levels; ours are the same four greys.
     let map = |p: u32| if cgb { p } else {
@@ -794,14 +826,14 @@ fn mealybug_report() {
     }
     let mut pass = Vec::new();
     let mut fail = Vec::new();
-    for cgb in [false, true] {
-        let exp = dir.join("expected").join(if cgb { "CPU CGB C" } else { "DMG-blob" });
+    for unit in [Unit::Dmg, Unit::CgbC, Unit::CgbD] {
+        let exp = dir.join("expected").join(unit.folder());
         let mut names: Vec<String> = std::fs::read_dir(&exp).unwrap().flatten()
             .map(|e| e.file_name().to_string_lossy().trim_end_matches(".png").to_string()).collect();
         names.sort();
         for n in names {
-            let label = format!("{}{n}", if cgb { "cgb:" } else { "dmg:" });
-            match mealybug(&n, cgb) {
+            let label = format!("{}:{n}", unit.label());
+            match mealybug(&n, unit) {
                 Some(d) if d.wrong == 0 => pass.push(label),
                 Some(d) => fail.push((label, d)),
                 None => {}
@@ -831,6 +863,10 @@ fn mealybug_report() {
 /// Nintendo's (compat.rs), with the Color's own dots for when a write to a picture register lands
 /// (`Bus::landing`), with the drawer doing what the Color's hardware does in either mode
 /// (`colour_console` in fifo.rs), and with the Color's tile-select glitch (`bitplane_read`).
+///
+/// And 20 of the 24 CPU CGB D pictures, again all but the four placeholders: a CGB D takes a
+/// palette write a dot earlier and reads SCY only at the tile-number step (`ppu::CgbRev`). Run as
+/// a C, 7 of those 20 fail.
 const MEALYBUG_PASSING: &[&str] = &[
     "cgb:m2_win_en_toggle",
     "cgb:m3_bgp_change",
@@ -859,6 +895,26 @@ const MEALYBUG_PASSING: &[&str] = &[
     "cgb:m3_window_timing",
     "cgb:m3_window_timing_wx_0",
     "cgb:m3_wx_4_change_sprites",
+    "cgbd:m2_win_en_toggle",
+    "cgbd:m3_bgp_change",
+    "cgbd:m3_bgp_change_sprites",
+    "cgbd:m3_lcdc_bg_en_change",
+    "cgbd:m3_lcdc_bg_map_change",
+    "cgbd:m3_lcdc_obj_en_change",
+    "cgbd:m3_lcdc_obj_en_change_variant",
+    "cgbd:m3_lcdc_obj_size_change",
+    "cgbd:m3_lcdc_obj_size_change_scx",
+    "cgbd:m3_lcdc_tile_sel_change",
+    "cgbd:m3_lcdc_tile_sel_win_change",
+    "cgbd:m3_lcdc_win_en_change_multiple",
+    "cgbd:m3_lcdc_win_map_change",
+    "cgbd:m3_obp0_change",
+    "cgbd:m3_scx_high_5_bits",
+    "cgbd:m3_scx_low_3_bits",
+    "cgbd:m3_scy_change",
+    "cgbd:m3_window_timing",
+    "cgbd:m3_window_timing_wx_0",
+    "cgbd:m3_wx_4_change_sprites",
     "dmg:m2_win_en_toggle",
     "dmg:m3_bgp_change",
     "dmg:m3_bgp_change_sprites",

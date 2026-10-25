@@ -931,6 +931,7 @@ fn build_machine(rom: Vec<u8>, s: &crate::options::Settings, dir: Option<&str>) 
     if s.cgb_rev0 && !had_boot {
         gb.set_cgb_revision_0();
     }
+    gb.set_cgb_revision(s.cgb_rev);
     // A black-and-white game on a Color, in the colours the player asked for.
     if let (crate::options::Colorize::Gbc(choice), false, true) = (s.colorize, colour, gb.bus.cgb_hardware) {
         let how = match choice {

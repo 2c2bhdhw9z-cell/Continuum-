@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::apu::Apu;
 use crate::cart::Cart;
-use crate::ppu::{Land, Ppu};
+use crate::ppu::{CgbRev, Land, Ppu};
 use crate::timer::Timer;
 
 pub const INT_VBLANK: u8 = 1;
@@ -416,8 +416,10 @@ impl Bus {
                 // a bitplane read on the next dot (`Ppu::bitplane_read`).
                 0xFF40 if (self.ppu.lcdc ^ v) & 0x10 != 0 => [Some((4, Land::TileSel(v))), None],
                 // A Color (CPU CGB C and earlier) writes a palette register a dot before the end,
-                // whole: no old-OR-new dot as on a Game Boy.
-                0xFF47..=0xFF49 => [Some((3, Land::Value(v))), None],
+                // whole: no old-OR-new dot as on a Game Boy. A CGB D or later (and an Advance)
+                // a dot earlier still (SameBoy's GB_CONFLICT_PALETTE_CGB).
+                0xFF47..=0xFF49 if self.ppu.cgb_rev == CgbRev::C => [Some((3, Land::Value(v))), None],
+                0xFF47..=0xFF49 => [Some((2, Land::Value(v))), None],
                 // A Color's WX write wins over the PPU's read of it, which puts it one dot into
                 // the next M-cycle.
                 0xFF4B => [Some((4, Land::Hold)), Some((5, Land::Value(v)))],
@@ -905,6 +907,10 @@ mod tests {
         assert_eq!(cgb.landing(0xFF4B, 7), [Some((4, Land::Hold)), Some((5, Land::Value(7)))]);
         for reg in [0xFF42, 0xFF43, 0xFF4A] {
             assert_eq!(cgb.landing(reg, 7), [None, None], "{reg:04X} lands at the end on a Color");
+        }
+        cgb.ppu.cgb_rev = CgbRev::E;
+        for reg in 0xFF47..=0xFF49 {
+            assert_eq!(cgb.landing(reg, 0xE4), [Some((2, Land::Value(0xE4))), None], "a CGB D or later, a dot earlier");
         }
         cgb.double_speed = true;
         assert_eq!(cgb.landing(0xFF47, 0xE4), [None, None], "double speed lands at the end");

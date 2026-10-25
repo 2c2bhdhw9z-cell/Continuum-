@@ -546,7 +546,7 @@ not part of the score.
 ## What is left
 
 Every Mealybug picture that has a reference passes on Exact: **51 of 55**, the other 4 being the
-placeholders above. What is left is what no test here measures, each written down so nobody has
+placeholders above, and 20 of the 24 CPU CGB D ones (the other 4 the same placeholders). What is left is what no test here measures, each written down so nobody has
 to rediscover it:
 
 1. **The five Color-only access-blocking edges** in "What the CPU can see while the picture is
@@ -561,11 +561,14 @@ to rediscover it:
 3. **Double speed** lands every picture-register write at the end of its M-cycle. SameBoy's
    double-speed table is in half dots, which a whole-dot drawer cannot place; no Mealybug test
    runs in double speed.
-4. **Color revisions.** The drawer is a CPU CGB C, which is what the references are. A CGB D or
-   later (and an Advance) take a palette write a dot earlier, read SCY only at the tile-number
-   step, and glitch tile select differently (the Mealybug documentation; SameBoy has the first
-   two). cBoy's "Which Game Boy Color" choice only covers the start-up timing, so none of this is
-   modelled; the `CPU CGB D` references would be the way to measure it.
+4. **Color revisions: done (25 October 2026).** `ppu::CgbRev`: a CGB D or later, and an
+   Advance, take a palette write a dot earlier (dot 2, `Bus::landing`) and read SCY only at the
+   tile-number step (`fifo.rs`, the row kept in `Fifo::y`). Measured on Mealybug's 24 `CPU CGB D`
+   references: 20 pass, all but the four placeholders (13 when run as a C), pinned as `cgbd:` in
+   `tests/roms.rs`; SameBoy passes 16. The documentation's D-only tile-select glitch is NOT
+   modelled: Mealybug's photos of a D running the two tile-select tests show the C's picture,
+   which cBoy draws, and SameBoy's D variant misses it. "Which Game Boy Color" picks it: the
+   usual one is an E, the first Japanese one draws as a C. The Advance always draws as an E.
 5. **The tile-select glitch's third source**, the read cut off at the end of the previous line
    (the Mealybug documentation's "pixel 159/160"), which no picture needs.
 6. **The Super Game Boy and the Game Boy Pocket** use the Game Boy's write table; SameBoy gives
