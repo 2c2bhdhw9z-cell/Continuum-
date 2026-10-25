@@ -156,10 +156,13 @@ impl Cpu {
         }
     }
 
-    /// Writes a register; r15 is a jump.
+    /// Writes a register; r15 is a jump. In ARM state the console keeps bit 1 of the address
+    /// (an ARM opcode read ignores it, but r15 and everything counted from it carry it on, and
+    /// the prefetch buffer then never recognises the opcodes it read ahead): only test programs
+    /// ever jump there.
     pub fn set_reg(&mut self, i: usize, v: u32) {
         if i == 15 {
-            self.pc = if self.thumb() { v & !1 } else { v & !3 };
+            self.pc = v & !1;
             self.branched = true;
         } else {
             self.r[i] = v;
@@ -677,6 +680,7 @@ impl Cpu {
             if s && list & 0x8000 != 0 {
                 let spsr = self.spsr();
                 self.set_cpsr(spsr);
+                self.pc &= if self.thumb() { !1 } else { !3 };
             }
         } else {
             for (k, &r) in regs.iter().enumerate() {

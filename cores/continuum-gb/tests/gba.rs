@@ -297,3 +297,103 @@ fn eeprom_write_then_read() {
     }
     assert_eq!(v, 0x0123_4567_89AB_CDEF);
 }
+
+/// Alyosha's timing tests (alyosha-tas/gba-tests, MIT): jsmolka's collection plus cycle-exact
+/// tests of the prefetch buffer, wait states, DMA, timers, interrupts and serial, each written
+/// against a real console. Like jsmolka's, a test ends in `B .` with r12 = 0 when it passed
+/// (or a failed test's number, or the time it measured). These pass and must keep passing.
+/// All 18 prefetch-buffer tests are among them; most of the rest that fail need a DMA that
+/// can be interrupted by another, interrupts taken a few cycles late, the serial port's own
+/// timing, or the real BIOS's start-up timing.
+const ALYOSHA_PASS: &[&str] = &[
+    "Bus/DMA_Outside_Bios_Bus.gba", "DMA/DMA_Mode_Change.gba", "LDM/LDM_ALU.gba", "LDM/LDM_ALU_IMM.gba",
+    "LDM/LDM_ALU_Store.gba", "LDM/LDM_Bx.gba", "LDM/LDM_LD.gba", "LDM/LDM_MUL_UL_32.gba", "LDM/LDM_MUL_UL_SL.gba",
+    "LDM/LDM_Swap.gba", "STM_ALU_IMM.gba", "Serial/serial_time_start_bit.gba", "arm/Coprocessor_14.gba",
+    "arm/arm.gba", "bios/bios.gba", "fifo_dma/fifo_dma_disable_3.gba", "fifo_dma/fifo_dma_disable_5.gba",
+    "irq/BL_1.gba", "irq/IF_Timer.gba", "irq/IRQ_sub.gba", "irq/IRQ_sub_slow.gba", "memory/PAL_8_bit_writes.gba",
+    "memory/VRAM_8_bit_writes.gba", "memory/memory.gba", "nes/nes.gba", "ppu/hello.gba", "ppu/shades.gba",
+    "ppu/start_up.gba", "ppu/start_up_vbl_irq.gba", "ppu/start_up_vbl_irq_halt.gba", "ppu/stripes.gba",
+    "prefetcher/bounday_test_1.gba", "prefetcher/prefetcher_boundary_1.gba", "prefetcher/prefetcher_boundary_2.gba",
+    "prefetcher/prefetcher_boundary_3.gba", "prefetcher/prefetcher_boundary_4.gba",
+    "prefetcher/prefetcher_branch_thumb.gba", "prefetcher/prefetcher_branch_thumb_2.gba",
+    "prefetcher/prefetcher_branch_thumb_3.gba", "prefetcher/prefetcher_branch_thumb_4.gba",
+    "prefetcher/prefetcher_branch_thumb_5.gba", "prefetcher/prefetcher_branch_thumb_6.gba",
+    "prefetcher/prefetcher_branch_thumb_arm.gba", "prefetcher/prefetcher_branch_thumb_arm_3.gba",
+    "prefetcher/prefetcher_branch_thumb_arm_4.gba", "prefetcher/prefetcher_dma.gba",
+    "prefetcher/prefetcher_full_arm.gba", "prefetcher/prefetcher_full_arm_2.gba",
+    "prefetcher/prefetcher_full_thumb.gba", "save/flash128.gba", "save/flash64.gba", "save/none.gba",
+    "save/sram.gba", "thumb/Push_no_regs.gba", "thumb/blx.gba", "thumb/cpy.gba", "thumb/thumb.gba",
+    "timer/timer_disable.gba", "timing/dma_long.gba", "timing/prefetch_enable.gba",
+    "timing/prefetch_enable_2.gba", "unsafe/fifo_dma_disable_jam.gba", "unsafe/fifo_dma_disable_jam_2.gba",
+    "unsafe/unsafe.gba",
+];
+
+#[test]
+fn alyosha_timing_tests() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/alyosha");
+    if !root.is_dir() {
+        eprintln!("SKIPPED: {} not found (run scripts/fetch-test-roms.sh)", root.display());
+        return;
+    }
+    let mut all = vec![];
+    let mut dirs = vec![root.clone()];
+    while let Some(d) = dirs.pop() {
+        for e in std::fs::read_dir(&d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                dirs.push(p);
+            } else if p.extension().is_some_and(|x| x == "gba") {
+                all.push(p);
+            }
+        }
+    }
+    all.sort();
+    let (mut passed, mut broken, mut newly) = (0, vec![], vec![]);
+    for p in &all {
+        let name = p.strip_prefix(&root).unwrap().display().to_string();
+        let mut gba = Gba::new(std::fs::read(p).unwrap());
+        let r = run_to_idle(&mut gba, 600);
+        let pinned = ALYOSHA_PASS.contains(&name.as_str());
+        match r {
+            Some(0) => {
+                passed += 1;
+                if !pinned {
+                    newly.push(name);
+                }
+            }
+            other => {
+                if pinned {
+                    broken.push(format!("{name}: {other:?}"));
+                }
+            }
+        }
+    }
+    eprintln!("alyosha: {passed} of {} pass", all.len());
+    if !newly.is_empty() {
+        eprintln!("also passing now (add them to ALYOSHA_PASS): {newly:?}");
+    }
+    assert!(broken.is_empty(), "timing tests that passed no longer do: {broken:?}");
+    assert_eq!(all.len(), 133, "the pinned collection has 133 tests");
+}
+
+/// Prints every instruction of $GBA_TRACE (a file under test-roms/) whose address is in
+/// [$GBA_LO, $GBA_HI), with the cycles it took (a debugging aid; with `--features gba_trace`
+/// every bus access too).
+#[test]
+fn gba_trace() {
+    let Ok(name) = std::env::var("GBA_TRACE") else { return };
+    let hex = |k: &str, d: u32| std::env::var(k).ok().and_then(|v| u32::from_str_radix(&v, 16).ok()).unwrap_or(d);
+    let (lo, hi) = (hex("GBA_LO", 0x0800_0000), hex("GBA_HI", 0x0800_1000));
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms").join(name);
+    let mut gba = Gba::new(std::fs::read(path).unwrap());
+    let mut shown = 0;
+    while shown < 2000 && gba.bus.cycles < 50_000_000 {
+        let (pc, t) = (gba.cpu.pc, gba.bus.now());
+        let op = if gba.cpu.thumb() { gba.bus.peek16(pc) } else { gba.bus.peek32(pc) };
+        gba.step();
+        if (lo..hi).contains(&pc) {
+            println!("{pc:08X} {} {op:08X} +{:3}", if gba.cpu.thumb() { "T" } else { "A" }, gba.bus.now() - t);
+            shown += 1;
+        }
+    }
+}

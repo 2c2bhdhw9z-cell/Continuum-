@@ -129,7 +129,7 @@ fn state_layout_is_pinned() {
 }
 const GB_STATE_LEN: usize = 221_310;
 const GBA_STATE_LEN: usize = 550_530;
-const GBA_TIMING_LEN: usize = 74;
+const GBA_TIMING_LEN: usize = 114;
 
 /// A state made before the Advance timing was saved (the layout fixed under CGBASTA2 and
 /// nothing after it) still loads, and the machine runs on from it.

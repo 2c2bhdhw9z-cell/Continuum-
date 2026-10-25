@@ -47,6 +47,12 @@ if [ ! -d jsmolka ]; then
   fetch_repo jsmolka/gba-tests a7113b67e63f83a9b321696ddd7042ccfad6c881 jsmolka || echo "gba-tests download failed"
 fi
 ls
+# Alyosha's Game Boy Advance timing tests (MIT; jsmolka's collection with cycle-exact tests of the
+# prefetch buffer, wait states, DMA, timers, interrupts and serial added, measured on a console).
+# Pinned: the pass list in tests/gba.rs belongs to this commit.
+if [ ! -d alyosha ]; then
+  fetch_repo alyosha-tas/gba-tests 66f5f1d60cd7030b600606886c76f5c821ecaf9d alyosha || echo "alyosha gba-tests download failed (optional)"
+fi
 # Mealybug Tearoom tests (MIT): mid-scanline register changes, for the exact (pixel-by-pixel)
 # drawer. Pinned: the expected pictures and the pass list in tests/roms.rs belong to this commit.
 if [ ! -d mealybug ]; then

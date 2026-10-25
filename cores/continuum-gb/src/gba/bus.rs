@@ -174,11 +174,17 @@ pub struct BusTiming {
     pub timer_at: [u64; 4],
     /// Internal memory control ($04000800): bits 24-27 set the work RAM's wait states.
     pub memcnt: u32,
+    /// The cycle each channel switched on to run straight away really starts (two cycles
+    /// after the write; the CPU carries on until then), `u64::MAX` for none.
+    dma_due: [u64; 4],
+    /// The cycle the CPU's last bus access ended: a DMA that comes due while the CPU is only
+    /// busy inside itself runs alongside it.
+    bus_end: u64,
 }
 
 impl Default for BusTiming {
     fn default() -> Self {
-        BusTiming { prefetch: Prefetch::default(), after_code: false, thumb: false, timer_at: [0; 4], memcnt: 0x0D00_0020 }
+        BusTiming { prefetch: Prefetch::default(), after_code: false, thumb: false, timer_at: [0; 4], memcnt: 0x0D00_0020, dma_due: [u64::MAX; 4], bus_end: 0 }
     }
 }
 
@@ -431,6 +437,9 @@ impl Bus {
     /// A data read or write (by the CPU or by DMA) spends its cycles. `seq` is the access
     /// following on from the one before: the second word on of a block transfer or a DMA.
     fn data(&mut self, addr: u32, word: bool, seq: bool) {
+        if !self.in_dma {
+            self.dma_catch_up();
+        }
         let seq = seq && addr & 0x1_FFFF != 0;
         let mut c = self.cost(addr, word, seq);
         if (0x08..=0x0F).contains(&(addr >> 24)) {
@@ -446,6 +455,32 @@ impl Bus {
         #[cfg(feature = "gba_trace")]
         eprintln!("  {:6} data {addr:08X} {} {} +{c}", self.now(), if word { 32 } else { 16 }, if seq { "S" } else { "N" });
         self.tm.after_code = false;
+        if !self.in_dma {
+            self.tm.bus_end = self.now();
+        }
+    }
+
+    /// Runs a DMA switched on to start straight away once its start-up time has passed: when
+    /// the CPU next wants the bus. If it came due while the CPU was only busy inside itself,
+    /// it ran alongside those cycles, so only what is left of it holds the CPU up.
+    fn dma_catch_up(&mut self) {
+        let now = self.now();
+        for ch in 0..4 {
+            let due = self.tm.dma_due[ch];
+            if due > now {
+                continue;
+            }
+            self.tm.dma_due[ch] = u64::MAX;
+            if self.io16(0xBA + ch * 12) & 0x8000 == 0 || !self.dma[ch].active {
+                continue;
+            }
+            let start = due.max(self.tm.bus_end);
+            let before = self.pending;
+            self.run_dma(ch);
+            let took = self.pending - before;
+            let overlap = (now.saturating_sub(start)).min(u64::from(took)) as u32;
+            self.pending -= overlap;
+        }
     }
 
     /// An opcode read from the cartridge, from the prefetch buffer when it can. Returns the
@@ -538,6 +573,7 @@ impl Bus {
     /// opcode before (false for the first read after a jump); it only does when the bus cycle
     /// before was an opcode read too.
     pub fn code(&mut self, addr: u32, thumb: bool, seq: bool) -> u32 {
+        self.dma_catch_up();
         let seq = seq && self.tm.after_code;
         self.exec_pc = addr;
         self.tm.thumb = thumb;
@@ -549,6 +585,7 @@ impl Bus {
             self.spend(c);
         }
         self.tm.after_code = true;
+        self.tm.bus_end = self.now();
         self.run_pending();
         if thumb {
             let v = self.peek16(addr);
@@ -903,6 +940,9 @@ impl Bus {
                 if !was && v & 0x8000 != 0 {
                     self.dma_enable(ch);
                 }
+                if v & 0x8000 == 0 {
+                    self.tm.dma_due[ch] = u64::MAX;
+                }
             }
             0x100 | 0x104 | 0x108 | 0x10C => self.timers[(a - 0x100) / 4].reload = v,
             0x102 | 0x106 | 0x10A | 0x10E => self.timer_control((a - 0x100) / 4, v),
@@ -968,7 +1008,8 @@ impl Bus {
         d.active = true;
         self.dma_reload_count(ch);
         if (self.io16(base + 10) >> 12) & 3 == 0 {
-            self.run_dma(ch);
+            // It starts two cycles after the write that switched it on has ended.
+            self.tm.dma_due[ch] = self.cycles + 2;
         }
     }
 
@@ -1009,10 +1050,12 @@ impl Bus {
         let was = self.in_dma;
         self.in_dma = true;
         let (mut s, mut d) = (self.dma[ch].src, self.dma[ch].dst);
-        // Two internal cycles to get going, four when both ends are on the cartridge; then the
-        // first unit is a non-sequential read and write, and every one after it sequential.
+        // Two internal cycles (four when both ends are on the cartridge), half before the
+        // transfer and half after it; the first unit is a non-sequential read and write, and
+        // every one after it sequential.
         let cart = |a: u32| (0x08..=0x0F).contains(&(a >> 24));
-        self.idle(if cart(s) && cart(d) { 4 } else { 2 });
+        let internal = if cart(s) && cart(d) { 2 } else { 1 };
+        self.idle(internal);
         for i in 0..count {
             let seq = i > 0;
             if word {
@@ -1030,6 +1073,7 @@ impl Bus {
             s = match sctl { 0 | 3 => s.wrapping_add(step), 1 => s.wrapping_sub(step), _ => s };
             d = match dctl { 0 | 3 => d.wrapping_add(step), 1 => d.wrapping_sub(step), _ => d };
         }
+        self.idle(internal);
         self.in_dma = was;
         self.dma[ch].src = s;
         self.dma[ch].dst = d;
@@ -1225,6 +1269,12 @@ impl Bus {
         }
         let step = (1u64 << Self::timer_shift(ctrl)) - 1;
         if !was_on {
+            if self.timers[i].counter == 0xFFFF && now & step == 0 && (i == 0 || ctrl & 4 == 0) {
+                // Loading the reload value takes a cycle, and a timer stopped at $FFFF can tick
+                // in it: it overflows (interrupt and all) before it starts from the reload value.
+                self.tm.timer_at[i] = now;
+                return;
+            }
             self.timers[i].counter = self.timers[i].reload;
             self.tm.timer_at[i] = (now & !step) + 1;
         } else {
@@ -1353,6 +1403,8 @@ impl Bus {
 
     /// While halted: jump to the next display event (timers and sound run in step).
     pub fn halt_skip(&mut self) {
+        self.dma_catch_up();
+        self.run_pending();
         let mut to = if self.line_cycle < HBLANK_AT { HBLANK_AT - self.line_cycle } else { LINE - self.line_cycle };
         if let Some(t) = self.cycles_to_timer_irq() {
             to = to.min(t.min(256) as u32);
