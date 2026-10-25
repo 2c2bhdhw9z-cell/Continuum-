@@ -63,9 +63,10 @@
     },
     {
       "id": "B7",
-      "done": false,
+      "done": true,
       "title": "Two Game Boys on one phone (dual console, linked by cable)",
-      "notes": "Gaps: sameboy_screen_layout, sameboy_audio_output, tgbdual_* (5), savePlayerId. Two machines in one core, both screens drawn side by side or one above the other, which one is heard, swap."
+      "notes": "Gaps: sameboy_screen_layout, sameboy_audio_output, tgbdual_* (5), savePlayerId. Two machines in one core, both screens drawn side by side or one above the other, which one is heard, swap.",
+      "result": "cores/continuum-gb/src/dual.rs: two Game Boys run the same cartridge in step (real time, 64-dot slices), joined by the link cable (the driving console's byte reaches the other as its eighth bit goes, the answer comes straight back). Settings in Link: Two Game Boys on this phone (next start), where the screens go (one above the other / side by side, next start), screens shown (both / first only / second only), swap the screens, sound (first / second / both), your controls play (first / second: the on-screen buttons and first controller play it, a second controller the other). The second keeps its own battery save, '<game> (second Game Boy).sav' in the app's save folder, written every 2 s when changed and at exit. Save states hold both. No app or engine change needed: the app sizes the picture from what the core reports and passes a second controller as player 2. Tests: dual.rs unit tests, options_e2e two_game_boys_on_one_phone (a byte crosses each way, screens, swap, controls, single screen, the save file) and two_game_boys_change_shape_only_at_the_next_start. Not done: two different games (the app opens one file), infrared."
     },
     {
       "id": "B8",

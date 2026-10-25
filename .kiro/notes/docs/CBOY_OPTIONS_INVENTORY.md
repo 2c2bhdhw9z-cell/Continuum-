@@ -16,7 +16,7 @@ edit `.kiro/notes/docs/option-sources/mapping.tsv` and rerun.
 | tgbdual | https://github.com/libretro/tgbdual-libretro | `0392c9c469e653205e471114c7949c07c83bfce9` | 5 |
 | vbam | https://github.com/libretro/vbam-libretro | `115defb3a318258ab84746d45258a1aec19d0b4b` | 32 |
 
-Extracted keys: **132**. Covered by cBoy: 103. Gaps: 8. Deliberately not done: 4. Not applicable: 17. cBoy options: **71**.
+Extracted keys: **132**. Covered by cBoy: 110. Gaps: 1. Deliberately not done: 4. Not applicable: 17. cBoy options: **77**.
 
 ## Libretro core options, key by key
 
@@ -74,7 +74,7 @@ Extracted keys: **132**. Covered by cBoy: 103. Gaps: 8. Deliberately not done: 4
 | sameboy | `sameboy_audio_interference` | yes | `cboy_interference` |  |
 | sameboy | `sameboy_audio_interference_1` | yes | `cboy_interference` | dual-console variant |
 | sameboy | `sameboy_audio_interference_2` | yes | `cboy_interference` | dual-console variant |
-| sameboy | `sameboy_audio_output` | gap |  | which console is heard in dual-console mode: comes with the two-console link |
+| sameboy | `sameboy_audio_output` | yes | `cboy_dual_audio` | which of two Game Boys on one phone is heard (or both) |
 | sameboy | `sameboy_auto_sgb_model` | yes | `cboy_gb_model` | "auto_sgb" value |
 | sameboy | `sameboy_auto_sgb_model_1` | yes | `cboy_gb_model` | dual-console variant |
 | sameboy | `sameboy_auto_sgb_model_2` | yes | `cboy_gb_model` | dual-console variant |
@@ -99,7 +99,7 @@ Extracted keys: **132**. Covered by cBoy: 103. Gaps: 8. Deliberately not done: 4
 | sameboy | `sameboy_rumble` | yes | `cboy_rumble` |  |
 | sameboy | `sameboy_rumble_1` | yes | `cboy_rumble` | dual-console variant |
 | sameboy | `sameboy_rumble_2` | yes | `cboy_rumble` | dual-console variant |
-| sameboy | `sameboy_screen_layout` | gap |  | dual-console screen layout: comes with the two-console link |
+| sameboy | `sameboy_screen_layout` | yes | `cboy_dual_layout` | two Game Boys' screens one above the other or side by side |
 | vbam | `vbam_allowcolorizerhack` | yes | `cboy_force_color` |  |
 | vbam | `vbam_astick_deadzone` | yes | `cboy_stick_deadzone` |  |
 | vbam | `vbam_forceRTCenable` | yes | `cboy_gba_hardware` | force the clock chip |
@@ -147,11 +147,11 @@ Extracted keys: **132**. Covered by cBoy: 103. Gaps: 8. Deliberately not done: 4
 | gpsp | `gpsp_sound_rate` | yes | `cboy_sample_rate` |  |
 | gpsp | `gpsp_sprlim` | yes | `cboy_gba_sprite_limit` |  |
 | gpsp | `gpsp_turbo_period` | yes | `cboy_turbo` |  |
-| tgbdual | `tgbdual_audio_output` | gap |  | comes with the two-console link |
-| tgbdual | `tgbdual_gblink_enable` | gap |  | two consoles on one phone: not built yet (two phones link through the app) |
-| tgbdual | `tgbdual_screen_placement` | gap |  | comes with the two-console link |
-| tgbdual | `tgbdual_single_screen_mp` | gap |  | comes with the two-console link |
-| tgbdual | `tgbdual_switch_screens` | gap |  | comes with the two-console link |
+| tgbdual | `tgbdual_audio_output` | yes | `cboy_dual_audio` |  |
+| tgbdual | `tgbdual_gblink_enable` | yes | `cboy_dual` | two Game Boys on one phone, joined by a cable (dual.rs) |
+| tgbdual | `tgbdual_screen_placement` | yes | `cboy_dual_layout` |  |
+| tgbdual | `tgbdual_single_screen_mp` | yes | `cboy_dual_show` | plus `cboy_dual_controls`: which console the on-screen buttons play |
+| tgbdual | `tgbdual_switch_screens` | yes | `cboy_dual_swap` |  |
 | beetle_gba | `gba_hle` | yes | `cboy_gba_bios` | "off" uses the built-in replacement BIOS |
 | beetle_gba | `gba_use_mednafen_save_method` | n/a |  | Mednafen's own save-file layout; cBoy uses standard .sav |
 
@@ -275,7 +275,7 @@ Emulicious is closed source and publishes no settings list (https://emulicious.n
 | mgba | `darkenMode` | yes | `cboy_dark_filter` |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/3ds/main.c |
 | mgba | `logLevel` | app |  |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/example/client-server/server.c |
 | mgba | `filtering` | app |  |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/psp2/psp2-context.c |
-| mgba | `savePlayerId` | gap |  | second player's save, comes with the two-console link | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/qt/MultiplayerController.cpp |
+| mgba | `savePlayerId` | yes |  | the second Game Boy keeps its own battery save, "<game> (second Game Boy).sav" in the app's save folder | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/qt/MultiplayerController.cpp |
 | mgba | `backgroundImage` | app |  |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/sdl/gl-common.c |
 | mgba | `fastForwardCap` | app |  |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/switch/main.c |
 | mgba | `filterMode` | app |  |  | https://github.com/mgba-emu/mgba/blob/143adf5aa2a60c6036810b0cd72445e13d74b0e6/src/platform/switch/main.c |
@@ -355,5 +355,5 @@ Emulicious is closed source and publishes no settings list (https://emulicious.n
 | bgb | `Waitloop detection` | yes | `cboy_gb_idle_skip` | Skip waiting loops (Game Boy and Color): exact, nothing a game can tell changes | https://bgb.bircd.org/manual.html |
 | bgb | `boot roms` | yes | `cboy_boot_rom` |  | https://bgb.bircd.org/manual.html |
 
-Standalone settings: **181**. In cBoy: 81. App: 80. Gaps: 1. Not applicable: 19.
+Standalone settings: **181**. In cBoy: 82. App: 80. Gaps: 0. Not applicable: 19.
 

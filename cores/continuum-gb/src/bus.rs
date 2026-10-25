@@ -147,6 +147,10 @@ pub struct Bus {
     /// partner's answer. Only ever happens with a partner attached.
     #[serde(skip)]
     serial_waiting: bool,
+    /// Picture dots since this machine was made or loaded: real time, which `cycles` is not in
+    /// double speed. Two Game Boys on one phone are kept in step by it (`dual.rs`).
+    #[serde(skip)]
+    pub dots: u64,
     last_mode: u8,
     /// Set by the CPU before each instruction so a hardware event can name where it came from.
     #[serde(skip)]
@@ -193,6 +197,7 @@ impl Bus {
             serial_tx: 0,
             serial_rx: 0xFF,
             serial_waiting: false,
+            dots: 0,
             dma_src: 0,
             dma_pos: 0,
             dma_active: false,
@@ -373,6 +378,12 @@ impl Bus {
         self.serial_bits > 0 || self.serial_waiting
     }
 
+    /// All eight bits of a byte this machine clocked out have gone, and the transfer is held
+    /// open for the partner's answer.
+    pub fn link_waiting(&self) -> bool {
+        self.serial_waiting
+    }
+
     /// The byte this machine last put on the cable (what the partner is told). For the tests.
     pub fn link_sent(&self) -> u8 {
         self.serial_tx
@@ -461,6 +472,7 @@ impl Bus {
         }
         // In double speed the CPU, timer and DMA run twice as fast; the PPU, sound and clock do not.
         let dots = if self.double_speed { 2 } else { 4 };
+        self.dots += u64::from(dots);
         let mask = if self.double_speed { 0x2000 } else { 0x1000 };
         let bit = self.timer.counter & mask != 0;
         self.apu.cgb = self.cgb_hardware;

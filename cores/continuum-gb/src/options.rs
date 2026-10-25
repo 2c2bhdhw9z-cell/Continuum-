@@ -77,7 +77,7 @@ const CATEGORIES: &[(&CStr, &CStr, &CStr)] = &[
     (c"video", c"Picture", c"Palettes, screen colour, LCD ghosting and the Super Game Boy border."),
     (c"audio", c"Sound", c"Volume, channel mix and filters."),
     (c"input", c"Controls", c"Turbo buttons, motion and light sensors, rumble."),
-    (c"link", c"Link", c"The link cable."),
+    (c"link", c"Link", c"The link cable, and two Game Boys on one phone."),
     (c"performance", c"Performance", c"Speed and button delay."),
     (c"debug", c"Debug", c"Switch picture layers off one at a time."),
 ];
@@ -256,6 +256,24 @@ const SPECS: &[Spec] = &[
     (c"link", c"cboy_link", c"Link cable",
      c"Loopback is for test programs; to link two phones, choose Link cable to a second phone in a game's ... menu.",
      &[(c"off", c"Unplugged"), (c"loopback", c"Loopback")], c"off"),
+    (c"link", c"cboy_dual", c"Two Game Boys on this phone",
+     c"Two consoles play this game, joined by a link cable, each with its own save; changes apply at the next start.",
+     OFF_ON, c"off"),
+    (c"link", c"cboy_dual_layout", c"Two Game Boys: where the screens go",
+     c"Changes apply at the next start.",
+     &[(c"stacked", c"One above the other"), (c"side", c"Side by side")], c"stacked"),
+    (c"link", c"cboy_dual_show", c"Two Game Boys: screens shown",
+     c"Between both screens and one, changes apply at the next start; between the two single screens, straight away.",
+     &[(c"both", c"Both"), (c"1", c"The first console's only"), (c"2", c"The second console's only")], c"both"),
+    (c"link", c"cboy_dual_swap", c"Two Game Boys: swap the screens",
+     c"Puts the second console's screen first.",
+     OFF_ON, c"off"),
+    (c"link", c"cboy_dual_audio", c"Two Game Boys: sound",
+     c"Which console you hear.",
+     &[(c"1", c"The first console"), (c"2", c"The second console"), (c"both", c"Both together")], c"1"),
+    (c"link", c"cboy_dual_controls", c"Two Game Boys: your controls play",
+     c"The on-screen buttons and the first controller play this console; a second controller plays the other one.",
+     &[(c"1", c"The first console"), (c"2", c"The second console")], c"1"),
     // Performance
     (c"performance", c"cboy_frameskip", c"Frame skip",
      c"Draws fewer frames to save work, while the game keeps full speed.",
@@ -473,6 +491,24 @@ pub struct Settings {
     pub interference: u8,
     /// "Picture drawing": the exact (experimental) pixel-by-pixel drawer instead of the standard one.
     pub exact_renderer: bool,
+    /// Two Game Boys on this phone, joined by a cable (`dual.rs`).
+    pub dual: bool,
+    /// Their screens side by side instead of one above the other.
+    pub dual_side_by_side: bool,
+    pub dual_show: Which,
+    /// The second console's screen first.
+    pub dual_swap: bool,
+    pub dual_audio: Which,
+    /// The on-screen buttons and the first controller play the second console.
+    pub dual_controls_second: bool,
+}
+
+/// Of two Game Boys on one phone: the first, the second, or both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Which {
+    First,
+    Second,
+    Both,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -521,6 +557,8 @@ impl Default for Settings {
             opposing: false, stick_dpad: false, sprite_limit: true, sgb_pal: false, auto_sgb: false, cgb_rev0: false, cgb_rev: crate::ppu::CgbRev::E, stick_deadzone: 0.15, swap_stick: false,
             frameskip_threshold: 85, frameskip_interval: 1, gba_obj_limit: false, force_color: false, gbp: false, gbc_light: 0, frameskip_auto: false, interference: 0,
             exact_renderer: false,
+            dual: false, dual_side_by_side: false, dual_show: Which::Both, dual_swap: false, dual_audio: Which::First,
+            dual_controls_second: false,
         }
     }
 }
@@ -770,6 +808,18 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     s.idle_skip = on(c"cboy_idle_skip", false);
     s.gb_idle_skip = on(c"cboy_gb_idle_skip", false);
     s.exact_renderer = get(c"cboy_renderer").is_some_and(|v| v == "exact");
+    s.dual = on(c"cboy_dual", false);
+    s.dual_side_by_side = get(c"cboy_dual_layout").is_some_and(|v| v == "side");
+    let which = |k: &CStr, default: Which| match get(k).as_deref() {
+        Some("1") => Which::First,
+        Some("2") => Which::Second,
+        Some("both") => Which::Both,
+        _ => default,
+    };
+    s.dual_show = which(c"cboy_dual_show", Which::Both);
+    s.dual_audio = which(c"cboy_dual_audio", Which::First);
+    s.dual_swap = on(c"cboy_dual_swap", false);
+    s.dual_controls_second = get(c"cboy_dual_controls").is_some_and(|v| v == "2");
     s.gb_layers = u8::from(on(c"cboy_layer_bg", true)) | u8::from(on(c"cboy_layer_window", true)) << 1
         | u8::from(on(c"cboy_layer_obj", true)) << 2;
     s.gba_layers = u8::from(on(c"cboy_layer_bg0", true)) | u8::from(on(c"cboy_layer_bg1", true)) << 1
@@ -1041,7 +1091,7 @@ mod tests {
     fn settings_that_wait_for_the_next_start_say_so() {
         for key in [c"cboy_gb_model", c"cboy_cgb_revision", c"cboy_hybrid_model", c"cboy_gba_model", c"cboy_force_color",
             c"cboy_gba_save_type", c"cboy_gba_hardware", c"cboy_gbp", c"cboy_dmg_colorize", c"cboy_newer_console",
-            c"cboy_sgb_speed"] {
+            c"cboy_sgb_speed", c"cboy_dual", c"cboy_dual_layout", c"cboy_dual_show"] {
             let info = SPECS.iter().find(|s| s.1 == key).unwrap().3.to_str().unwrap();
             assert!(info.contains("next start"), "{key:?}: \"{info}\"");
         }

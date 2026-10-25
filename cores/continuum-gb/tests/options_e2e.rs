@@ -9,6 +9,8 @@ use std::sync::Mutex;
 use continuum_gb::libretro::*;
 
 static OPTS: Mutex<Option<HashMap<String, CString>>> = Mutex::new(None);
+/// The app's save folder, when a test gives the core one.
+static SAVE_DIR: Mutex<Option<CString>> = Mutex::new(None);
 static UPDATED: Mutex<bool> = Mutex::new(false);
 /// The core is one global: tests take turns.
 static SERIAL: Mutex<()> = Mutex::new(());
@@ -137,6 +139,14 @@ unsafe extern "C" fn env(cmd: u32, d: *mut c_void) -> bool {
             iface.stop = Some(camera_stop);
             true
         }
+        // GET_SAVE_DIRECTORY, for the second of two Game Boys' own save.
+        31 => match SAVE_DIR.lock().unwrap().as_ref() {
+            Some(dir) => {
+                *(d as *mut *const c_char) = dir.as_ptr();
+                true
+            }
+            None => false,
+        },
         10 | 67 => true,
         _ => false,
     }
@@ -156,8 +166,9 @@ unsafe extern "C" fn audio(d: *const i16, n: usize) -> usize {
     n
 }
 unsafe extern "C" fn poll() {}
-unsafe extern "C" fn input(_p: u32, dev: u32, _i: u32, id: u32) -> i16 {
-    i16::from(dev == 1 && OUT.lock().unwrap().held == id)
+/// The first player's button `held` is down; nobody else's is.
+unsafe extern "C" fn input(p: u32, dev: u32, _i: u32, id: u32) -> i16 {
+    i16::from(p == 0 && dev == 1 && OUT.lock().unwrap().held == id)
 }
 
 fn rom(name: &str) -> Option<Vec<u8>> {
@@ -1026,4 +1037,102 @@ fn the_pocket_shows_its_own_colours_when_asked() {
 
 fn run_data(data: &[u8], opts: &[(&str, &str)], n: usize) -> Out {
     drive(data, opts, n, None)
+}
+
+/// Two Game Boys on one phone, through the real entry points. The cartridge: the console whose A
+/// button is down sends $11 down the cable, the other one listens with $22 ready, and each puts
+/// the byte it got into its background palette, so each screen's colour says what crossed. It
+/// also writes $5A to its battery memory, which for the second console goes in its own file.
+#[test]
+fn two_game_boys_on_one_phone() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut data = vec![0u8; 0x8000];
+    let code: &[u8] = &[
+        0x3E, 0x0A, 0xEA, 0x00, 0x00, // LD A,$0A / LD ($0000),A: battery memory on
+        0x3E, 0x5A, 0xEA, 0x00, 0xA0, // LD A,$5A / LD ($A000),A
+        0x3E, 0x91, 0xE0, 0x40, // LD A,$91 / LDH ($40),A: screen on
+        // loop:
+        0x3E, 0x10, 0xE0, 0x00, // LD A,$10 / LDH ($00),A: read the buttons
+        0xF0, 0x00, 0xCB, 0x47, 0x20, 0x0A, // LDH A,($00) / BIT 0,A / JR NZ,listen
+        0x3E, 0x11, 0xE0, 0x01, 0x3E, 0x81, 0xE0, 0x02, 0x18, 0x08, // send $11 on its own clock / JR wait
+        // listen:
+        0x3E, 0x22, 0xE0, 0x01, 0x3E, 0x80, 0xE0, 0x02, // $22, on the other one's clock
+        // wait:
+        0xF0, 0x02, 0xCB, 0x7F, 0x20, 0xFA, // LDH A,($02) / BIT 7,A / JR NZ,wait
+        0xF0, 0x01, 0xE0, 0x47, // LDH A,($01) / LDH ($47),A
+        0x18, 0xD8, // JR loop
+    ];
+    data[0x100..0x100 + code.len()].copy_from_slice(code);
+    data[0x147] = 0x03; // MBC1 with battery memory
+    data[0x149] = 0x02; // 8 KiB of it
+    let dir = std::env::temp_dir().join(format!("cboy-dual-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    *SAVE_DIR.lock().unwrap() = Some(CString::new(dir.to_string_lossy().as_bytes()).unwrap());
+    let save = dir.join("game (second Game Boy).sav");
+    let shot = |opts: &[(&str, &str)]| -> (u32, u32, Vec<u32>, usize) {
+        OUT.lock().unwrap().held = 8; // A, on the first player's controls
+        let o = drive(&data, opts, 30, None);
+        OUT.lock().unwrap().held = u32::MAX;
+        let f = last(&o).clone();
+        (f.1, f.2, f.3, o.samples.len())
+    };
+    let (sent, got) = (continuum_gb::ppu::SHADES[1], continuum_gb::ppu::SHADES[2]);
+    let all = |px: &[u32], c: u32| px.iter().all(|p| *p == c);
+
+    // One console: nothing on the cable, so the one sending reads all 1s, a black screen.
+    let (w, h, px, one_sound) = shot(&[]);
+    assert_eq!((w, h), (160, 144));
+    assert!(all(&px, continuum_gb::ppu::SHADES[3]), "nothing on the other end");
+    assert!(!save.exists(), "one console keeps no second save");
+
+    // Two, one above the other: the first (A held) got $22, the second $11.
+    let (w, h, px, two_sound) = shot(&[("cboy_dual", "on")]);
+    assert_eq!((w, h), (160, 288));
+    assert!(all(&px[..160 * 144], got), "the first console got the second one's byte");
+    assert!(all(&px[160 * 144..], sent), "and the second got the first one's");
+    let ratio = two_sound as f64 / one_sound as f64;
+    assert!((ratio - 1.0).abs() < 0.02, "one steady stream of sound: {ratio}");
+    let bytes = std::fs::read(&save).expect("the second console's save");
+    assert_eq!((bytes.len(), bytes[0]), (8192, 0x5A));
+
+    // Swapped, side by side.
+    let (w, h, px, _) = shot(&[("cboy_dual", "on"), ("cboy_dual_layout", "side"), ("cboy_dual_swap", "on")]);
+    assert_eq!((w, h), (320, 144));
+    for y in 0..144 {
+        assert!(all(&px[y * 320..y * 320 + 160], sent) && all(&px[y * 320 + 160..(y + 1) * 320], got), "line {y}");
+    }
+    // The on-screen buttons playing the second console: now it is the one that sends.
+    let (_, _, px, _) = shot(&[("cboy_dual", "on"), ("cboy_dual_controls", "2")]);
+    assert!(all(&px[..160 * 144], sent) && all(&px[160 * 144..], got));
+    // One screen at a time.
+    let (w, h, px, _) = shot(&[("cboy_dual", "on"), ("cboy_dual_show", "2")]);
+    assert_eq!((w, h), (160, 144));
+    assert!(all(&px, sent), "the second console's screen");
+
+    // Its save comes back: a byte the game never writes is still there after another run.
+    let mut bytes = std::fs::read(&save).unwrap();
+    bytes[1] = 0x77;
+    std::fs::write(&save, &bytes).unwrap();
+    shot(&[("cboy_dual", "on")]);
+    let bytes = std::fs::read(&save).unwrap();
+    assert_eq!((bytes[0], bytes[1]), (0x5A, 0x77));
+
+    *SAVE_DIR.lock().unwrap() = None;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Two Game Boys' picture keeps the shape the app set up with: from both screens to one, the
+/// change waits for the next start; from one single screen to the other, it is straight away.
+#[test]
+fn two_game_boys_change_shape_only_at_the_next_start() {
+    let _turn = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let mut data = vec![0u8; 0x8000];
+    data[0x100..0x106].copy_from_slice(&[0x3E, 0x91, 0xE0, 0x40, 0x18, 0xFE]);
+    let o = drive(&data, &[("cboy_dual", "on")], 20, Some((10, &[("cboy_dual_show", "1"), ("cboy_dual_layout", "side")])));
+    assert_eq!((last(&o).1, last(&o).2), (160, 288));
+    let o = drive(&data, &[("cboy_dual", "on"), ("cboy_dual_show", "1")], 20, Some((10, &[("cboy_dual_show", "2")])));
+    assert_eq!((last(&o).1, last(&o).2), (160, 144));
+    let o = drive(&data, &[], 20, Some((10, &[("cboy_dual", "on")])));
+    assert_eq!((last(&o).1, last(&o).2), (160, 144), "one console until the next start");
 }
