@@ -124,6 +124,7 @@ dynarmic() {
 
 telemetry() { # the crash catcher and the frame watchdog (crates/emulator-bridge/src/telemetry.c)
   cat > "$WORK/tel.c" <<'EOF'
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -134,6 +135,7 @@ void continuum_tel_frame_begin(void);
 void continuum_tel_frame_end(void);
 __attribute__((noinline)) static void busy(unsigned ms) { usleep(ms * 1000); }
 __attribute__((noinline)) static void crash_here(void) { *(volatile int *)16 = 1; }
+static void *spin(void *arg) { pthread_setname_np("gx draw 0"); volatile unsigned long x = 0; for (;;) x++; return arg; }
 int main(int argc, char **argv) {
     continuum_tel_open(argv[2]);
     continuum_tel_core_log(1, "a core line");
@@ -142,6 +144,8 @@ int main(int argc, char **argv) {
     if (strcmp(argv[1], "stuck") == 0) { continuum_tel_frame_begin(); busy(5500); continuum_tel_frame_end(); }
     if (strcmp(argv[1], "crash") == 0) { continuum_tel_frame_begin(); crash_here(); }
     if (strcmp(argv[1], "frames") == 0) {
+        pthread_t helper;
+        pthread_create(&helper, NULL, spin, NULL);
         for (int f = 0; f < 420; f++) {
             continuum_tel_frame_begin();
             volatile unsigned long x = 0;
@@ -163,6 +167,7 @@ EOF
   grep -q "slow frame" "$WORK/tel-out/core-log-older.txt"
   grep -q "threads: " "$WORK/tel-out/core-log-previous.txt"
   grep -q "profile of the game thread" "$WORK/tel-out/core-log-previous.txt"
+  grep -q "profile of the busiest other thread (gx draw 0)" "$WORK/tel-out/core-log-previous.txt"
   grep -q "crash_here" "$WORK/tel-out/crash.txt"
 }
 

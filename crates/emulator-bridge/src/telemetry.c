@@ -290,16 +290,34 @@ static void sample_game_thread(const char *what, uint64_t frame, uint64_t elapse
 static uint64_t g_prof[PROF_MAX];
 static unsigned g_prof_n;
 static uint64_t g_prof_since;
+// The busiest thread other than the game's over the last second (a drawing helper, usually), and
+// its samples: the same profile for the work the game thread hands out.
+static mach_port_t g_other_thread = MACH_PORT_NULL;
+static char g_other_name[48];
+static uint64_t g_prof2[PROF_MAX];
+static unsigned g_prof2_n;
 
-static void prof_sample(void) {
-    mach_port_t t = g_game_thread;
-    if (t == MACH_PORT_NULL || g_prof_n >= PROF_MAX) return;
-    if (thread_suspend(t) != KERN_SUCCESS) return;
+static uint64_t sample_pc(mach_port_t t, bool *ok) {
+    *ok = false;
+    if (t == MACH_PORT_NULL || thread_suspend(t) != KERN_SUCCESS) return 0;
     arm_thread_state64_t st;
     mach_msg_type_number_t n = ARM_THREAD_STATE64_COUNT;
     kern_return_t r = thread_get_state(t, ARM_THREAD_STATE64, (thread_state_t)&st, &n);
     thread_resume(t);
-    if (r == KERN_SUCCESS) g_prof[g_prof_n++] = (uint64_t)arm_thread_state64_get_pc(st) & 0x0000FFFFFFFFFFFFull;
+    *ok = r == KERN_SUCCESS;
+    return (uint64_t)arm_thread_state64_get_pc(st) & 0x0000FFFFFFFFFFFFull;
+}
+
+static void prof_sample(void) {
+    bool ok;
+    if (g_prof_n < PROF_MAX) {
+        uint64_t pc = sample_pc(g_game_thread, &ok);
+        if (ok) g_prof[g_prof_n++] = pc;
+    }
+    if (g_prof2_n < PROF_MAX && g_other_thread != MACH_PORT_NULL) {
+        uint64_t pc = sample_pc(g_other_thread, &ok);
+        if (ok) g_prof2[g_prof2_n++] = pc;
+    }
 }
 
 typedef struct {
@@ -311,7 +329,21 @@ typedef struct {
     unsigned offs;
 } ProfImage;
 
+static void prof_report_one(const char *who, uint64_t *prof, unsigned *count);
+
 static void prof_report(void) {
+    prof_report_one("the game thread", g_prof, &g_prof_n);
+    if (g_other_name[0]) {
+        char who[80];
+        snprintf(who, sizeof who, "the busiest other thread (%s)", g_other_name);
+        prof_report_one(who, g_prof2, &g_prof2_n);
+    }
+    g_prof2_n = 0;
+}
+
+static void prof_report_one(const char *who, uint64_t *prof, unsigned *count) {
+    unsigned g_prof_n = *count;
+    uint64_t *g_prof = prof;
     if (g_prof_n == 0) return;
     static ProfImage img[24];
     unsigned images = 0, jit = 0;
@@ -342,7 +374,7 @@ static void prof_report(void) {
         img[k].off_n[j]++;
     }
     char line[2048];
-    int len = snprintf(line, sizeof line, "profile of the game thread over %llu s (%u samples, one per 10 ms inside frames):",
+    int len = snprintf(line, sizeof line, "profile of %s over %llu s (%u samples, one per 10 ms inside frames):", who,
                        (unsigned long long)((now_ns() - g_prof_since) / 1000000000ull), g_prof_n);
     if (jit) len += snprintf(line + len, sizeof line - len, " generated code (JIT) %u%%;", 100 * jit / g_prof_n);
     for (unsigned pass = 0; pass < images && len < (int)sizeof line - 200; pass++) {
@@ -362,7 +394,7 @@ static void prof_report(void) {
         m->count = 0;
     }
     log_line("app: ", line);
-    g_prof_n = 0;
+    *count = 0;
 }
 
 // Per-thread processor time over the last second, by thread name, plus memory.
@@ -381,6 +413,9 @@ static void threads_report(void) {
     struct { char name[48]; double pct; } top[THREADS_MAX];
     unsigned tops = 0;
     double total = 0;
+    double busiest_pct = 5.0;
+    mach_port_t busiest = MACH_PORT_NULL;
+    char busiest_name[48] = {0};
     uint64_t new_id[THREADS_MAX], new_us[THREADS_MAX];
     unsigned news = 0;
     for (mach_msg_type_number_t i = 0; i < count; i++) {
@@ -410,12 +445,31 @@ static void threads_report(void) {
                 } else if (pt && pthread_equal(pt, g_game_pthread)) {
                     strncat(top[tops].name, " (game)", sizeof top[tops].name - strlen(top[tops].name) - 1);
                 }
+                if (!(pt && pthread_equal(pt, g_game_pthread)) && pct > busiest_pct) {
+                    busiest_pct = pct;
+                    if (busiest != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), busiest);
+                    busiest = list[i];
+                    mach_port_mod_refs(mach_task_self(), busiest, MACH_PORT_RIGHT_SEND, 1);
+                    snprintf(busiest_name, sizeof busiest_name, "%s", top[tops].name);
+                }
                 top[tops++].pct = pct;
             }
         }
         mach_port_deallocate(mach_task_self(), list[i]);
     }
     vm_deallocate(mach_task_self(), (vm_address_t)list, count * sizeof(thread_act_t));
+    if (busiest != MACH_PORT_NULL) {
+        mach_port_t old_t = g_other_thread;
+        if (old_t != busiest) {
+            // Samples of a different thread are not mixed into one profile.
+            if (strcmp(busiest_name, g_other_name) != 0) g_prof2_n = 0;
+            g_other_thread = busiest;
+            snprintf(g_other_name, sizeof g_other_name, "%s", busiest_name);
+            if (old_t != MACH_PORT_NULL) mach_port_deallocate(mach_task_self(), old_t);
+        } else {
+            mach_port_deallocate(mach_task_self(), busiest);
+        }
+    }
     memcpy(g_thread_id, new_id, news * sizeof new_id[0]);
     memcpy(g_thread_us, new_us, news * sizeof new_us[0]);
     g_threads = news;
