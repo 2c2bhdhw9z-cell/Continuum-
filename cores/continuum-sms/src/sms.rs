@@ -43,7 +43,12 @@ impl Sms {
         // As a start-up file leaves it: the stack at the top of work RAM, interrupt mode 1.
         cpu.sp = 0xDFF0;
         cpu.im = 1;
-        Sms { cpu, bus: Bus::new(rom), over: 0, frames: 0, samples: Vec::new(), rate: default_rate(), pause_held: false, shown: Vec::new() }
+        let mut bus = Bus::new(rom);
+        bus.mapper = crate::bus::Mapper::detect(&bus.rom);
+        if bus.mapper == crate::bus::Mapper::Codemasters {
+            bus.banks = [0, 1, 0];
+        }
+        Sms { cpu, bus, over: 0, frames: 0, samples: Vec::new(), rate: default_rate(), pause_held: false, shown: Vec::new() }
     }
 
     /// One line of CPU time, with the picture chip's line events at its start.

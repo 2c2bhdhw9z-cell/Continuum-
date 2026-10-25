@@ -19,6 +19,32 @@ use crate::psg::Psg;
 use crate::vdp::Vdp;
 use crate::z80;
 
+/// How the cartridge banks its ROM (SMS Power, "Mappers").
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Mapper {
+    /// Sega's own: $FFFC-$FFFF, the first KiB fixed.
+    #[default]
+    Sega,
+    /// Codemasters': a write to $0000, $4000 or $8000 picks that slot's bank, nothing fixed, and
+    /// 8 KiB of RAM at $A000 when bit 7 of the $4000 bank is set (Ernie Els Golf).
+    Codemasters,
+    /// The Korean one: a write to $A000 picks the third slot's bank; the first two stay.
+    Korean,
+}
+
+impl Mapper {
+    /// Codemasters cartridges carry their own header at $7FE0, whose checksum at $7FE6 and its
+    /// complement at $7FE8 add up to $10000 (the way Gearsystem and Genesis Plus GX tell them).
+    pub fn detect(rom: &[u8]) -> Mapper {
+        let word = |a: usize| rom.get(a..a + 2).map_or(0u32, |b| u32::from(b[0]) | u32::from(b[1]) << 8);
+        if rom.len() >= 0x8000 && word(0x7FE6) != 0 && word(0x7FE6) + word(0x7FE8) == 0x10000 {
+            Mapper::Codemasters
+        } else {
+            Mapper::Sega
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Bus {
     #[serde(skip)]
@@ -30,6 +56,8 @@ pub struct Bus {
     /// The mapper's registers: $FFFC (RAM control) and the banks of the three slots.
     pub ram_ctrl: u8,
     pub banks: [u8; 3],
+    #[serde(default)]
+    pub mapper: Mapper,
     /// Port $3E. Bit 6 off: the cartridge answers; bit 4 off: work RAM answers.
     pub mem_ctrl: u8,
     pub vdp: Vdp,
@@ -69,6 +97,7 @@ impl Bus {
             cart_ram_used: false,
             ram_ctrl: 0,
             banks: [0, 1, 2],
+            mapper: Mapper::Sega,
             // As a Master System's start-up file leaves it for a cartridge: the cartridge and
             // work RAM on, the BIOS, card and expansion slots off.
             mem_ctrl: 0xAB,
@@ -104,11 +133,14 @@ impl Bus {
         if self.mem_ctrl & 0x40 != 0 {
             return 0xFF;
         }
+        if self.mapper == Mapper::Codemasters && (0xA000..0xC000).contains(&addr) && self.banks[1] & 0x80 != 0 {
+            return self.cart_ram[usize::from(addr - 0xA000)];
+        }
         match addr {
-            0x0000..=0x03FF => self.rom.get(usize::from(addr)).copied().unwrap_or(0xFF),
-            0x0400..=0x3FFF => self.rom_at(self.banks[0], addr),
+            0x0000..=0x03FF if self.mapper == Mapper::Sega => self.rom.get(usize::from(addr)).copied().unwrap_or(0xFF),
+            0x0000..=0x3FFF => self.rom_at(self.banks[0], addr),
             0x4000..=0x7FFF => self.rom_at(self.banks[1], addr - 0x4000),
-            _ if self.ram_ctrl & 0x08 != 0 => {
+            _ if self.ram_ctrl & 0x08 != 0 && self.mapper == Mapper::Sega => {
                 let bank = usize::from(self.ram_ctrl >> 2 & 1) * 0x4000;
                 self.cart_ram[bank + usize::from(addr - 0x8000)]
             }
@@ -129,6 +161,28 @@ impl z80::Bus for Bus {
     }
 
     fn write(&mut self, addr: u16, v: u8) {
+        match (self.mapper, addr) {
+            (Mapper::Codemasters, 0xA000..=0xBFFF) if self.banks[1] & 0x80 != 0 => {
+                self.cart_ram[usize::from(addr - 0xA000)] = v;
+                self.cart_ram_used = true;
+                return;
+            }
+            (Mapper::Codemasters, 0x0000 | 0x4000 | 0x8000) => {
+                self.banks[usize::from(addr >> 14)] = v;
+                return;
+            }
+            (Mapper::Korean, 0xA000) => {
+                self.banks[2] = v;
+                return;
+            }
+            (Mapper::Codemasters | Mapper::Korean, 0xFFFC..=0xFFFF) => {
+                if self.mem_ctrl & 0x10 == 0 {
+                    self.ram[usize::from(addr & 0x1FFF)] = v;
+                }
+                return;
+            }
+            _ => {}
+        }
         match addr {
             0x8000..=0xBFFF if self.ram_ctrl & 0x08 != 0 => {
                 let bank = usize::from(self.ram_ctrl >> 2 & 1) * 0x4000;
@@ -237,6 +291,33 @@ mod tests {
         b.write(0xFFFC, 0);
         assert_eq!(b.read(0x8000), 2);
         assert!(b.cart_ram_used);
+    }
+
+    #[test]
+    fn codemasters_cartridges_bank_all_three_slots_from_their_own_addresses() {
+        let mut r = rom(8);
+        r[0x7FE6..0x7FEA].copy_from_slice(&[0x34, 0x12, 0xCC, 0xED]); // $1234 + $EDCC = $10000
+        assert_eq!(Mapper::detect(&r), Mapper::Codemasters);
+        assert_eq!(Mapper::detect(&rom(8)), Mapper::Sega);
+        let mut b = Bus::new(r);
+        b.mapper = Mapper::Codemasters;
+        b.write(0x0000, 3);
+        b.write(0x4000, 4);
+        b.write(0x8000, 5);
+        assert_eq!((b.read(0x0000), b.read(0x4000), b.read(0x8000)), (3, 4, 5), "nothing fixed");
+        b.write(0xFFFF, 7);
+        assert_eq!(b.read(0x8000), 5, "Sega's registers do nothing here");
+        b.write(0x4000, 0x84);
+        b.write(0xA000, 0x99);
+        assert_eq!(b.read(0xA000), 0x99, "its RAM");
+    }
+
+    #[test]
+    fn the_korean_mapper_banks_only_the_third_slot() {
+        let mut b = Bus::new(rom(8));
+        b.mapper = Mapper::Korean;
+        b.write(0xA000, 6);
+        assert_eq!((b.read(0x0400), b.read(0x4000), b.read(0x8000)), (0, 1, 6));
     }
 
     #[test]
