@@ -34,7 +34,7 @@ done and pushed with [skip ci]; NO build yet. B5 waits for the build (the owner 
 Next: B8 (Advance link), then B9 (one build for the whole batch, phone checks, ask about cBoy as the
 default). Each item's "result" in tasks/cboy-finish.json says what was done and measured.
 
-GameCube state for whoever picks it up: build 232 (next section) = the GPU drawer. Before it, Animal
+GameCube state for whoever picks it up: build 233 (next section) = the GPU drawer. Before it, Animal
 Crossing ran in the town at about 85% of real speed, 42-61 pictures a second, drawing the limit. What
 is missing from the core, by group, is in the owner's list of 25 October (speed: GPU drawer first, then
 the JIT's floating point and paired singles and a register cache; picture options; players 2-4 and
@@ -43,7 +43,27 @@ settings; Wii). He said: work down that list one thing at a time, the GPU drawer
 Symbian is NOT one of the owner's own cores: it is EKA2L1 (GPL v3) with Continuum's libretro plug around
 it (credits say "built on EKA2L1"). The owner's own, written from scratch: cBoy, cArcade, the GameCube core.
 
-## GameCube chat (25 October 2026, about 6 PM Eastern): build 232 = the GPU drawer (G6 part 2)
+## GameCube chat (25 October 2026, about 6:30 PM Eastern): build 233 = the GPU drawer (G6 part 2)
+
+BUILD 233 (f26066f; run 232 was stopped to add the copies-and-clears timing) checked: 0.8.0 (233), 38 cores,
+JIT helper 233, GC dylib 1,726,176 bytes (231: 1,517,040) with the drawer's strings and the SPIR-V inside,
+MoltenVK.framework present. https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-233-f26066f/Continuum-233.ipa
+It also carries the cBoy chat's pushed work since 231. Neverball (3D, SD image .scratch/neverball-pristine.img
+made by .scratch/mkfat.py from .scratch/hb/neverball/neverball at the card's root) on gpucheck: about a third
+of the picture differs by a few levels (per-pixel rounding of smooth shading), 3 pixels a field by more than 8
+(at most 27): no wrong drawing.
+
+OWNER'S QUESTION, 6:13 PM: iCTRL (github.com/OpenMinis/iCTRL, 1.98.12) so Kiro can drive the phone. Checked in its
+README: an XCUITest runner serving JSON-RPC on 127.0.0.1:8200 (GET /skill manual, /schema, pairing approved on
+the phone, encrypted requests); needs the DDI mounted (StikDebug, already used for JIT) and signing with the nested
+PlugIns/iCTRLUITests.xctest signed first with the runner's bundle id: Feather/ESign-style signers skip it and the
+runner crashes at launch, so it needs SideStore or Scripts/sign-ipa.sh (codesign, a Mac: a GitHub macOS job with
+his CertDrop .p12, password and development .mobileprovision as repo secrets). Reaching it from the cloud
+sandbox: an SSH reverse tunnel from iSH on the phone (apk add openssh-client; cat /dev/location > /dev/null &
+keeps iSH alive in the background; ssh -R 80:127.0.0.1:8200 nokey@localhost.run gives a public https URL; the
+sandbox reaches localhost.run). No second VPN, so LocalDevVPN and JIT stay up. Answered with the time it takes;
+waiting for his yes before writing the signing workflow (outside cores/continuum-gc: a new file of its own).
+
 
 WHAT IT IS (cores/continuum-gc/src/gx/gpu/, tasks/gamecube.json G6 has the detail): everything before
 the pixels stays on the CPU (vertices, transform, lighting, clipping, texture decoding, the per-primitive
