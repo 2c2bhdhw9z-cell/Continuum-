@@ -61,3 +61,21 @@ fn the_gpu_draws_what_the_cpu_draws() {
     eprintln!("all: {differ} of {px} differ, {differ_4} by more than 4, {depth} depths");
     assert!(differ_4 * 1000 < px, "too many pixels differ by more than 4: {differ_4} of {px}");
 }
+
+/// Triangles reaching thousands of pixels off the screen: the GPU drawer cuts them down to a box
+/// around the screen first (its edge arithmetic is 32-bit); the same pixels are drawn.
+#[test]
+fn far_off_screen_triangles_draw_the_same() {
+    let Some(vk) = vulkan() else {
+        eprintln!("no Vulkan on this machine: GPU drawer not tested");
+        return;
+    };
+    // SAFETY: live handles, outliving the drawer.
+    let mut g = unsafe { GpuDrawer::new(&vk.handles) }.expect("GPU drawer");
+    for seed in 0..3 {
+        let c = continuum_gc::gx::gpu::picture_check_with(&mut g, 0xFA2_0000 + seed, 40, true).expect("drawn");
+        eprintln!("far seed {seed}: {c}");
+        assert!(c.differ_4 * 1000 < c.pixels, "far seed {seed}: {c}");
+        assert!(c.gpu_drawn.abs_diff(c.cpu_drawn) * 1000 <= c.cpu_drawn, "far seed {seed}: {c}");
+    }
+}

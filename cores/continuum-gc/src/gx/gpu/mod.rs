@@ -940,7 +940,7 @@ mod scene;
 /// a description of every primitive whose colours differ by more than 4 anywhere.
 #[doc(hidden)]
 pub fn picture_check_each(g: &mut GpuDrawer, seed: u64, primitives: usize) -> Result<Vec<(usize, Comparison, String)>, String> {
-    let (color, depth, work) = scene::random_work(seed, primitives);
+    let (color, depth, work) = scene::random_work(seed, primitives, false);
     let mut out = Vec::new();
     for (i, w) in work.iter().enumerate() {
         let c = compare(g, &color, &depth, std::slice::from_ref(w))?;
@@ -978,7 +978,13 @@ pub fn picture_check_each(g: &mut GpuDrawer, seed: u64, primitives: usize) -> Re
 /// The check the core runs when it starts the GPU drawer (and the tests run): `primitives` random
 /// primitives drawn both ways from the same random EFB. The textures it used are dropped after.
 pub fn picture_check(g: &mut GpuDrawer, seed: u64, primitives: usize) -> Result<Comparison, String> {
-    let (color, depth, work) = scene::random_work(seed, primitives);
+    picture_check_with(g, seed, primitives, false)
+}
+
+/// `picture_check`, with vertices far off the screen when `far` (tests).
+#[doc(hidden)]
+pub fn picture_check_with(g: &mut GpuDrawer, seed: u64, primitives: usize, far: bool) -> Result<Comparison, String> {
+    let (color, depth, work) = scene::random_work(seed, primitives, far);
     let c = compare(g, &color, &depth, &work)?;
     g.heap_used = 0;
     g.textures.clear();

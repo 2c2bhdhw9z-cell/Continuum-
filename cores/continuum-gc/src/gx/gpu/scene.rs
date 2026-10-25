@@ -222,9 +222,10 @@ fn vertex(r: &mut Rng, cx: f32, cy: f32, size: f32, num_tex: usize, flat_z: Opti
     }
 }
 
-/// A starting EFB and `primitives` random primitives.
+/// A starting EFB and `primitives` random primitives; with `far`, some vertices are far off the
+/// screen (thousands of pixels), where the GPU drawer cuts triangles down first.
 #[allow(clippy::type_complexity)]
-pub(in crate::gx) fn random_work(seed: u64, primitives: usize) -> (Vec<u32>, Vec<u32>, Vec<(Arc<Setup>, Vec<[Screen; 3]>)>) {
+pub(in crate::gx) fn random_work(seed: u64, primitives: usize, far: bool) -> (Vec<u32>, Vec<u32>, Vec<(Arc<Setup>, Vec<[Screen; 3]>)>) {
     let mut r = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
     let n = EFB_WIDTH * EFB_HEIGHT;
     let color: Vec<u32> = (0..n).map(|_| r.next()).collect();
@@ -237,7 +238,18 @@ pub(in crate::gx) fn random_work(seed: u64, primitives: usize) -> (Vec<u32>, Vec
         let (cx, cy) = (r.f(-20.0, EFB_WIDTH as f32 + 20.0), r.f(-20.0, EFB_HEIGHT as f32 + 20.0));
         // Some primitives are flat in depth, so that equal depths meet (depth tests with "equal").
         let flat = if r.chance(4) { Some(r.f(0.0, 16_777_215.0)) } else { None };
-        let tris = (0..ntris).map(|_| std::array::from_fn(|_| vertex(&mut r, cx, cy, size, s.num_tex, flat))).collect();
+        let mut tris: Vec<[Screen; 3]> = (0..ntris).map(|_| std::array::from_fn(|_| vertex(&mut r, cx, cy, size, s.num_tex, flat))).collect();
+        if far {
+            for t in tris.iter_mut() {
+                // One or two vertices thrown far out, the triangle still crossing the screen.
+                for v in t.iter_mut().take(1 + r.below(2) as usize) {
+                    let (dx, dy) = (v.x - cx, v.y - cy);
+                    let k = r.f(20.0, 300.0);
+                    v.x = cx + dx * k;
+                    v.y = cy + dy * k;
+                }
+            }
+        }
         work.push((Arc::new(s), tris));
     }
     (color, depth, work)
