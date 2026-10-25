@@ -67,7 +67,10 @@ keeps iSH alive in the background; ssh -R 80:127.0.0.1:8200 nokey@localhost.run 
 sandbox reaches localhost.run). No second VPN, so LocalDevVPN and JIT stay up. Answered with the time it takes
 (about an hour the first time, 2-3 minutes a session). 6:35 PM: he said save it as an idea for later and he
 tests 233 first: PARKED in .kiro/notes/docs/ideas/phone-control-ictrl.md. Do not start it unless he asks.
-NEXT: his 233 upload (Animal Crossing in town, the GPU drawer's lines).
+6:45 PM: he asked whether cBoy made it into 233: only partly (up to c667a2e: Advance timing, the sound chip,
+settings). The cBoy chat's build 234 (fb4af3b, 6:20 PM) has ALL of 233 (the same GameCube core, 1,726,176
+bytes, checked: the drawer's strings inside) plus the rest of the cBoy batch: told him to install 234 for both.
+NEXT: his upload from 234 (Animal Crossing in town, the GPU drawer's lines).
 
 
 WHAT IT IS (cores/continuum-gc/src/gx/gpu/, tasks/gamecube.json G6 has the detail): everything before
