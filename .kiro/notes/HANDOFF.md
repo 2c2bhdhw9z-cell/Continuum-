@@ -5,7 +5,22 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (24 October 2026, about 9 PM Eastern): the read-out's answer, build 224
+## START HERE (25 October 2026, about 6:15 AM Eastern): GameCube game gone after the reinstall
+
+OWNER ON 224 (6 AM, furious): GameCube "isn't showing". Two screenshots: Settings, About shows 0.8.0 (224)
+with the GameCube (experimental) switch ON; the Library (80 titles) has no GameCube console and no
+Animal Crossing. 224 changed no app code at all (git diff b25550a..54ab3e5: only cores/continuum-gc and
+notes). CAUSE: he deletes the app before every install, and the backup (CloudSync `Games/`, which brings
+his other games back) only carries `CoreCatalog.syncableGameExtensions`, built from `routeTable` +
+shared extensions. GameCube's own types (.rvz .gcz .ciso .wia .gcm .tgc .dol) are routed only through
+GameCubeUnlock.route, never in routeTable, so a GameCube game was never backed up and was lost on every
+reinstall (.iso copies would have travelled; his Animal Crossing was evidently not one). FIX (this
+commit, not built yet): `syncableGameExtensions` includes `GameCubeUnlock.fileTypes` always; listing
+still waits for the unlock. The unlock key itself already travels in the settings export. He has to
+import Animal Crossing once more, on the build that has this fix, for it to survive later reinstalls.
+Build offered once (hold for the next batch otherwise, owner rule 16).
+
+## Earlier (24 October 2026, about 9 PM Eastern): the read-out's answer, build 224
 
 OWNER'S READ-OUT ON 223 (~7:35 PM, five screenshots; the read-out works now):
     title screen:  SPEED 81% | CPU 86M LOAD 32% | CPU 65 DRAW 8 | WAIT 12 SND 0 APP 15 | HOT 8007E100 68 ...

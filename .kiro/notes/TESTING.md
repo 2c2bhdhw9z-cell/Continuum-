@@ -7,6 +7,13 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Next install (after 224): GameCube games kept through a reinstall
+
+Owner on 224: Animal Crossing gone after deleting the app (the backup never carried GameCube files).
+
+1. After installing, import Animal Crossing once more (+ button). It shows under GameCube.
+2. On the install after that: it is still there, without importing it again.
+
 ## Build 224 (24 October): GameCube, faster processor maths
 
 Owner on 223: the read-out works (five screenshots, written down in HANDOFF.md).

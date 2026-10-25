@@ -1454,6 +1454,11 @@ enum CoreCatalog {
         var out = Set(launchableExtensions.map { $0.lowercased() })
         out.insert(trackExtension)
         out.formUnion(sharedExtensions)
+        // GameCube unlock: GameCube's own file types are backed up and restored whether or not
+        // GameCube is unlocked. They are not in `routeTable` while it is hidden, so they were left
+        // out, and a GameCube game was lost every time the app was deleted (owner, build 224:
+        // Animal Crossing gone after the reinstall). Only listing them waits for the unlock.
+        out.formUnion(GameCubeUnlock.fileTypes)
         return out
     }()
 
