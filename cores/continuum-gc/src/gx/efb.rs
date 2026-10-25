@@ -582,3 +582,43 @@ impl Gx {
         }
     }
 }
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+
+    /// What a 640x480 copy to the TV picture and a clear cost on the CPU (cargo test --release
+    /// bench_xfb -- --ignored --nocapture).
+    #[test]
+    #[ignore]
+    fn bench_xfb_copy_and_clear() {
+        let mut g = Gx::new();
+        for (k, c) in g.efb_color.iter_mut().enumerate() {
+            *c = (k as u32).wrapping_mul(0x9E37_79B9);
+        }
+        g.bp[0x49] = 0;
+        g.bp[0x4A] = 639 | (479 << 10);
+        g.bp[0x4B] = 0x10_0000 >> 5;
+        g.bp[0x4D] = 1280 >> 5;
+        g.bp[0x53] = 0x0000_0000;
+        g.bp[0x54] = 0x0000_0000 | (0x15 << 0);
+        let mut mem1 = vec![0u8; 24 << 20];
+        let mut mem2 = Vec::new();
+        let mut ram = Ram { mem1: &mut mem1, mem2: &mut mem2 };
+        for threads in [0usize, 4] {
+            g.set_draw_threads(threads);
+            let n = 200;
+            let t = std::time::Instant::now();
+            for _ in 0..n {
+                g.copy_to_xfb(&mut ram, 0, 0, 0, 640, 480, 0x10_0000, 1280);
+            }
+            let copy = t.elapsed() / n;
+            let t = std::time::Instant::now();
+            for _ in 0..n {
+                g.efb_clear(0, 0, 640, 480);
+            }
+            let clear = t.elapsed() / n;
+            eprintln!("{threads} helpers: copy {:?}, clear {:?}", copy, clear);
+        }
+    }
+}

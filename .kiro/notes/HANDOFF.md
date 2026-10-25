@@ -27,14 +27,48 @@ on one phone, the Advance link), which may change the app and engine; it reads t
 ### Requests between chats
 (none yet)
 
-GameCube state for whoever picks it up: build 231 (below). Animal Crossing in the town at about 85%
-of real speed, 42-61 pictures a second; what is missing from the core, by group, is in the owner's
-list of 25 October (speed: GPU drawer first, then the JIT's floating point and paired singles and a
-register cache; picture options; players 2-4 and rumble; memory card slot B and other card sizes;
-cheats; disc swap; broadband adapter; 478 of 479 settings; Wii). He said: work down that list one
-thing at a time, the GPU drawer first. Note: Continuum Symbian is NOT one of the owner's own cores:
-it is EKA2L1 (GPL v3) with Continuum's libretro plug around it (credits say "built on EKA2L1").
-The owner's own, written from scratch: cBoy, cArcade, the GameCube core.
+GameCube state for whoever picks it up: build 232 (next section) = the GPU drawer. Before it, Animal
+Crossing ran in the town at about 85% of real speed, 42-61 pictures a second, drawing the limit. What
+is missing from the core, by group, is in the owner's list of 25 October (speed: GPU drawer first, then
+the JIT's floating point and paired singles and a register cache; picture options; players 2-4 and
+rumble; memory card slot B and other card sizes; cheats; disc swap; broadband adapter; 478 of 479
+settings; Wii). He said: work down that list one thing at a time, the GPU drawer first. Note: Continuum
+Symbian is NOT one of the owner's own cores: it is EKA2L1 (GPL v3) with Continuum's libretro plug around
+it (credits say "built on EKA2L1"). The owner's own, written from scratch: cBoy, cArcade, the GameCube core.
+
+## GameCube chat (25 October 2026, about 6 PM Eastern): build 232 = the GPU drawer (G6 part 2)
+
+WHAT IT IS (cores/continuum-gc/src/gx/gpu/, tasks/gamecube.json G6 has the detail): everything before
+the pixels stays on the CPU (vertices, transform, lighting, clipping, texture decoding, the per-primitive
+Setup). The pixels are two Vulkan compute kernels, a line-by-line port of draw.rs raster_triangle +
+tev.rs shade + texture.rs sample_decoded + efb.rs blend (draw.wgsl). Not the GPU's triangle hardware:
+GameCube blending/logic ops/24-bit depth/early z/EFB formats cannot be copied by it on Metal. One
+workgroup per 16x16 EFB tile, triangles applied in order, exactly like the CPU helpers' bands. The EFB is
+memory shared with the GPU (efb.rs EfbMem); Gx::sync waits for the GPU too, so EFB copies, clears,
+peeks, save states run the same CPU code on the same words. Device = the app's shared MoltenVK device via
+libretro SET_HW_RENDER + GET_HW_RENDER_INTERFACE (no app or engine change; pictures still go out as
+ordinary frames, never set_image). Setting "Drawing" (cgc_drawing): Graphics chip (default) / Processor.
+At game start a PICTURE CHECK draws 60 random primitives both ways; more than 1% of pixels off by more
+than 4 = processor. Any Vulkan error later = processor from then on (Gx::gpu_failed), logged.
+
+CHECKED HERE (SwiftShader: export SS=/inner_container/opt/playwright/chromium-1232/chrome-linux64;
+VK_ICD_FILENAMES=$SS/vk_swiftshader_icd.json LD_LIBRARY_PATH=$SS): tests/gpu.rs (random primitives over
+every setting: about 1 pixel in 30,000 off by more than 4, from float rounding; GPU_SEEDS=n), tests/
+frontend_gpu.rs (the libretro calls end to end with a fake app: request, context_reset inside it, the
+interface, picture check, frames, save/load state, the Processor setting, no device), examples/gpucheck.rs
+(two machines field by field: FCE Ultra GX 70 fields and Swiss 120: no picture pixel off by more than 8,
+same pixel counts). SwiftShader is slow (seconds a field): keep runs short. CPU drawer still bit-identical
+(drawcheck, both programs, 700 fields). After editing draw.wgsl: cargo run --release --example shaders
+(writes draw.spv; tests fail while it is stale). iOS compile check: .scratch/tc/r192 (toolchain copy with
+the aarch64-apple-ios std), see the command in this section's commit.
+
+WHAT HIS UPLOAD WILL SAY: at start "cGC: drawing on the graphics chip (Apple ..., 128 MB for textures): set
+up in N ms, picture check ... : X of 337920 pixels differ ..." or "cGC: drawing on the processor: <why>".
+Every cGC second line ends "drawer graphics chip (chunks, triangles, waits N ms, states, textures KB,
+texture memory resets)"; "wait" in run = time waiting for the GPU. The read-out panel shows DRAWING GPU/CPU.
+NEXT: his 232 upload. If the GPU waits are small and the speed is still short, the CPU's own copy to the TV
+picture (about 1 ms a picture with helpers, measured here: efb.rs bench_xfb_copy_and_clear) and the
+emulated CPU are what is left; then the next item on his list.
 
 ## Earlier (25 October 2026, about 3:30 PM Eastern): build 231 = GameCube speed from the 230 profile
 
