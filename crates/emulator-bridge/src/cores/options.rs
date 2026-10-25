@@ -240,10 +240,22 @@ pub fn host_rules_for(
             ("pcsx_rearmed_drc", HostRule::Default("enabled")),
             ("pcsx_rearmed_drc_thread", HostRule::Locked("disabled")),
         ],
-        // PPSSPP with JIT allowed: the real recompiler ("JIT") is the default. PPSSPP itself asks
-        // GET_JIT_CAPABLE before using it and drops back to the IR interpreter on a no.
+        // PPSSPP with JIT allowed: STILL the IR interpreter, same as without JIT.
+        //
+        // PPSSPP's native arm64 recompiler does not work with the memory layout an iPhone build
+        // uses. iOS forces MASKED_PSP_MEMORY (Core/MemMap.h), where every guest address is folded
+        // to 30 bits before the base is added, and the recompiler's generated code gets that
+        // wrong: on the owner's iPhone (build 227, JIT on) Midnight Club reached its first frames
+        // and then halted on "Jump to invalid address: 00000000" with a black screen and no sound.
+        // Measured off the phone too (scripts/jit-check.sh ppsspp, PPSSPP_MASKED=1, run
+        // 40207666136): with that layout the IR interpreter passes all 458 pspautotests and the
+        // recompiler passes none, with ordinary memory AND with Continuum's two-address memory.
+        // So it is not the blessed region: it is the recompiler on that layout.
+        //
+        // Do not turn this back on without that check passing first. GET_JIT_CAPABLE is still
+        // answered truthfully, which is what gives PPSSPP its JIT vertex decoder.
         ("ppsspp", _, true) => &[
-            ("ppsspp_cpu_core", HostRule::Default("JIT")),
+            ("ppsspp_cpu_core", HostRule::Locked("IR JIT")),
             ("ppsspp_inflight_frames", HostRule::Default("No buffer")),
         ],
         _ => host_rules_without_jit(core_id),
@@ -1707,8 +1719,10 @@ mod tests {
             Some(HostRule::Locked("cached_interpreter"))
         );
         assert_eq!(rule("pcsx_rearmed", false, false, "pcsx_rearmed_drc"), None);
-        // JIT allowed: PPSSPP defaults to its recompiler, and the user can still choose.
-        assert_eq!(rule("ppsspp", false, true, "ppsspp_cpu_core"), Some(HostRule::Default("JIT")));
+        // JIT allowed: PPSSPP STAYS on the IR interpreter. Its native recompiler is broken with
+        // the memory layout an iPhone build uses (see the rule's comment, and build 227 on the
+        // owner's phone: a black screen and "Jump to invalid address").
+        assert_eq!(rule("ppsspp", false, true, "ppsspp_cpu_core"), Some(HostRule::Locked("IR JIT")));
         // JIT allowed but the regular N64 build loaded (no JIT build in the bundle): still locked.
         assert_eq!(
             rule("parallel_n64", false, true, "parallel-n64-cpucore"),
