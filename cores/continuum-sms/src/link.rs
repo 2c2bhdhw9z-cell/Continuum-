@@ -30,11 +30,19 @@ pub struct Ext {
     pub connected: bool,
     /// An NMI the link asked for, taken by the machine after the instruction.
     pub nmi: bool,
+    /// The other end is another phone (the app's link, `remote_line`), and what is waiting to
+    /// go to it: [b'P', pins] when this console's pins change, [b'S', byte] for a byte sent.
+    #[serde(skip)]
+    pub remote: bool,
+    #[serde(skip)]
+    pub outbox: Vec<[u8; 2]>,
+    #[serde(skip)]
+    sent_pins: Option<u8>,
 }
 
 impl Default for Ext {
     fn default() -> Ext {
-        Ext { data: 0x7F, dir: 0xFF, tx: 0, rx: 0xFF, ctrl: 0, rx_full: false, tx_done: 0, sending: None, peer: 0x7F, connected: false, nmi: false }
+        Ext { data: 0x7F, dir: 0xFF, tx: 0, rx: 0xFF, ctrl: 0, rx_full: false, tx_done: 0, sending: None, peer: 0x7F, connected: false, nmi: false, remote: false, outbox: Vec::new(), sent_pins: None }
     }
 }
 
@@ -141,6 +149,40 @@ fn receive(to: &mut Ext, byte: u8) {
     }
 }
 
+/// Between lines, with another phone on the cable: this console's pins when they changed, and a
+/// byte that has finished going out, are put in the outbox for the app to carry over.
+pub fn remote_line(e: &mut Ext, now: u64) {
+    e.connected = true;
+    let d = e.driven();
+    if e.sent_pins != Some(d) {
+        e.sent_pins = Some(d);
+        e.outbox.push([b'P', d]);
+    }
+    if let Some(byte) = e.sending.filter(|_| now >= e.tx_done) {
+        e.sending = None;
+        e.outbox.push([b'S', byte]);
+    }
+}
+
+/// What came from the other phone: its pins (crossed by the cable) or a byte it sent.
+pub fn remote_in(e: &mut Ext, packet: &[u8]) {
+    e.connected = true;
+    match packet {
+        [b'P', pins_out] => pins(e, cross(*pins_out)),
+        [b'S', byte] => receive(e, *byte),
+        _ => {}
+    }
+}
+
+/// The other phone has gone: nothing on the cable now.
+pub fn unplug(e: &mut Ext) {
+    e.remote = false;
+    e.connected = false;
+    e.peer = 0x7F;
+    e.sent_pins = None;
+    e.outbox.clear();
+}
+
 /// With no cable, a byte sent just goes.
 pub fn alone(e: &mut Ext, now: u64) {
     e.connected = false;
@@ -184,6 +226,28 @@ mod tests {
         assert_eq!(b.read(5, 0) & 2, 2);
         assert_eq!(b.read(4, 0), 0x5A);
         assert_eq!(b.read(5, 0) & 2, 0, "read: empty again");
+    }
+
+    #[test]
+    fn over_two_phones_the_pins_and_a_byte_go_as_packets() {
+        let (mut a, mut b) = (Ext::default(), Ext::default());
+        a.remote = true;
+        b.remote = true;
+        a.write(5, 0x30, 0);
+        b.write(5, 0x38, 0);
+        a.dir = 0x7E; // D0 an output
+        a.data = 0x00; // driven low
+        a.write(3, 0x77, 0);
+        remote_line(&mut a, byte_cycles(0x30));
+        assert_eq!(a.outbox.len(), 2, "its pins, then the byte");
+        for p in std::mem::take(&mut a.outbox) {
+            remote_in(&mut b, &p);
+        }
+        assert_eq!(b.read(1, 0) & 0x04, 0, "D0 low arrives on D2");
+        assert!(b.rx_full && b.nmi);
+        assert_eq!(b.read(4, 0), 0x77);
+        remote_line(&mut a, byte_cycles(0x30) + 1);
+        assert!(a.outbox.is_empty(), "nothing changed: nothing sent");
     }
 
     #[test]

@@ -66,7 +66,7 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gearsystem | `gearsystem_lightgun_crosshair_offset_y` | Light Gun Crosshair Offset Y | done | `cgear_phaser_y` | -10,-9,-8,-7,-6,-5,-4,-3,-2,-1,... |
 | gearsystem | `gearsystem_paddle_sensitivity` | Paddle Sensitivity | done | `cgear_device_speed` | 1,2,3,4,5,6,7,8,9,10,... |
 | gearsystem | `gearsystem_sports_pad_sensitivity` | Sports Pad Sensitivity | done | `cgear_device_speed` | 1,2,3,4,5,6,7,8,9,10,... |
-| gearsystem | `gearsystem_link_enable` | Game Link Cable Enable (restart) | done | `cgear_gg_link` (two Game Gears on one phone; not yet two phones) | Enabled,Disabled |
+| gearsystem | `gearsystem_link_enable` | Game Link Cable Enable (restart) | done | `cgear_gg_link` (two Game Gears on one phone) and the app's two-phone link (Play online) for a Game Gear on its own | Enabled,Disabled |
 | gearsystem | `gearsystem_link_placement` | Dual Screen Placement | done | `cgear_gg_link_layout` | Horizontal,Vertical |
 | gearsystem | `gearsystem_link_switch` | Dual Screen Switch | done | `cgear_gg_link_swap` | Enabled,Disabled |
 | gearsystem | `gearsystem_link_screen` | Dual Screen Selection | done | `cgear_gg_link_show` | Both Screens,Screen 1,Screen 2 |

@@ -73,6 +73,129 @@ const ENV_GET_SYSTEM_DIRECTORY: u32 = 9;
 const SECOND_SAVE_FRAMES: u32 = 120;
 const DUAL_MAGIC: &[u8; 8] = b"CGEARDU1";
 
+// The app's two-phone link (libretro's netpacket interface): a Game Gear's Gear-to-Gear cable to
+// another phone. The packets are link.rs's: [b'P', pins] and [b'S', byte].
+const ENV_SET_NETPACKET_INTERFACE: u32 = 78;
+const NETPACKET_RELIABLE: i32 = 1 << 0;
+const NETPACKET_FLUSH_HINT: i32 = 1 << 2;
+const NETPACKET_BROADCAST: u16 = 0xFFFF;
+/// Two phones must agree on it; bump it if a packet ever changes shape.
+const LINK_PROTOCOL: &[u8] = b"cgear-gg-link-1\0";
+
+type NetpacketSendFn = unsafe extern "C" fn(i32, *const c_void, usize, u16);
+type NetpacketPollReceiveFn = unsafe extern "C" fn();
+type NetpacketStartFn = unsafe extern "C" fn(u16, Option<NetpacketSendFn>, Option<NetpacketPollReceiveFn>);
+type NetpacketReceiveFn = unsafe extern "C" fn(*const c_void, usize, u16);
+type NetpacketStopFn = unsafe extern "C" fn();
+type NetpacketPollFn = unsafe extern "C" fn();
+type NetpacketConnectedFn = unsafe extern "C" fn(u16) -> bool;
+type NetpacketDisconnectedFn = unsafe extern "C" fn(u16);
+
+/// libretro.h `struct retro_netpacket_callback`, field for field and in order.
+#[repr(C)]
+struct NetpacketInterface {
+    start: Option<NetpacketStartFn>,
+    receive: Option<NetpacketReceiveFn>,
+    stop: Option<NetpacketStopFn>,
+    poll: Option<NetpacketPollFn>,
+    connected: Option<NetpacketConnectedFn>,
+    disconnected: Option<NetpacketDisconnectedFn>,
+    protocol_version: *const c_char,
+}
+
+/// This phone's end of the cable, kept apart from `CORE`: the app calls these between frames,
+/// from its own thread, and must not wait for the machine.
+struct Net {
+    send: Option<NetpacketSendFn>,
+    /// Linked up, and since when it changed (the frame picks it up).
+    on: bool,
+    inbox: Vec<[u8; 2]>,
+    outbox: Vec<[u8; 2]>,
+}
+
+static NET: Mutex<Net> = Mutex::new(Net { send: None, on: false, inbox: Vec::new(), outbox: Vec::new() });
+
+unsafe extern "C" fn netpacket_start(_client: u16, send: Option<NetpacketSendFn>, _poll: Option<NetpacketPollReceiveFn>) {
+    if let Ok(mut n) = NET.lock() {
+        n.send = send;
+        n.on = true;
+        n.inbox.clear();
+        n.outbox.clear();
+    }
+}
+
+unsafe extern "C" fn netpacket_receive(buf: *const c_void, len: usize, _client: u16) {
+    if buf.is_null() || len != 2 {
+        return;
+    }
+    let b = std::slice::from_raw_parts(buf as *const u8, 2);
+    if let Ok(mut n) = NET.lock() {
+        n.inbox.push([b[0], b[1]]);
+    }
+}
+
+unsafe extern "C" fn netpacket_poll() {
+    let (send, out) = match NET.lock() {
+        Ok(mut n) => (n.send, std::mem::take(&mut n.outbox)),
+        Err(_) => return,
+    };
+    let Some(send) = send else { return };
+    // Outside the lock: the app may hand a packet straight back.
+    for p in out {
+        send(NETPACKET_RELIABLE | NETPACKET_FLUSH_HINT, p.as_ptr() as *const c_void, 2, NETPACKET_BROADCAST);
+    }
+}
+
+unsafe extern "C" fn netpacket_stop() {
+    if let Ok(mut n) = NET.lock() {
+        n.send = None;
+        n.on = false;
+        n.inbox.clear();
+        n.outbox.clear();
+    }
+}
+
+/// Offers the app the Game Gear's cable to another phone. An app with no such link says no and
+/// nothing changes: nothing is plugged in.
+unsafe fn offer_the_link(env: EnvFn) {
+    let mut cb = NetpacketInterface {
+        start: Some(netpacket_start),
+        receive: Some(netpacket_receive),
+        stop: Some(netpacket_stop),
+        poll: Some(netpacket_poll),
+        connected: None,
+        disconnected: None,
+        protocol_version: LINK_PROTOCOL.as_ptr() as *const c_char,
+    };
+    env(ENV_SET_NETPACKET_INTERFACE, &mut cb as *mut NetpacketInterface as *mut c_void);
+}
+
+/// Before a frame: the other phone's packets onto this console's link port. After it: this
+/// console's out to the app.
+fn link_before(m: &mut Sms) {
+    let Ok(mut n) = NET.lock() else { return };
+    if !n.on {
+        if m.bus.ext.remote {
+            crate::link::unplug(&mut m.bus.ext);
+        }
+        return;
+    }
+    m.bus.ext.remote = true;
+    for p in std::mem::take(&mut n.inbox) {
+        crate::link::remote_in(&mut m.bus.ext, &p);
+    }
+}
+
+fn link_after(m: &mut Sms) {
+    if !m.bus.ext.remote {
+        return;
+    }
+    let out = std::mem::take(&mut m.bus.ext.outbox);
+    if let Ok(mut n) = NET.lock() {
+        n.outbox.extend(out);
+    }
+}
+
 struct Callbacks {
     env: Option<EnvFn>,
     video: Option<VideoFn>,
@@ -393,6 +516,12 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
         }
         _ => None,
     };
+    // A fresh game starts with nothing on the cable, and a Game Gear on its own offers the app its
+    // cable to another phone (two on this phone are already joined).
+    netpacket_stop();
+    if let (Some(env), true) = (env, m.bus.gg && second.is_none()) {
+        offer_the_link(env);
+    }
     let mut core = Core { m, s: s.clone(), at_start: s, prev: Vec::new(), lp: [0.0; 2], shown_size: (0, 0), eq: [[0.0; 2]; 2], second };
     core.apply();
     if let Ok(mut c) = CORE.lock() {
@@ -692,7 +821,9 @@ pub unsafe extern "C" fn retro_run() {
             two.write_save();
         }
     } else {
+        link_before(&mut m.m);
         m.run_frame();
+        link_after(&mut m.m);
     }
     // A 3-D glasses game with one eye chosen: the other eye's frames show the last one again.
     let other_eye = m.bus.glasses_used && m.s.glasses_eye.is_some_and(|left| left != m.frame_left_eye) && !m.shown.is_empty();

@@ -143,9 +143,15 @@ impl Sms {
         // The eye this frame is for: games set the glasses in the blank before they draw it.
         self.frame_left_eye = self.bus.glasses_left;
         let clock = self.bus.clock;
-        crate::link::alone(&mut self.bus.ext, clock);
+        if !self.bus.ext.remote {
+            crate::link::alone(&mut self.bus.ext, clock);
+        }
         for line in 0..self.bus.vdp.lines() {
             self.run_line(line);
+            if self.bus.ext.remote {
+                let now = self.bus.clock;
+                crate::link::remote_line(&mut self.bus.ext, now);
+            }
         }
         self.frames += 1;
     }
