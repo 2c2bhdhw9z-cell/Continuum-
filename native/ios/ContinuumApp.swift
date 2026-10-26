@@ -719,6 +719,18 @@ enum CoreCatalog {
         priority: 0, biosNames: []
     )
 
+    /// Master System, Game Gear and SG-1000. cGear: this project's own Sega 8-bit emulator,
+    /// written from scratch in Rust (cores/continuum-sms), a choice next to Gearsystem, which stays
+    /// the default. Its spec carries the Master System's 4:3; a Game Gear game on it is 10:9, which
+    /// the core reports (`phonePictureAspect` below asks it). OPTIONAL in the .ipa.
+    static let continuumSms = CoreSpec(
+        coreId: "continuum_sms", displayName: "cGear (SMS, GG, SG-1000)",
+        systems: ["sms", "gg", "sg1000"], library: "continuum_sms_libretro_ios.dylib",
+        width: 256, height: 192, maxWidth: 256, maxHeight: 240,
+        aspectRatio: 4.0 / 3.0, fps: 3_579_545.0 / (228.0 * 262.0), sampleRate: 48000, pixelFormat: 1,
+        priority: 0, biosNames: []
+    )
+
     /// GameCube. Continuum's own GameCube emulator, written from scratch in Rust
     /// (cores/continuum-gc). EXPERIMENTAL: hidden until unlocked (GameCubeUnlock.swift), and
     /// OPTIONAL in the .ipa. Uses JIT when the phone has it, its fast interpreter otherwise.
@@ -737,7 +749,7 @@ enum CoreCatalog {
         mednafenWswan, mednafenNgp, mednafenPce, mednafenSupergrafx, puae, viceX64sc,
         dosboxPure, prboom, virtualJaguar, handy, prosystem, a5200,
         pokemini, mednafenVb, yabause, mednafenSaturn, flycast, continuumSymbian,
-        continuumGb, continuumArcade, continuumGc,
+        continuumGb, continuumArcade, continuumGc, continuumSms,
     ]
 
     /// The fourteen cores every build must carry, by id: IOS_CORES in scripts/build-core.sh, and the
@@ -1090,6 +1102,9 @@ enum CoreCatalog {
         .gb: [mgba.coreId, continuumGb.coreId],
         .gbc: [mgba.coreId, continuumGb.coreId],
         .gba: [mgba.coreId, continuumGb.coreId],
+        .sms: [gearsystem.coreId, continuumSms.coreId],
+        .gg: [gearsystem.coreId, continuumSms.coreId],
+        .sg1000: [gearsystem.coreId, continuumSms.coreId],
     ]
 
     /// Every core that can run a system: the curated order in `coreChoices` (default first), then
@@ -5411,6 +5426,12 @@ final class EngineHost: ObservableObject {
             } else {
                 aspect = 10.0 / 9.0
             }
+        }
+        // cGear is one core for three machines too: a Master System picture is 4:3 (or 31:24 with
+        // its left column cut off), a Game Gear's 10:9. The core says which.
+        if spec.coreId == CoreCatalog.continuumSms.coreId,
+           let reported = engine.corePictureAspect(), reported > 0 {
+            aspect = reported
         }
         // Mesen is one core for the NES and the SNES too: its spec carries the NES's shape, and an
         // SNES game on it gets the 4:3 bsnes gives every SNES game (the Mesen patch reports 4:3).

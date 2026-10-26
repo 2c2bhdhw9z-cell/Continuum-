@@ -65,6 +65,8 @@ if [ "${CONTINUUM_CORE_CACHE:-0}" = "1" ] && [ -d "$LIBDIR" ]; then
   rm -f "$KEEP/continuum_arcade_libretro_ios.dylib"
   # And for the GameCube core (cores/continuum-gc), this project's own GameCube emulator.
   rm -f "$KEEP/continuum_gc_libretro_ios.dylib"
+  # And for cGear (cores/continuum-sms), this project's own Sega 8-bit emulator.
+  rm -f "$KEEP/continuum_sms_libretro_ios.dylib"
   KEPT="$(ls -1 "$KEEP" 2>/dev/null | wc -l | tr -d ' ')"
   rm -rf "$OUT"
   mkdir -p "$LIBDIR" "$GENDIR"
@@ -240,7 +242,7 @@ echo "==> checking the core filenames agree across project.yml, ios.yml and Cont
 # file: the .ipa check then doesn't warn when one is missing, and the app still names it as not in
 # the bundle on its cores line. project.yml and ContinuumApp.swift are still checked. Take a name
 # out of this list in the same push that adds its `optional` line to ios.yml.
-NOT_IN_IOS_YML="continuum_arcade_libretro_ios.dylib continuum_gc_libretro_ios.dylib"
+NOT_IN_IOS_YML="continuum_arcade_libretro_ios.dylib continuum_gc_libretro_ios.dylib continuum_sms_libretro_ios.dylib"
 DIVERGED=""
 for core_dylib in $CORE_NAMES $OPTIONAL_CORE_NAMES; do
   for consumer in "$HERE/project.yml" \

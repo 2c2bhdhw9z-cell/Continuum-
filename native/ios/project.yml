@@ -790,6 +790,11 @@ targets:
         embed: true
         link: false
         codeSign: false
+      # Master System / Game Gear / SG-1000, cGear (this project's own Rust core, cores/continuum-sms).
+      - framework: build/lib/continuum_sms_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
       # GameCube, this project's own Rust core (cores/continuum-gc), experimental and hidden.
       - framework: build/lib/continuum_gc_libretro_ios.dylib
         embed: true

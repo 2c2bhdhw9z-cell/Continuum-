@@ -113,7 +113,7 @@ impl Core {
 unsafe fn machine(rom: Vec<u8>, s: &Settings, path: *const c_char) -> Box<Sms> {
     let console = match s.console {
         Console::Auto if is_game_gear(&rom, path) => Console::GameGear,
-        Console::Auto if has_extension(path, &[".sg", ".sc"]) => Console::Sg1000,
+        Console::Auto if has_extension(path, &[".sg", ".sc", ".mv"]) => Console::Sg1000,
         Console::Auto => Console::Sms,
         c => c,
     };
@@ -146,7 +146,7 @@ pub unsafe extern "C" fn retro_get_system_info(info: *mut RetroSystemInfo) {
     *info = RetroSystemInfo {
         library_name: c"cGear".as_ptr(),
         library_version: c"0.1.0 (state format 1)".as_ptr(),
-        valid_extensions: c"sms|gg|sg|bin".as_ptr(),
+        valid_extensions: c"sms|gg|sg|sc|mv|bin".as_ptr(),
         need_fullpath: false,
         block_extract: false,
     };
