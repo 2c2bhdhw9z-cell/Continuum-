@@ -15,6 +15,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::fm::Fm;
 use crate::psg::Psg;
 use crate::vdp::Vdp;
 use crate::z80;
@@ -62,6 +63,16 @@ pub struct Bus {
     pub mem_ctrl: u8,
     pub vdp: Vdp,
     pub psg: Psg,
+    /// The YM2413 FM chip of a Japanese Master System (or a Mark III's FM Sound Unit), when there
+    /// is one: ports $F0 (register), $F1 (data) and $F2 (the audio control port).
+    #[serde(default)]
+    pub has_fm: bool,
+    #[serde(default)]
+    pub fm: Fm,
+    /// Port $F2 as last written: bit 0 the FM chip on, bit 1 together with it says whether the
+    /// other chip still plays (SMS Power, "Audio Control Port").
+    #[serde(default)]
+    pub audio_ctrl: u8,
     /// The pads, as their ports read (a bit is 0 while its button is held): $DC and $DD.
     pub pad_dc: u8,
     pub pad_dd: u8,
@@ -118,6 +129,9 @@ impl Bus {
             mem_ctrl: 0xAB,
             vdp: Vdp::default(),
             psg: Psg::default(),
+            has_fm: false,
+            fm: Fm::default(),
+            audio_ctrl: 0,
             pad_dc: 0xFF,
             pad_dd: 0xFF,
             io_ctrl: 0xFF,
@@ -267,6 +281,15 @@ impl z80::Bus for Bus {
                 _ => 0xFF,
             };
         }
+        if self.has_fm && p == 0xF2 {
+            // What was last written in the bottom two bits, which is how games find the chip
+            // (they write and read back seven times). The top three bits are a counter clocked
+            // by the picture's sync; this gives the line count's matching bits. Answered whether
+            // or not the game has switched the pads off first, as every game seen does.
+            let n = u32::from(self.vdp.line);
+            let c = ((n >> 11 & 1) << 7 | (n >> 7 & 1) << 6 | (n >> 3 & 1) << 5) as u8;
+            return c | (self.audio_ctrl & 3);
+        }
         match p & 0xC1 {
             0x00 | 0x01 => 0xFF,
             0x40 => {
@@ -301,6 +324,20 @@ impl z80::Bus for Bus {
                 return;
             }
             _ => {}
+        }
+        if self.has_fm && (0xF0..=0xF2).contains(&p) {
+            match p {
+                0xF0 => self.fm.write_addr(v),
+                0xF1 => self.fm.write_data(v),
+                _ => {
+                    // $00 FM off and the other chip on (the default), $01 FM only, $02 neither,
+                    // $03 both: a Japanese Master System's mixing.
+                    self.audio_ctrl = v & 3;
+                    self.fm.enabled = v & 1 != 0;
+                    self.psg.muted = (v & 1) != (v >> 1 & 1);
+                }
+            }
+            return;
         }
         if self.gg && p < 7 {
             if p == 6 {
@@ -419,5 +456,30 @@ mod tests {
         assert_eq!(b.read(0x4000), 0xFF);
         b.output(0x3E, 0xAB);
         assert_eq!(b.read(0x4000), 1);
+    }
+
+    #[test]
+    fn a_japanese_master_system_answers_the_fm_detection_and_mixes_as_told() {
+        let mut b = Bus::new(vec![0; 0x8000]);
+        b.output(0xF2, 1);
+        assert_ne!(b.input(0xF2) & 7, 1, "no FM chip: nothing to read back");
+        b.has_fm = true;
+        // SMS Power's detection: write bit 0, read the bottom three bits back, seven times.
+        for v in [1u8, 0, 1, 0, 1, 0, 1] {
+            b.output(0xF2, v);
+            assert_eq!(b.input(0xF2) & 7, v);
+        }
+        b.output(0xF2, 1);
+        assert!(b.fm.enabled && b.psg.muted, "$01: FM only");
+        b.output(0xF2, 3);
+        assert!(b.fm.enabled && !b.psg.muted, "$03: both");
+        b.output(0xF2, 2);
+        assert!(!b.fm.enabled && b.psg.muted, "$02: neither");
+        b.output(0xF2, 0);
+        assert!(!b.fm.enabled && !b.psg.muted, "$00: the other chip only");
+        // $F0/$F1 reach the chip, not the picture chip or the sound chip next door.
+        b.output(0xF0, 0x30);
+        b.output(0xF1, 0x40);
+        assert_eq!(b.psg.att, [15; 4]);
     }
 }

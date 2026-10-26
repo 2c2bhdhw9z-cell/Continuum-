@@ -83,7 +83,11 @@ const SPECS: &[Spec] = &[
     (c"video", c"cgear_gg_ghosting", c"Game Gear screen ghosting",
      c"Blends each picture with the last, as the Game Gear's slow screen did.",
      OFF_ON, c"off"),
+    (c"audio", c"cgear_fm", c"FM sound chip",
+     c"Richer music in many games; Auto has it on a Japanese Master System only, like the real ones.",
+     &[(c"auto", c"Auto"), (c"off", c"Off"), (c"on", c"On")], c"auto"),
     (c"audio", c"cgear_volume", c"Volume", c"", PCT, c"100"),
+    (c"audio", c"cgear_fm_volume", c"FM volume", c"", PCT, c"100"),
     (c"audio", c"cgear_vol_tone1", c"Tone 1", c"", PCT, c"100"),
     (c"audio", c"cgear_vol_tone2", c"Tone 2", c"", PCT, c"100"),
     (c"audio", c"cgear_vol_tone3", c"Tone 3", c"", PCT, c"100"),
@@ -118,13 +122,16 @@ pub struct Settings {
     pub chan_vol: [u8; 4],
     pub mono: bool,
     pub opposing: bool,
+    /// The FM chip: None for Auto (a Japanese Master System), or forced off or on.
+    pub fm: Option<bool>,
+    pub fm_volume: u8,
 }
 
 impl Default for Settings {
     fn default() -> Settings {
         Settings {
             console: Console::Auto, japan: false, pal: false, mapper: None, sprite_limit: true, hide_left: false,
-            gg_ghosting: false, volume: 100, chan_vol: [100; 4], mono: false, opposing: false,
+            gg_ghosting: false, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100,
         }
     }
 }
@@ -156,6 +163,12 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
     s.chan_vol = [pct(c"cgear_vol_tone1"), pct(c"cgear_vol_tone2"), pct(c"cgear_vol_tone3"), pct(c"cgear_vol_noise")];
     s.mono = on(c"cgear_mono", false);
     s.opposing = on(c"cgear_opposing", false);
+    s.fm = match get(c"cgear_fm").as_deref() {
+        Some("off") => Some(false),
+        Some("on") => Some(true),
+        _ => None,
+    };
+    s.fm_volume = pct(c"cgear_fm_volume");
     s
 }
 

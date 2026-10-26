@@ -39,6 +39,9 @@ pub struct Psg {
     pub chan_vol: [u8; 4],
     #[serde(skip, default = "hundred")]
     pub volume: u8,
+    /// Switched off by a Japanese Master System's audio control port (it still runs).
+    #[serde(default)]
+    pub muted: bool,
 }
 
 fn full() -> [u8; 4] {
@@ -51,7 +54,7 @@ fn hundred() -> u8 {
 
 impl Default for Psg {
     fn default() -> Psg {
-        Psg { tone: [0; 4], att: [15; 4], counter: [0; 4], out: [true; 4], lfsr: 0x8000, latched: 0, stereo: 0xFF, frac: 0.0, carry: 0.0, chan_vol: [100; 4], volume: 100 }
+        Psg { tone: [0; 4], att: [15; 4], counter: [0; 4], out: [true; 4], lfsr: 0x8000, latched: 0, stereo: 0xFF, frac: 0.0, carry: 0.0, chan_vol: [100; 4], volume: 100, muted: false }
     }
 }
 
@@ -148,7 +151,7 @@ impl Psg {
                     }
                 }
             }
-            let k = 8191.0 / n.max(1) as f32 * f32::from(self.volume) / 100.0;
+            let k = if self.muted { 0.0 } else { 8191.0 / n.max(1) as f32 * f32::from(self.volume) / 100.0 };
             out.push((l * k) as i16);
             out.push((r * k) as i16);
         }

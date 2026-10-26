@@ -62,7 +62,9 @@ impl Sms {
         }
         self.over = spent - LINE_CYCLES;
         let hz = if self.bus.vdp.pal { CPU_HZ_PAL } else { CPU_HZ_NTSC };
+        let start = self.samples.len();
         self.bus.psg.run(LINE_CYCLES, hz, self.rate, &mut self.samples);
+        self.bus.fm.mix_into(self.rate, &mut self.samples[start..]);
     }
 
     /// The console's Pause button: pressing it is a non-maskable interrupt.

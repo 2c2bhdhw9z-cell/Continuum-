@@ -106,6 +106,7 @@ impl Core {
         self.m.bus.vdp.sprite_limit = s.sprite_limit;
         self.m.bus.psg.chan_vol = s.chan_vol;
         self.m.bus.psg.volume = s.volume;
+        self.m.bus.fm.volume = s.fm_volume;
     }
 }
 
@@ -125,6 +126,8 @@ unsafe fn machine(rom: Vec<u8>, s: &Settings, path: *const c_char) -> Box<Sms> {
         _ => {}
     }
     m.bus.export = !s.japan;
+    // Only a Master System ever had the FM chip.
+    m.bus.has_fm = console == Console::Sms && s.fm.unwrap_or(s.japan);
     m.bus.vdp.pal = s.pal && console != Console::GameGear;
     if let Some(mapper) = s.mapper {
         m.bus.mapper = mapper;
@@ -279,6 +282,7 @@ pub extern "C" fn retro_reset() {
                 fresh.bus.set_sg1000();
             }
             fresh.bus.export = export;
+            fresh.bus.has_fm = m.bus.has_fm;
             fresh.bus.vdp.pal = pal;
             fresh.bus.mapper = mapper;
             fresh.bus.cart_ram = cart_ram;
@@ -435,7 +439,10 @@ pub unsafe extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> 
     let bytes = std::slice::from_raw_parts(data as *const u8, size);
     let Ok(mut slot) = CORE.lock() else { return false };
     let Some(m) = slot.as_mut() else { return false };
-    m.load_state(bytes).is_ok()
+    // The volumes are settings, not part of a state: put them back over the loaded machine.
+    let ok = m.load_state(bytes).is_ok();
+    m.apply();
+    ok
 }
 
 #[no_mangle]

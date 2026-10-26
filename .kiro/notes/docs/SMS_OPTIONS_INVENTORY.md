@@ -54,9 +54,9 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gearsystem | `gearsystem_hide_left_bar` | Hide Left Bar (SMS only) | planned |  | No,Auto,Always |
 | gearsystem | `gearsystem_no_sprite_limit` | No Sprite Limit | planned |  | Disabled,Enabled |
 | gearsystem | `gearsystem_glasses` | 3D Glasses | planned | SegaScope 3-D glasses: which eye is shown | Both Eyes / OFF,Left Eye,Right Eye |
-| gearsystem | `gearsystem_ym2413` | YM2413 (restart) | planned |  | Auto,Disabled |
+| gearsystem | `gearsystem_ym2413` | YM2413 (restart) | done | `cgear_fm` (Auto/Off/On) | Auto,Disabled |
 | gearsystem | `gearsystem_psg_volume` | PSG Volume | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
-| gearsystem | `gearsystem_fm_volume` | FM Volume | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
+| gearsystem | `gearsystem_fm_volume` | FM Volume | done | `cgear_fm_volume` | 0,10,20,30,40,50,60,70,80,90,... |
 | gearsystem | `gearsystem_up_down_allowed` | Allow Up+Down / Left+Right | planned |  | Disabled,Enabled |
 | gearsystem | `gearsystem_lightgun_input` | Light Gun Input | planned |  | Light Gun,Touchscreen |
 | gearsystem | `gearsystem_lightgun_crosshair` | Light Gun Crosshair | planned |  | Disabled,Enabled |
@@ -89,7 +89,7 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gpgx | `genesis_plus_gx_render` | Interlaced Mode 2 Output | n/a | Mega Drive or Mega-CD only | single field,double field |
 | gpgx | `genesis_plus_gx_frameskip` | Frameskip | app | the app has its own frame skip | disabled,auto,manual |
 | gpgx | `genesis_plus_gx_frameskip_threshold` | Frameskip Threshold (%) | app | the app has its own frame skip | 15,18,21,24,27,30,33,36,39,42,... |
-| gpgx | `genesis_plus_gx_ym2413` | Master System FM (YM2413) | planned |  | auto,disabled,enabled |
+| gpgx | `genesis_plus_gx_ym2413` | Master System FM (YM2413) | done | `cgear_fm` | auto,disabled,enabled |
 | gpgx | `genesis_plus_gx_ym2413_core` | Master System FM (YM2413) Core | planned | one exact YM2413 of our own instead of a choice of two | mame,nuked |
 | gpgx | `genesis_plus_gx_ym2612` | Mega Drive/Genesis FM | n/a | Mega Drive or Mega-CD only | mame (ym2612),mame (asic ym3438),mame (enhanced ym3438),nuked (ym2612),nuked (ym3438) |
 | gpgx | `genesis_plus_gx_sound_output` | Sound Output | planned |  | stereo,mono |

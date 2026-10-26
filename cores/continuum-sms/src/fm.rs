@@ -9,10 +9,10 @@
 //! instruments are the chip's own ROM, as dumped from it (the values emu2413, MIT, lists; data, not
 //! code). The drums' instrument values are the ones that dump gives for the rhythm channels.
 //!
-//! UNFINISHED, NOT IN THE BUILD (lib.rs does not include it yet): its quarter-sine check fails
-//! (`the_quarter_sine_tables_turn_back_into_a_sine`), so the level path is wrong somewhere.
-//! FIRST VERSION: it sounds like the chip and follows its registers, but has not yet been compared
-//! sample by sample with a cycle-exact reference, which is the next step.
+//! In the build since 26 October 2026: ports $F0/$F1/$F2 on a Japanese Master System (setting
+//! `cgear_fm`). Its checks: the wave tables, the pitch (437 Hz for F-number 288 in block 4, as
+//! Yamaha's formula gives), a built-in instrument's attack and release. NOT yet compared sample by
+//! sample with a recording of the real chip; the drums are the roughest part.
 
 use serde::{Deserialize, Serialize};
 
@@ -72,7 +72,7 @@ thread_local! {
 }
 
 /// One output of an operator: the phase (10 bits) through the wave, attenuated by `att` (in
-/// 1/256 of a factor of two, after the log), as a signed 12-bit-ish level. `half`: the half-sine
+/// 1/256 of a factor of two, after the log), as a signed 12-bit level (up to 4090). `half`: the half-sine
 /// wave, which is silent for the second half.
 fn op_out(phase: u32, att: u32, half: bool) -> i32 {
     TABLES.with(|(ls, ex)| {
@@ -87,8 +87,7 @@ fn op_out(phase: u32, att: u32, half: bool) -> i32 {
         if shift > 13 {
             return 0;
         }
-        let m = ((u32::from(ex[0xFF - (total & 0xFF) as usize]) + 1024) << 1) >> shift;
-        let v = (m >> 1) as i32;
+        let v = (((u32::from(ex[0xFF - (total & 0xFF) as usize]) + 1024) << 1) >> shift) as i32;
         if neg { -v } else { v }
     })
 }
@@ -106,8 +105,8 @@ enum Eg {
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
 struct Op {
     phase: u32,
-    /// Attenuation, 0 (loudest) to 127 in 3/8 dB steps, with 7 fractional bits.
-    env: u32,
+    /// The envelope's attenuation, 0 (loudest) to 128 in 3/8 dB steps.
+    env: f32,
     eg: Eg,
     out: [i32; 2],
 }
@@ -133,15 +132,22 @@ pub struct Fm {
     am_phase: u32,
     pm_phase: u32,
     /// Chip samples not yet turned into output samples.
-    frac: f64,
+    #[serde(default)]
     carry: f64,
     /// The FM unit is switched on (port $F2 bit 0 on a Japanese Master System).
     pub enabled: bool,
+    /// Its volume, percent (a setting; not saved).
+    #[serde(skip, default = "hundred")]
+    pub volume: u8,
+}
+
+fn hundred() -> u8 {
+    100
 }
 
 impl Default for Fm {
     fn default() -> Fm {
-        Fm { addr: 0, user: [0; 8], ch: [Channel::default(); 9], rhythm: 0, noise: 1, am_phase: 0, pm_phase: 0, frac: 0.0, carry: 0.0, enabled: false }
+        Fm { addr: 0, user: [0; 8], ch: [Channel::default(); 9], rhythm: 0, noise: 1, am_phase: 0, pm_phase: 0, carry: 0.0, enabled: false, volume: 100 }
     }
 }
 
@@ -230,51 +236,46 @@ impl Fm {
         }
     }
 
-    /// The envelope's rate for one of its four phases (0-15), with the key scale.
-    fn step_env(op: &mut Op, rate4: u8, ksr_val: u8, sustain_level: u32, percussive: bool, release_rate: u8, counter: u32) {
+    /// One sample of an envelope. `rate4` is the 4-bit rate of the phase it is in; with the key
+    /// scale it makes a 6-bit rate r, four to a factor of two. Speeds from Yamaha's tables for
+    /// the OPL family: at rate 1 (r = 4) a decay takes 39.3 s for 96 dB, so 19.6 s for this chip's
+    /// 48 dB, and an attack from silence 2.83 s; each step of the 4-bit rate halves them, and r 60
+    /// and up attacks at once. The attack is exponential (fast at first, slowing near full), the
+    /// rest straight lines in dB.
+    fn step_env(op: &mut Op, rate4: u8, ksr_val: u8, sustain_level: u32, percussive: bool, release_rate: u8) {
+        const FS: f32 = 3_579_545.0 / 72.0;
         let rate = |r: u8| -> u32 { if r == 0 { 0 } else { (u32::from(r) * 4 + u32::from(ksr_val)).min(63) } };
-        let (r, target_phase) = match op.eg {
-            Eg::Attack => (rate(rate4), None),
-            Eg::Decay => (rate(rate4), Some(sustain_level)),
-            Eg::Sustain => (if percussive { rate(release_rate) } else { 0 }, None),
-            Eg::Release => (rate(release_rate), None),
+        let r = match op.eg {
+            Eg::Attack => rate(rate4),
+            Eg::Decay => rate(rate4),
+            Eg::Sustain => if percussive { rate(release_rate) } else { 0 },
+            Eg::Release => rate(release_rate),
             Eg::Off => return,
         };
         if r == 0 {
             return;
         }
-        // Rates go up four to a factor of two: at rate r the step comes every 2^(13 - r/4)
-        // samples, with the low two bits shortening it by a quarter each.
-        let shift = 13i32 - (r / 4) as i32;
-        let step = if shift > 0 {
-            let period = 1u32 << shift;
-            let frac = r & 3;
-            if counter % period < period * (4 + frac) / 8 { 1 } else { 0 }
-        } else {
-            1 << (-shift).min(3)
-        };
-        if step == 0 {
-            return;
-        }
+        let speed = 2f32.powf((r as f32 - 4.0) / 4.0);
         match op.eg {
             Eg::Attack => {
                 if r >= 60 {
-                    op.env = 0;
+                    op.env = 0.0;
                 } else {
-                    // Exponential: the closer to full, the smaller the steps.
-                    let dec = ((op.env >> 3) + 1) * step;
-                    op.env = op.env.saturating_sub(dec);
+                    // dE/dt = -(E/8 + 1) * a reaches 0 from 128 in 8/a * ln(17) samples.
+                    let a = 8.0 * 17f32.ln() / (2.826 * FS) * speed;
+                    op.env -= (op.env / 8.0 + 1.0) * a;
                 }
-                if op.env == 0 {
+                if op.env <= 0.0 {
+                    op.env = 0.0;
                     op.eg = Eg::Decay;
                 }
             }
             _ => {
-                op.env = (op.env + 16 * step).min(127 << 4);
-                if op.eg == Eg::Decay && op.env >> 4 >= target_phase.unwrap_or(0) {
+                op.env = (op.env + 128.0 / (19.64 * FS) * speed).min(128.0);
+                if op.eg == Eg::Decay && op.env >= sustain_level as f32 {
                     op.eg = Eg::Sustain;
                 }
-                if op.env >= 127 << 4 && op.eg == Eg::Release {
+                if op.env >= 128.0 && op.eg == Eg::Release {
                     op.eg = Eg::Off;
                 }
             }
@@ -282,7 +283,7 @@ impl Fm {
     }
 
     /// One of the chip's own samples (49.7 kHz), mixed.
-    fn sample(&mut self, counter: u32) -> i32 {
+    fn sample(&mut self) -> i32 {
         self.am_phase = (self.am_phase + 1) % 13_432; // 3.7 Hz
         self.pm_phase = (self.pm_phase + 1) % 7_766; // 6.4 Hz
         // The noise for the drums: a 23-bit register.
@@ -307,8 +308,7 @@ impl Fm {
                 let ksr_val = if ksr { ksr_base } else { ksr_base >> 2 };
                 let ar = p[4 + o] >> 4;
                 let dr = p[4 + o] & 15;
-                let sl = u32::from(p[6 + o] >> 4) * 3 * 8 / 8; // 3 dB steps = 8 env units of 3/8 dB
-                let sl = sl * 8 / 3;
+                let sl = u32::from(p[6 + o] >> 4) * 8; // 3 dB steps, 8 of 3/8 dB
                 let rr_patch = p[6 + o] & 15;
                 let release_rate = if c.ops[o].eg == Eg::Release {
                     if c.sustain { 5 } else if eg_type { rr_patch } else { 7 }
@@ -318,28 +318,30 @@ impl Fm {
                 let percussive = !eg_type;
                 let rate4 = if c.ops[o].eg == Eg::Attack { ar } else { dr };
                 let mut op = c.ops[o];
-                Self::step_env(&mut op, rate4, ksr_val, sl, percussive, release_rate, counter);
+                Self::step_env(&mut op, rate4, ksr_val, sl, percussive, release_rate);
                 // The phase: F-number shifted by the block, times the multiplier, with vibrato.
                 let f = (fnum as i32 + if pm_on { pm * ((fnum >> 6) as i32) / 8 } else { 0 }).max(0) as u32;
-                op.phase = op.phase.wrapping_add(((f << block) * MUL2[usize::from(mult)]) >> 2);
+                op.phase = op.phase.wrapping_add(((f << block) * MUL2[usize::from(mult)]) >> 1);
                 self.ch[n].ops[o] = op;
-                // Attenuation: envelope, total level (modulator) or volume (carrier), key scale, AM.
+                // Attenuation, in 3/8 dB: envelope, total level (modulator, 3/4 dB steps) or volume
+                // (carrier, 3 dB steps), key scale, AM.
                 let ksl_bits = if o == 0 { p[2] >> 6 } else { p[3] >> 6 };
                 let ksl_att = {
                     let k = i32::from(KSL[usize::from(c.fnum >> 5) & 15]) * 2 - 8 * (7 - block as i32) * 2;
                     if ksl_bits == 0 || k <= 0 { 0 } else { (k as u32) >> (3 - ksl_bits) }
                 };
                 let level = if o == 0 { u32::from(p[2] & 0x3F) * 2 } else { u32::from(c.vol) * 8 };
-                let env = (op.env >> 4) + level / 2 * 4 / 3 + ksl_att + if am_on { am / 8 } else { 0 };
-                let att = env.min(127) * 32 / 3 * 3 / 4; // 3/8 dB units to 1/256 log2 units (~ x 16)
+                let env = op.env as u32 + level + ksl_att + if am_on { am / 8 } else { 0 };
+                // 3/8 dB is 0.0623 of a factor of two: 16 of the tables' 1/256 steps.
+                let att = env.min(255) * 16;
                 let half = if o == 0 { p[3] & 0x08 != 0 } else { p[3] & 0x10 != 0 };
                 let phase10 = op.phase >> 9;
                 let modulated = if o == 0 {
                     let fb = p[3] & 7;
-                    let fbm = if fb == 0 { 0 } else { (op.out[0] + op.out[1]) >> (9 - fb) };
+                    let fbm = if fb == 0 { 0 } else { (op.out[0] + op.out[1]) >> (10 - fb) };
                     phase10.wrapping_add(fbm as u32)
                 } else {
-                    phase10.wrapping_add((outs[0] as u32) << 1)
+                    phase10.wrapping_add(outs[0] as u32)
                 };
                 let v = if op.eg == Eg::Off { 0 } else { op_out(modulated, att, half) };
                 let x = &mut self.ch[n].ops[o];
@@ -361,29 +363,26 @@ impl Fm {
         mix
     }
 
-    /// Runs `cpu_cycles` and adds what the chip makes, at `rate`, into `out` (stereo, the same on
-    /// both sides), as the Master System mixes the FM unit with the other sound chip.
-    pub fn run(&mut self, cpu_cycles: u32, rate: u32, out: &mut [i16]) {
+    /// Adds what the chip makes into `out` (stereo, the same on both sides), one output sample
+    /// per pair, as the Master System mixes the FM unit with the other sound chip. Driven by the
+    /// number of samples the other chip made, so the two can never drift apart; each output
+    /// sample averages the chip's own samples it covers (about one, at 48 kHz).
+    pub fn mix_into(&mut self, rate: u32, out: &mut [i16]) {
         if !self.enabled {
             return;
         }
-        // The chip makes one sample every 72 of its clocks; the output wants `rate` a second.
-        let chip_rate = 3_579_545.0 / RATE_DIV;
-        self.frac += f64::from(cpu_cycles) / RATE_DIV;
-        let mut i = 0;
-        let per_out = chip_rate / f64::from(rate);
-        let mut counter = self.noise;
-        while self.frac >= 1.0 && i + 1 < out.len() {
-            self.frac -= 1.0;
-            counter = counter.wrapping_add(1);
-            let s = self.sample(counter);
-            self.carry += 1.0;
-            while self.carry >= per_out && i + 1 < out.len() {
-                self.carry -= per_out;
-                let v = (s * 3).clamp(-32768, 32767) as i16;
-                out[i] = out[i].saturating_add(v);
-                out[i + 1] = out[i + 1].saturating_add(v);
-                i += 2;
+        let per_out = 3_579_545.0 / RATE_DIV / f64::from(rate);
+        for pair in out.chunks_mut(2) {
+            self.carry += per_out;
+            let n = self.carry.floor() as u32;
+            self.carry -= f64::from(n);
+            let mut sum = 0i32;
+            for _ in 0..n {
+                sum += self.sample();
+            }
+            let v = (sum * 3 / 2 / n.max(1) as i32 * i32::from(self.volume) / 100).clamp(-32768, 32767) as i16;
+            for x in pair {
+                *x = x.saturating_add(v);
             }
         }
     }
@@ -396,7 +395,7 @@ mod tests {
     fn play(fm: &mut Fm, frames: usize) -> Vec<i16> {
         let mut out = vec![0i16; 1600 * frames];
         for chunk in out.chunks_mut(1600) {
-            fm.run(59_736, 48_000, chunk);
+            fm.mix_into(48_000, chunk);
         }
         out
     }
@@ -413,9 +412,15 @@ mod tests {
     #[test]
     fn a_note_plays_at_its_pitch_and_stops_when_released() {
         let mut fm = Fm { enabled: true, ..Fm::default() };
-        // Channel 0, flute (instrument 4), loudest; A4: F-number 288 block 4 is about 440 Hz.
+        // The user instrument as a pure sine: the modulator silenced (total level 63), both
+        // multipliers 1, sustained, instant attack. Channel 0 at full volume; F-number 288 in
+        // block 4 is 288 * 8 * 49716 / 2^18 = 437 Hz.
+        for (r, v) in [0x21u8, 0x21, 0x3F, 0x00, 0xF0, 0xF0, 0x00, 0x0F].iter().enumerate() {
+            fm.write_addr(r as u8);
+            fm.write_data(*v);
+        }
         fm.write_addr(0x30);
-        fm.write_data(0x40);
+        fm.write_data(0x00);
         fm.write_addr(0x10);
         fm.write_data(0x20);
         fm.write_addr(0x20);
@@ -424,7 +429,7 @@ mod tests {
         let left: Vec<i16> = out.chunks(2).map(|s| s[0]).collect();
         let tail = &left[left.len() - 24_000..];
         let rises = tail.windows(2).filter(|w| w[0] <= 0 && w[1] > 0).count();
-        assert!((400..=480).contains(&(rises * 2)), "about 440 Hz: {}", rises * 2);
+        assert!((430..=444).contains(&(rises * 2)), "about 437 Hz: {}", rises * 2);
         assert!(tail.iter().map(|v| i32::from(*v).abs()).max().unwrap() > 1000, "and loud enough to hear");
         fm.write_addr(0x20);
         fm.write_data(4 << 1 | 1);
@@ -433,10 +438,33 @@ mod tests {
     }
 
     #[test]
+    fn a_built_in_instrument_sounds_and_its_release_dies_away() {
+        let mut fm = Fm { enabled: true, ..Fm::default() };
+        // Flute (instrument 4) on channel 3; it is a sustained instrument whose release rate is 7.
+        fm.write_addr(0x33);
+        fm.write_data(0x40);
+        fm.write_addr(0x13);
+        fm.write_data(0x20);
+        fm.write_addr(0x23);
+        fm.write_data(0x10 | 4 << 1 | 1);
+        let out = play(&mut fm, 30);
+        let loud = out[out.len() - 4800..].iter().map(|v| i32::from(*v).abs()).max().unwrap();
+        assert!(loud > 1000, "it plays: {loud}");
+        fm.write_addr(0x23);
+        fm.write_data(4 << 1 | 1);
+        // Release rate 7: 48 dB in 19.64 s / 2^6 = 0.31 s, so after a tenth it is quieter but on.
+        let soon = play(&mut fm, 6);
+        let still = soon[soon.len() - 1600..].iter().map(|v| i32::from(*v).abs()).max().unwrap();
+        assert!(still > 0 && still < loud, "dying away: {still} of {loud}");
+        let out = play(&mut fm, 60);
+        assert!(out[out.len() - 2000..].iter().all(|v| v.abs() < 50), "silent once released");
+    }
+
+    #[test]
     fn switched_off_it_adds_nothing() {
         let mut fm = Fm::default();
         let mut out = vec![7i16; 1600];
-        fm.run(59_736, 48_000, &mut out);
+        fm.mix_into(48_000, &mut out);
         assert!(out.iter().all(|v| *v == 7));
     }
 }
