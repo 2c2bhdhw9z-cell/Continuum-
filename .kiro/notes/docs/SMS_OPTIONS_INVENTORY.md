@@ -52,12 +52,12 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gearsystem | `gearsystem_aspect_ratio` | Aspect Ratio | app | the app has its own picture shape setting | 1:1 PAR,4:3 DAR,16:9 DAR,16:10 DAR |
 | gearsystem | `gearsystem_overscan` | Overscan | planned |  | Disabled,Top+Bottom,Full (284 width),Full (320 width) |
 | gearsystem | `gearsystem_hide_left_bar` | Hide Left Bar (SMS only) | planned |  | No,Auto,Always |
-| gearsystem | `gearsystem_no_sprite_limit` | No Sprite Limit | planned |  | Disabled,Enabled |
+| gearsystem | `gearsystem_no_sprite_limit` | No Sprite Limit | done | `cgear_sprite_limit` | Disabled,Enabled |
 | gearsystem | `gearsystem_glasses` | 3D Glasses | planned | SegaScope 3-D glasses: which eye is shown | Both Eyes / OFF,Left Eye,Right Eye |
 | gearsystem | `gearsystem_ym2413` | YM2413 (restart) | done | `cgear_fm` (Auto/Off/On) | Auto,Disabled |
-| gearsystem | `gearsystem_psg_volume` | PSG Volume | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
+| gearsystem | `gearsystem_psg_volume` | PSG Volume | done | `cgear_volume` | 0,10,20,30,40,50,60,70,80,90,... |
 | gearsystem | `gearsystem_fm_volume` | FM Volume | done | `cgear_fm_volume` | 0,10,20,30,40,50,60,70,80,90,... |
-| gearsystem | `gearsystem_up_down_allowed` | Allow Up+Down / Left+Right | planned |  | Disabled,Enabled |
+| gearsystem | `gearsystem_up_down_allowed` | Allow Up+Down / Left+Right | done | `cgear_opposing` | Disabled,Enabled |
 | gearsystem | `gearsystem_lightgun_input` | Light Gun Input | planned |  | Light Gun,Touchscreen |
 | gearsystem | `gearsystem_lightgun_crosshair` | Light Gun Crosshair | planned |  | Disabled,Enabled |
 | gearsystem | `gearsystem_lightgun_shape` | Light Gun Crosshair Shape | planned |  | Cross,Square |
@@ -83,9 +83,9 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gpgx | `genesis_plus_gx_aspect_ratio` | Core-Provided Aspect Ratio | app | the app has its own picture shape setting | auto,NTSC PAR,PAL PAR,4:3,Uncorrected |
 | gpgx | `genesis_plus_gx_overscan` | Borders | planned |  | disabled,top/bottom,left/right,full |
 | gpgx | `genesis_plus_gx_left_border` | Hide Master System Side Borders | planned |  | disabled,left border,left & right borders |
-| gpgx | `genesis_plus_gx_gg_extra` | Game Gear Extended Screen | planned |  | disabled,enabled |
+| gpgx | `genesis_plus_gx_gg_extra` | Game Gear Extended Screen | done | `cgear_gg_full` | disabled,enabled |
 | gpgx | `genesis_plus_gx_blargg_ntsc_filter` | Blargg NTSC Filter | planned | TV look; Blargg's filter is LGPL, so written our own way or left to the app's shaders | disabled,monochrome,composite,svideo,rgb |
-| gpgx | `genesis_plus_gx_lcd_filter` | LCD Ghosting Filter | planned |  | disabled,enabled |
+| gpgx | `genesis_plus_gx_lcd_filter` | LCD Ghosting Filter | done | `cgear_gg_ghosting` | disabled,enabled |
 | gpgx | `genesis_plus_gx_render` | Interlaced Mode 2 Output | n/a | Mega Drive or Mega-CD only | single field,double field |
 | gpgx | `genesis_plus_gx_frameskip` | Frameskip | app | the app has its own frame skip | disabled,auto,manual |
 | gpgx | `genesis_plus_gx_frameskip_threshold` | Frameskip Threshold (%) | app | the app has its own frame skip | 15,18,21,24,27,30,33,36,39,42,... |
@@ -93,10 +93,10 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gpgx | `genesis_plus_gx_ym2413_core` | Master System FM (YM2413) Core | planned | one exact YM2413 of our own instead of a choice of two | mame,nuked |
 | gpgx | `genesis_plus_gx_ym2612` | Mega Drive/Genesis FM | n/a | Mega Drive or Mega-CD only | mame (ym2612),mame (asic ym3438),mame (enhanced ym3438),nuked (ym2612),nuked (ym3438) |
 | gpgx | `genesis_plus_gx_sound_output` | Sound Output | planned |  | stereo,mono |
-| gpgx | `genesis_plus_gx_audio_filter` | Audio Filter | planned |  | disabled,low-pass,EQ |
-| gpgx | `genesis_plus_gx_lowpass_range` | Low-Pass Filter % | planned |  | 5,10,15,20,25,30,35,40,45,50,... |
-| gpgx | `genesis_plus_gx_psg_preamp` | PSG Preamp Level | planned |  | 0,5,10,15,20,25,30,35,40,45,... |
-| gpgx | `genesis_plus_gx_fm_preamp` | FM Preamp Level | planned |  | 0,5,10,15,20,25,30,35,40,45,... |
+| gpgx | `genesis_plus_gx_audio_filter` | Audio Filter | done | `cgear_lowpass` (low-pass; no EQ yet) | disabled,low-pass,EQ |
+| gpgx | `genesis_plus_gx_lowpass_range` | Low-Pass Filter % | done | `cgear_lowpass` (Light/Medium/Strong) | 5,10,15,20,25,30,35,40,45,50,... |
+| gpgx | `genesis_plus_gx_psg_preamp` | PSG Preamp Level | done | `cgear_volume` | 0,5,10,15,20,25,30,35,40,45,... |
+| gpgx | `genesis_plus_gx_fm_preamp` | FM Preamp Level | done | `cgear_fm_volume` | 0,5,10,15,20,25,30,35,40,45,... |
 | gpgx | `genesis_plus_gx_cdda_volume` | CD-DA Volume | n/a | Mega Drive or Mega-CD only | 0,5,10,15,20,25,30,35,40,45,... |
 | gpgx | `genesis_plus_gx_pcm_volume` | PCM Volume | n/a | Mega Drive or Mega-CD only | 0,5,10,15,20,25,30,35,40,45,... |
 | gpgx | `genesis_plus_gx_audio_eq_low` | EQ Low | planned |  | 0,5,10,15,20,25,30,35,40,45,... |
@@ -105,7 +105,7 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gpgx | `genesis_plus_gx_gun_input` | Light Gun Input | planned |  | lightgun,touchscreen |
 | gpgx | `genesis_plus_gx_gun_cursor` | Show Light Gun Crosshair | planned |  | disabled,enabled |
 | gpgx | `genesis_plus_gx_invert_mouse` | Invert Mouse Y-Axis | n/a | Mega Drive or Mega-CD only | disabled,enabled |
-| gpgx | `genesis_plus_gx_no_sprite_limit` | Remove Per-Line Sprite Limit | planned |  | disabled,enabled |
+| gpgx | `genesis_plus_gx_no_sprite_limit` | Remove Per-Line Sprite Limit | done | `cgear_sprite_limit` | disabled,enabled |
 | gpgx | `genesis_plus_gx_enhanced_vscroll` | Enhanced per-tile vertical scroll | n/a | Mega Drive or Mega-CD only | disabled,enabled |
 | gpgx | `genesis_plus_gx_enhanced_vscroll_limit` | Enhanced per-tile vertical scroll limit | n/a | Mega Drive or Mega-CD only | 2,3,4,5,6,7,8,9,10,11,... |
 | gpgx | `genesis_plus_gx_overclock` | CPU Speed | planned | Z80 speed above the console's, for slowdown | 100,125,150,175,200,225,250,275,300,325,... |
@@ -114,49 +114,49 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gpgx | `genesis_plus_gx_cd_latency` | CD Access Time | n/a | Mega Drive or Mega-CD only | enabled,disabled |
 | gpgx | `genesis_plus_gx_cd_precache` | CD Image Cache | n/a | Mega Drive or Mega-CD only | disabled,enabled |
 | gpgx | `genesis_plus_gx_show_advanced_audio_settings` | Show Advanced Audio Volume Settings (Reopen menu) | n/a | Mega Drive or Mega-CD only | enabled,disabled |
-| gpgx | `genesis_plus_gx_psg_channel_0_volume` | PSG Tone Channel 0 Volume % | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
-| gpgx | `genesis_plus_gx_psg_channel_1_volume` | PSG Tone Channel 1 Volume % | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
-| gpgx | `genesis_plus_gx_psg_channel_2_volume` | PSG Tone Channel 2 Volume % | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
-| gpgx | `genesis_plus_gx_psg_channel_3_volume` | PSG Noise Channel 3 Volume % | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
+| gpgx | `genesis_plus_gx_psg_channel_0_volume` | PSG Tone Channel 0 Volume % | done | `cgear_vol_tone1` | 0,10,20,30,40,50,60,70,80,90,... |
+| gpgx | `genesis_plus_gx_psg_channel_1_volume` | PSG Tone Channel 1 Volume % | done | `cgear_vol_tone2` | 0,10,20,30,40,50,60,70,80,90,... |
+| gpgx | `genesis_plus_gx_psg_channel_2_volume` | PSG Tone Channel 2 Volume % | done | `cgear_vol_tone3` | 0,10,20,30,40,50,60,70,80,90,... |
+| gpgx | `genesis_plus_gx_psg_channel_3_volume` | PSG Noise Channel 3 Volume % | done | `cgear_vol_noise` | 0,10,20,30,40,50,60,70,80,90,... |
 | gpgx | `genesis_plus_gx_md_channel_0_volume` | Mega Drive/Genesis FM Channel 0 Volume % | n/a | Mega Drive or Mega-CD only | 0,10,20,30,40,50,60,70,80,90,... |
 | gpgx | `genesis_plus_gx_md_channel_1_volume` | Mega Drive/Genesis FM Channel 1 Volume % | n/a | Mega Drive or Mega-CD only | 0,10,20,30,40,50,60,70,80,90,... |
 | gpgx | `genesis_plus_gx_md_channel_2_volume` | Mega Drive/Genesis FM Channel 2 Volume % | n/a | Mega Drive or Mega-CD only | 0,10,20,30,40,50,60,70,80,90,... |
 | gpgx | `genesis_plus_gx_md_channel_3_volume` | Mega Drive/Genesis FM Channel 3 Volume % | n/a | Mega Drive or Mega-CD only | 0,10,20,30,40,50,60,70,80,90,... |
 | gpgx | `genesis_plus_gx_md_channel_4_volume` | Mega Drive/Genesis FM Channel 4 Volume % | n/a | Mega Drive or Mega-CD only | 0,10,20,30,40,50,60,70,80,90,... |
 | gpgx | `genesis_plus_gx_md_channel_5_volume` | Mega Drive/Genesis FM Channel 5 Volume % | n/a | Mega Drive or Mega-CD only | 0,10,20,30,40,50,60,70,80,90,... |
-| gpgx | `genesis_plus_gx_sms_fm_channel_0_volume` | Master System FM (YM2413) Channel 0 Volume % | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
-| gpgx | `genesis_plus_gx_sms_fm_channel_1_volume` | Master System FM (YM2413) Channel 1 Volume % | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
-| gpgx | `genesis_plus_gx_sms_fm_channel_2_volume` | Master System FM (YM2413) Channel 2 Volume % | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
-| gpgx | `genesis_plus_gx_sms_fm_channel_3_volume` | Master System FM (YM2413) Channel 3 Volume % | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
-| gpgx | `genesis_plus_gx_sms_fm_channel_4_volume` | Master System FM (YM2413) Channel 4 Volume % | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
-| gpgx | `genesis_plus_gx_sms_fm_channel_5_volume` | Master System FM (YM2413) Channel 5 Volume % | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
-| gpgx | `genesis_plus_gx_sms_fm_channel_6_volume` | Master System FM (YM2413) Channel 6 Volume % | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
-| gpgx | `genesis_plus_gx_sms_fm_channel_7_volume` | Master System FM (YM2413) Channel 7 Volume % | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
-| gpgx | `genesis_plus_gx_sms_fm_channel_8_volume` | Master System FM (YM2413) Channel 8 Volume % | planned |  | 0,10,20,30,40,50,60,70,80,90,... |
+| gpgx | `genesis_plus_gx_sms_fm_channel_0_volume` | Master System FM (YM2413) Channel 0 Volume % | done | `cgear_vol_fm1` | 0,10,20,30,40,50,60,70,80,90,... |
+| gpgx | `genesis_plus_gx_sms_fm_channel_1_volume` | Master System FM (YM2413) Channel 1 Volume % | done | `cgear_vol_fm2` | 0,10,20,30,40,50,60,70,80,90,... |
+| gpgx | `genesis_plus_gx_sms_fm_channel_2_volume` | Master System FM (YM2413) Channel 2 Volume % | done | `cgear_vol_fm3` | 0,10,20,30,40,50,60,70,80,90,... |
+| gpgx | `genesis_plus_gx_sms_fm_channel_3_volume` | Master System FM (YM2413) Channel 3 Volume % | done | `cgear_vol_fm4` | 0,10,20,30,40,50,60,70,80,90,... |
+| gpgx | `genesis_plus_gx_sms_fm_channel_4_volume` | Master System FM (YM2413) Channel 4 Volume % | done | `cgear_vol_fm5` | 0,10,20,30,40,50,60,70,80,90,... |
+| gpgx | `genesis_plus_gx_sms_fm_channel_5_volume` | Master System FM (YM2413) Channel 5 Volume % | done | `cgear_vol_fm6` | 0,10,20,30,40,50,60,70,80,90,... |
+| gpgx | `genesis_plus_gx_sms_fm_channel_6_volume` | Master System FM (YM2413) Channel 6 Volume % | done | `cgear_vol_fm7` | 0,10,20,30,40,50,60,70,80,90,... |
+| gpgx | `genesis_plus_gx_sms_fm_channel_7_volume` | Master System FM (YM2413) Channel 7 Volume % | done | `cgear_vol_fm8` | 0,10,20,30,40,50,60,70,80,90,... |
+| gpgx | `genesis_plus_gx_sms_fm_channel_8_volume` | Master System FM (YM2413) Channel 8 Volume % | done | `cgear_vol_fm9` | 0,10,20,30,40,50,60,70,80,90,... |
 | picodrive | `picodrive_region` | System Region | planned |  | Auto,Japan NTSC,Japan PAL,US,Europe |
 | picodrive | `picodrive_smstype` | Master System Type | planned | includes the SC-3000 (needs a keyboard) | Auto,Game Gear,Master System,SG-1000,SC-3000 |
 | picodrive | `picodrive_smsmapper` | Master System ROM Mapping | planned |  | Auto,Sega,Codemasters,Korea,Korea MSX,Korea X-in-1,Korea 4-Pak,Korea Janggun,Korea Nemesis,Taiwan 8K RAM |
 | picodrive | `picodrive_smstms` | Master System Palette in TMS modes | planned |  | SMS,SG-1000 |
 | picodrive | `picodrive_ramcart` | Sega CD RAM Cart | n/a | Mega Drive or Mega-CD only | disabled,enabled |
 | picodrive | `picodrive_aspect` | Core-Provided Aspect Ratio | app | the app has its own picture shape setting | PAR,4/3,CRT |
-| picodrive | `picodrive_ggghost` | LCD Ghosting Filter | planned |  | off,weak,normal |
+| picodrive | `picodrive_ggghost` | LCD Ghosting Filter | done | `cgear_gg_ghosting` (Off/Weak/Normal) | off,weak,normal |
 | picodrive | `picodrive_renderer` | Video Renderer | planned | a faster, less exact picture: only if the exact one is too slow | accurate,good,fast |
 | picodrive | `picodrive_sound_rate` | Audio Sample Rate (Hz) | planned | output sample rate | 16000,22050,32000,44100,native |
 | picodrive | `picodrive_fm_filter` | FM filtering | n/a | Mega Drive or Mega-CD only | off,on |
-| picodrive | `picodrive_smsfm` | Master System FM Sound Unit | planned |  | off,on |
+| picodrive | `picodrive_smsfm` | Master System FM Sound Unit | done | `cgear_fm` | off,on |
 | picodrive | `picodrive_fmchip` | Mega Drive FM chip type | n/a | Mega Drive or Mega-CD only | ym2612,ym3438 |
-| picodrive | `picodrive_audio_filter` | Audio Filter | planned |  | disabled,low-pass |
-| picodrive | `picodrive_lowpass_range` | Low-Pass Filter % | planned |  | 5,10,15,20,25,30,35,40,45,50,... |
+| picodrive | `picodrive_audio_filter` | Audio Filter | done | `cgear_lowpass` | disabled,low-pass |
+| picodrive | `picodrive_lowpass_range` | Low-Pass Filter % | done | `cgear_lowpass` | 5,10,15,20,25,30,35,40,45,50,... |
 | picodrive | `picodrive_input1` | Input Device 1 | planned | what is plugged into each port (pad, light phaser, paddle, sports pad, keyboard) | 3 button pad,6 button pad,team player,4way play,None |
 | picodrive | `picodrive_input2` | Input Device 2 | n/a | Mega Drive or Mega-CD only | 3 button pad,6 button pad,None |
 | picodrive | `picodrive_drc` | Dynamic Recompilers | n/a | Mega Drive or Mega-CD only | enabled,disabled |
 | picodrive | `picodrive_frameskip` | Frameskip | app | the app has its own frame skip | disabled,auto,manual |
 | picodrive | `picodrive_frameskip_threshold` | Frameskip Threshold (%) | app | the app has its own frame skip | 15,18,21,24,27,30,33,36,39,42,... |
-| picodrive | `picodrive_sprlim` | No Sprite Limit | planned |  | disabled,enabled |
+| picodrive | `picodrive_sprlim` | No Sprite Limit | done | `cgear_sprite_limit` | disabled,enabled |
 | picodrive | `picodrive_overclk68k` | 68K Overclock | n/a | Mega Drive or Mega-CD only | disabled,+25%,+50%,+75%,+100%,+200%,+400% |
 | smsplus | `smsplus_sms_bios` | Master System BIOS (Restart Required) | planned |  | disabled,auto |
 | smsplus | `smsplus_hardware` | Hardware (Restart Required) | planned | includes ColecoVision, a different console (not in S1) | auto,master system,master system II,game gear,game gear (sms compatibility),coleco |
 | smsplus | `smsplus_region` | Region (Restart Required) | planned |  | auto,ntsc-u,pal,ntsc-j |
-| smsplus | `smsplus_fm_sound` | Use FM (YM2413) (Restart Required) | planned |  | auto,disabled |
+| smsplus | `smsplus_fm_sound` | Use FM (YM2413) (Restart Required) | done | `cgear_fm` | auto,disabled |
 | smsplus | `smsplus_hide_left_border` | Hide SMS Left Border | planned |  | disabled,enabled |
 | smsplus | `smsplus_ntsc_filter` | Blargg NTSC Filter | planned | as above | disabled,composite,svideo,rgb,monochrome |

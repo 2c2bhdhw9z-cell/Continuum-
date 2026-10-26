@@ -84,6 +84,8 @@ struct Core {
     at_start: Settings,
     /// The last picture shown, for the Game Gear's ghosting.
     prev: Vec<u32>,
+    /// The sound filter's last output, left and right.
+    lp: [f32; 2],
 }
 
 impl std::ops::Deref for Core {
@@ -107,6 +109,8 @@ impl Core {
         self.m.bus.psg.chan_vol = s.chan_vol;
         self.m.bus.psg.volume = s.volume;
         self.m.bus.fm.volume = s.fm_volume;
+        self.m.bus.fm.chan_vol = s.fm_chan_vol;
+        self.m.bus.vdp.gg_full = self.at_start.gg_full;
     }
 }
 
@@ -160,7 +164,7 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
     if info.is_null() {
         return;
     }
-    let (pal, gg, cut) = CORE.lock().ok().and_then(|c| c.as_ref().map(|m| (m.bus.vdp.pal, m.bus.gg, m.at_start.hide_left))).unwrap_or((false, false, false));
+    let (pal, gg, cut) = CORE.lock().ok().and_then(|c| c.as_ref().map(|m| (m.bus.vdp.pal, m.bus.gg && !m.at_start.gg_full, m.at_start.hide_left))).unwrap_or((false, false, false));
     // A Master System on a TV: 256 x 192 shown 4:3 (248 wide without its left column). A Game
     // Gear's own screen: 160 x 144, 10:9.
     let (w, h, aspect) = if gg {
@@ -242,7 +246,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     }
     let s = env.map(|e| crate::options::read(e)).unwrap_or_default();
     let m = machine(rom, &s, (*game).path);
-    let mut core = Core { m, s: s.clone(), at_start: s, prev: Vec::new() };
+    let mut core = Core { m, s: s.clone(), at_start: s, prev: Vec::new(), lp: [0.0; 2] };
     core.apply();
     if let Ok(mut c) = CORE.lock() {
         *c = Some(core);
@@ -380,10 +384,12 @@ pub unsafe extern "C" fn retro_run() {
             shown = shown.chunks(w).flat_map(|row| row[8..].iter().copied()).collect();
             w -= 8;
         }
-        if m.s.gg_ghosting && m.bus.gg {
+        if m.s.gg_ghosting > 0 && m.bus.gg {
             if m.prev.len() == shown.len() {
+                let keep = u32::from(m.s.gg_ghosting);
+                let mix = |a: u32, b: u32, sh: u32| (((a >> sh & 0xFF) * (100 - keep) + (b >> sh & 0xFF) * keep) / 100) << sh;
                 for (p, q) in shown.iter_mut().zip(&m.prev) {
-                    *p = ((*p & 0xFEFEFE) >> 1) + ((*q & 0xFEFEFE) >> 1);
+                    *p = mix(*p, *q, 16) | mix(*p, *q, 8) | mix(*p, *q, 0);
                 }
             }
             m.prev.clone_from(&shown);
@@ -396,6 +402,16 @@ pub unsafe extern "C" fn retro_run() {
         for pair in samples.chunks_mut(2) {
             let v = ((i32::from(pair[0]) + i32::from(pair[1])) / 2) as i16;
             pair.fill(v);
+        }
+    }
+    if m.s.lowpass > 0 {
+        // One pole: each sample moves part of the way to the new value.
+        let a = 1.0 - (-std::f32::consts::TAU * f32::from(m.s.lowpass) / RATE as f32).exp();
+        for pair in samples.chunks_mut(2) {
+            for (x, y) in pair.iter_mut().zip(m.lp.iter_mut()) {
+                *y += a * (f32::from(*x) - *y);
+                *x = *y as i16;
+            }
         }
     }
     if let Some(audio) = audio {

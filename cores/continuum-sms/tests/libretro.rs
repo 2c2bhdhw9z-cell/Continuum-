@@ -114,6 +114,10 @@ fn settings_reach_the_game() {
     let (_, _, _, fifty) = run_with(&[("cgear_refresh", "50")], 50);
     let (_, _, _, sixty) = run_with(&[], 50);
     assert!(fifty > sixty * 115 / 100, "a 50 Hz frame is longer, so it makes more sound: {fifty} {sixty}");
+    let (w, h, _, _) = run_with(&[("cgear_console", "gg")], 5);
+    assert_eq!((w, h), (160, 144), "a Game Gear's own screen");
+    let (w, h, _, _) = run_with(&[("cgear_console", "gg"), ("cgear_gg_full", "on")], 5);
+    assert_eq!((w, h), (256, 192), "the whole picture it draws");
 }
 
 #[test]

@@ -139,6 +139,13 @@ pub struct Fm {
     /// Its volume, percent (a setting; not saved).
     #[serde(skip, default = "hundred")]
     pub volume: u8,
+    /// Each channel's volume, percent (settings; not saved).
+    #[serde(skip, default = "full")]
+    pub chan_vol: [u8; 9],
+}
+
+fn full() -> [u8; 9] {
+    [100; 9]
 }
 
 fn hundred() -> u8 {
@@ -147,7 +154,7 @@ fn hundred() -> u8 {
 
 impl Default for Fm {
     fn default() -> Fm {
-        Fm { addr: 0, user: [0; 8], ch: [Channel::default(); 9], rhythm: 0, noise: 1, am_phase: 0, pm_phase: 0, carry: 0.0, enabled: false, volume: 100 }
+        Fm { addr: 0, user: [0; 8], ch: [Channel::default(); 9], rhythm: 0, noise: 1, am_phase: 0, pm_phase: 0, carry: 0.0, enabled: false, volume: 100, chan_vol: [100; 9] }
     }
 }
 
@@ -348,17 +355,18 @@ impl Fm {
                 x.out = [x.out[1], v];
                 outs[o] = v;
             }
-            if rhythm && n >= 6 {
+            let v = if rhythm && n >= 6 {
                 // The drums use the operators as their own voices.
                 let noise = if self.noise & 1 != 0 { 1 } else { -1 };
-                mix += match n {
+                match n {
                     6 => outs[1] * 2,
                     7 => (outs[0].abs() * noise) + outs[1] * 2,
                     _ => outs[0] * 2 + (outs[1].abs() * noise),
-                };
+                }
             } else {
-                mix += outs[1];
-            }
+                outs[1]
+            };
+            mix += v * i32::from(self.chan_vol[n]) / 100;
         }
         mix
     }

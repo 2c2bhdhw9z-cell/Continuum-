@@ -71,6 +71,9 @@ pub struct Vdp {
     /// A Game Gear's: 64 bytes of colour memory, two to a colour (4 bits each of red, green and
     /// blue), written a pair at a time, and a 160x144 window of the picture on its screen.
     #[serde(default)]
+    /// A Game Gear's picture is handed over whole, not as its screen's window (a setting).
+    #[serde(skip)]
+    pub gg_full: bool,
     pub gg: bool,
     /// An SG-1000's TMS9918: none of the Master System's mode 4, taller modes or line interrupt.
     #[serde(default)]
@@ -105,6 +108,7 @@ impl Default for Vdp {
             line: 0,
             pal: false,
             gg: false,
+            gg_full: false,
             tms: false,
             sprite_limit: true,
             cram_latch: 0,
@@ -132,7 +136,7 @@ impl Vdp {
     /// Game Gear. Returns (width, height).
     pub fn shown(&self, out: &mut Vec<u32>) -> (usize, usize) {
         out.clear();
-        if self.gg {
+        if self.gg && !self.gg_full {
             for y in 24..168 {
                 out.extend_from_slice(&self.frame[y * WIDTH + 48..y * WIDTH + 208]);
             }

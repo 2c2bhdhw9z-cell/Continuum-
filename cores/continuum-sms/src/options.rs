@@ -82,6 +82,9 @@ const SPECS: &[Spec] = &[
      OFF_ON, c"off"),
     (c"video", c"cgear_gg_ghosting", c"Game Gear screen ghosting",
      c"Blends each picture with the last, as the Game Gear's slow screen did.",
+     &[(c"off", c"Off"), (c"weak", c"Weak"), (c"on", c"Normal")], c"off"),
+    (c"video", c"cgear_gg_full", c"Game Gear whole picture",
+     c"Shows everything the console draws, beyond its small screen's edges; changes apply at the next start.",
      OFF_ON, c"off"),
     (c"audio", c"cgear_fm", c"FM sound chip",
      c"Richer music in many games; Auto has it on a Japanese Master System only, like the real ones.",
@@ -92,6 +95,18 @@ const SPECS: &[Spec] = &[
     (c"audio", c"cgear_vol_tone2", c"Tone 2", c"", PCT, c"100"),
     (c"audio", c"cgear_vol_tone3", c"Tone 3", c"", PCT, c"100"),
     (c"audio", c"cgear_vol_noise", c"Noise", c"", PCT, c"100"),
+    (c"audio", c"cgear_vol_fm1", c"FM channel 1", c"", PCT, c"100"),
+    (c"audio", c"cgear_vol_fm2", c"FM channel 2", c"", PCT, c"100"),
+    (c"audio", c"cgear_vol_fm3", c"FM channel 3", c"", PCT, c"100"),
+    (c"audio", c"cgear_vol_fm4", c"FM channel 4", c"", PCT, c"100"),
+    (c"audio", c"cgear_vol_fm5", c"FM channel 5", c"", PCT, c"100"),
+    (c"audio", c"cgear_vol_fm6", c"FM channel 6", c"", PCT, c"100"),
+    (c"audio", c"cgear_vol_fm7", c"FM channel 7", c"In drum mode, channels 7 to 9 play the drums.", PCT, c"100"),
+    (c"audio", c"cgear_vol_fm8", c"FM channel 8", c"", PCT, c"100"),
+    (c"audio", c"cgear_vol_fm9", c"FM channel 9", c"", PCT, c"100"),
+    (c"audio", c"cgear_lowpass", c"Soften the sound",
+     c"Takes the edge off the high notes, like a TV's speaker.",
+     &[(c"off", c"Off"), (c"light", c"Light"), (c"medium", c"Medium"), (c"strong", c"Strong")], c"off"),
     (c"audio", c"cgear_mono", c"Mono sound",
      c"Game Gear games are in stereo; this mixes them into one.",
      OFF_ON, c"off"),
@@ -117,7 +132,14 @@ pub struct Settings {
     pub sprite_limit: bool,
     /// Cut the Master System's leftmost eight pixels off the picture.
     pub hide_left: bool,
-    pub gg_ghosting: bool,
+    /// How much of the last picture each one keeps, percent (0 off, 25 weak, 50 normal).
+    pub gg_ghosting: u8,
+    /// A Game Gear shows the whole 256-pixel picture, not its 160 x 144 window.
+    pub gg_full: bool,
+    /// Each FM channel's volume, percent.
+    pub fm_chan_vol: [u8; 9],
+    /// A low-pass filter's corner, Hz (0: none).
+    pub lowpass: u16,
     pub volume: u8,
     pub chan_vol: [u8; 4],
     pub mono: bool,
@@ -131,7 +153,7 @@ impl Default for Settings {
     fn default() -> Settings {
         Settings {
             console: Console::Auto, japan: false, pal: false, mapper: None, sprite_limit: true, hide_left: false,
-            gg_ghosting: false, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100,
+            gg_ghosting: 0, gg_full: false, fm_chan_vol: [100; 9], lowpass: 0, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100,
         }
     }
 }
@@ -158,7 +180,20 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
     };
     s.sprite_limit = on(c"cgear_sprite_limit", true);
     s.hide_left = on(c"cgear_hide_left", false);
-    s.gg_ghosting = on(c"cgear_gg_ghosting", false);
+    s.gg_ghosting = match get(c"cgear_gg_ghosting").as_deref() {
+        Some("weak") => 25,
+        Some("on") => 50,
+        _ => 0,
+    };
+    s.gg_full = on(c"cgear_gg_full", false);
+    let fm_keys = [c"cgear_vol_fm1", c"cgear_vol_fm2", c"cgear_vol_fm3", c"cgear_vol_fm4", c"cgear_vol_fm5", c"cgear_vol_fm6", c"cgear_vol_fm7", c"cgear_vol_fm8", c"cgear_vol_fm9"];
+    s.fm_chan_vol = fm_keys.map(|k| pct(k));
+    s.lowpass = match get(c"cgear_lowpass").as_deref() {
+        Some("light") => 8000,
+        Some("medium") => 5000,
+        Some("strong") => 3000,
+        _ => 0,
+    };
     s.volume = pct(c"cgear_volume");
     s.chan_vol = [pct(c"cgear_vol_tone1"), pct(c"cgear_vol_tone2"), pct(c"cgear_vol_tone3"), pct(c"cgear_vol_noise")];
     s.mono = on(c"cgear_mono", false);
