@@ -18,6 +18,8 @@ struct PokemonBoxRequest: Identifiable {
 }
 
 /// Which library games are Pokémon games the Box knows. Read from each file's header once.
+/// On the main actor, as the save-state store whose game ids it uses is.
+@MainActor
 enum PokemonGames {
     private static var known: [String: PokeGame] = [:]
     private static var unknown: Set<String> = []
