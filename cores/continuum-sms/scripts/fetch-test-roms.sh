@@ -12,4 +12,10 @@ if [ ! -f test-roms/zexall.sms ]; then
   unzip -q -o "$tmp/z.zip" zexall.sms zexdoc.sms -d test-roms
   rm -rf "$tmp"
 fi
+# FluBBa's SMS VDP test 1.31, from emudev-org/emudev-hwtests (tests/vdptest.rs).
+if [ ! -f test-roms/VDPTest.sms ]; then
+  curl -fsSL -o test-roms/VDPTest.sms \
+    "https://raw.githubusercontent.com/emudev-org/emudev-hwtests/f64b1126a09ef73b269b112cdee1c23f2a4cedd0/video/sms%20vdp/SMSVDPTest/SMSVDPTest-SMS-1.31/VDPTEST.sms" \
+    || echo "VDPTest not fetched (tests/vdptest.rs will say SKIPPED)"
+fi
 ls -la test-roms

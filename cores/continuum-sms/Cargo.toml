@@ -17,6 +17,10 @@ crate-type = ["cdylib", "rlib"]
 serde = { version = "1", features = ["derive"] }
 bincode = "1.3"
 
+[dev-dependencies]
+# Writes screenshots of test programs for a person to look at (tests/vdptest.rs). Tests only.
+png = "0.17"
+
 [profile.test]
 opt-level = 2
 
