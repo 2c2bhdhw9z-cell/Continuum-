@@ -76,13 +76,19 @@ fn cartridge() -> Vec<u8> {
 /// Loads the cartridge with `opts`, runs `n` frames; returns the last picture's size and pixels,
 /// and the samples made.
 fn run_with(opts: &[(&'static str, &str)], n: usize) -> (u32, u32, Vec<u32>, usize) {
+    let (mut frames, samples) = run_rom(cartridge(), opts, n);
+    let (w, h, px) = frames.pop().unwrap();
+    (w, h, px, samples)
+}
+
+/// Loads `rom` with `opts`, runs `n` frames; returns every picture and the samples made.
+fn run_rom(rom: Vec<u8>, opts: &[(&'static str, &str)], n: usize) -> (Vec<(u32, u32, Vec<u32>)>, usize) {
     *OPTS.lock().unwrap() = opts.iter().map(|(k, v)| (*k, std::ffi::CString::new(*v).unwrap())).collect();
     {
         let mut o = OUT.lock().unwrap();
         o.frames.clear();
         o.samples = 0;
     }
-    let rom = cartridge();
     unsafe {
         retro_set_environment(env);
         retro_set_video_refresh(video);
@@ -99,9 +105,29 @@ fn run_with(opts: &[(&'static str, &str)], n: usize) -> (u32, u32, Vec<u32>, usi
         retro_deinit();
     }
     let mut o = OUT.lock().unwrap();
-    let (w, h, px) = o.frames.pop().unwrap();
     *OPTS.lock().unwrap() = Vec::new();
-    (w, h, px, o.samples)
+    (std::mem::take(&mut o.frames), o.samples)
+}
+
+/// A 3-D glasses game in miniature: in each frame's blank it flips the glasses at $FFF8 and
+/// sets colour 0 to match, dim red ($01) for the left eye's frame and black for the right's.
+fn glasses_cartridge() -> Vec<u8> {
+    let code: &[u8] = &[
+        0xF3, // DI
+        0x3E, 0x00, 0xD3, 0xBF, 0x3E, 0x87, 0xD3, 0xBF, // register 7 = 0
+        0x3E, 0x40, 0xD3, 0xBF, 0x3E, 0x81, 0xD3, 0xBF, // register 1 = $40: screen on
+        // wait: IN A,($BF) / RLCA / JR NC,wait  (the frame flag)
+        0xDB, 0xBF, 0x07, 0x30, 0xFB,
+        0x3A, 0x00, 0xC1, 0xEE, 0x01, 0x32, 0x00, 0xC1, // LD A,($C100) / XOR 1 / LD ($C100),A
+        0x32, 0xF8, 0xFF, // LD ($FFF8),A
+        0x47, // LD B,A
+        0x3E, 0x00, 0xD3, 0xBF, 0x3E, 0xC0, 0xD3, 0xBF, // colour memory address 0
+        0x78, 0xD3, 0xBE, // LD A,B / OUT ($BE),A
+        0x18, 0xE1, // JR wait
+    ];
+    let mut rom = vec![0u8; 0x8000];
+    rom[..code.len()].copy_from_slice(code);
+    rom
 }
 
 static TURN: Mutex<()> = Mutex::new(());
@@ -121,6 +147,19 @@ fn settings_reach_the_game() {
     let (w, h, px, _) = run_with(&[("cgear_borders", "full")], 5);
     assert_eq!((w, h), (13 + 256 + 15, 27 + 192 + 24), "the TV's border all round");
     assert_eq!(px[0], px[27 * w as usize + 13 + 100], "in the backdrop colour the game set (blue)");
+}
+
+#[test]
+fn a_3d_glasses_game_shows_one_eye_when_asked() {
+    let _t = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let colours = |opts: &[(&'static str, &str)]| -> Vec<u32> {
+        let (frames, _) = run_rom(glasses_cartridge(), opts, 20);
+        frames[4..].iter().map(|(_, _, px)| px[100 * 256 + 100]).collect()
+    };
+    let both = colours(&[]);
+    assert!(both.contains(&0x550000) && both.contains(&0x000000), "both eyes take turns: {both:x?}");
+    assert!(colours(&[("cgear_3d", "left")]).iter().all(|c| *c == 0x550000), "only the left eye's");
+    assert!(colours(&[("cgear_3d", "right")]).iter().all(|c| *c == 0x000000), "only the right eye's");
 }
 
 #[test]

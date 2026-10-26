@@ -32,6 +32,9 @@ pub struct Sms {
     /// The CPU's speed, percent of the real one (a setting, for games that slow down; not saved).
     #[serde(skip, default = "hundred")]
     pub cpu_percent: u32,
+    /// Which eye of the 3-D glasses the frame just made is for.
+    #[serde(skip)]
+    pub frame_left_eye: bool,
 }
 
 fn hundred() -> u32 {
@@ -55,7 +58,7 @@ impl Sms {
         if bus.mapper == crate::bus::Mapper::Codemasters {
             bus.banks = [0, 1, 0];
         }
-        Sms { cpu, bus, over: 0, frames: 0, samples: Vec::new(), rate: default_rate(), pause_held: false, shown: Vec::new(), cpu_percent: 100 }
+        Sms { cpu, bus, over: 0, frames: 0, samples: Vec::new(), rate: default_rate(), pause_held: false, shown: Vec::new(), cpu_percent: 100, frame_left_eye: false }
     }
 
     /// One line of CPU time, with the picture chip's line events at its start.
@@ -120,6 +123,8 @@ impl Sms {
     }
 
     pub fn run_frame(&mut self) {
+        // The eye this frame is for: games set the glasses in the blank before they draw it.
+        self.frame_left_eye = self.bus.glasses_left;
         for line in 0..self.bus.vdp.lines() {
             self.run_line(line);
         }

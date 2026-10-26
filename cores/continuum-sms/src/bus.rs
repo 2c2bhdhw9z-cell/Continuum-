@@ -73,6 +73,13 @@ pub struct Bus {
     /// other chip still plays (SMS Power, "Audio Control Port").
     #[serde(default)]
     pub audio_ctrl: u8,
+    /// The SegaScope 3-D glasses: the last bit written to $FFF8-$FFFB (1 the left eye's
+    /// picture, 0 the right's), and whether the game has written there at all (SMS Power,
+    /// "3D Glasses").
+    #[serde(default)]
+    pub glasses_left: bool,
+    #[serde(default)]
+    pub glasses_used: bool,
     /// The pads, as their ports read (a bit is 0 while its button is held): $DC and $DD.
     pub pad_dc: u8,
     pub pad_dd: u8,
@@ -132,6 +139,8 @@ impl Bus {
             has_fm: false,
             fm: Fm::default(),
             audio_ctrl: 0,
+            glasses_left: false,
+            glasses_used: false,
             pad_dc: 0xFF,
             pad_dd: 0xFF,
             io_ctrl: 0xFF,
@@ -221,6 +230,12 @@ impl z80::Bus for Bus {
     }
 
     fn write(&mut self, addr: u16, v: u8) {
+        if (0xFFF8..=0xFFFB).contains(&addr) && !self.sg && !self.gg {
+            // Seen by the glasses' adaptor on the card slot's buses; the work RAM under it takes
+            // the write too, below.
+            self.glasses_left = v & 1 != 0;
+            self.glasses_used = true;
+        }
         if self.sg {
             if addr >= 0xC000 {
                 self.ram[usize::from(addr & 0x3FF)] = v;
@@ -481,5 +496,17 @@ mod tests {
         b.output(0xF0, 0x30);
         b.output(0xF1, 0x40);
         assert_eq!(b.psg.att, [15; 4]);
+    }
+
+    #[test]
+    fn the_3d_glasses_follow_the_low_bit_written_at_fff8_and_ram_keeps_it() {
+        let mut b = Bus::new(vec![0; 0x8000]);
+        assert!(!b.glasses_used);
+        b.write(0xFFF8, 1);
+        assert!(b.glasses_used && b.glasses_left);
+        b.write(0xFFFB, 0);
+        assert!(!b.glasses_left, "the bottom two address bits are not looked at");
+        b.write(0xFFF9, 0x55);
+        assert_eq!(b.read(0xFFF9), 0x55, "work RAM underneath takes the write");
     }
 }

@@ -53,7 +53,7 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gearsystem | `gearsystem_overscan` | Overscan | done | `cgear_borders` (Off, Above and below, All round = 284 wide) | Disabled,Top+Bottom,Full (284 width),Full (320 width) |
 | gearsystem | `gearsystem_hide_left_bar` | Hide Left Bar (SMS only) | planned |  | No,Auto,Always |
 | gearsystem | `gearsystem_no_sprite_limit` | No Sprite Limit | done | `cgear_sprite_limit` | Disabled,Enabled |
-| gearsystem | `gearsystem_glasses` | 3D Glasses | planned | SegaScope 3-D glasses: which eye is shown | Both Eyes / OFF,Left Eye,Right Eye |
+| gearsystem | `gearsystem_glasses` | 3D Glasses | done | `cgear_3d` (Both eyes, Left eye, Right eye) | Both Eyes / OFF,Left Eye,Right Eye |
 | gearsystem | `gearsystem_ym2413` | YM2413 (restart) | done | `cgear_fm` (Auto/Off/On) | Auto,Disabled |
 | gearsystem | `gearsystem_psg_volume` | PSG Volume | done | `cgear_volume` | 0,10,20,30,40,50,60,70,80,90,... |
 | gearsystem | `gearsystem_fm_volume` | FM Volume | done | `cgear_fm_volume` | 0,10,20,30,40,50,60,70,80,90,... |

@@ -86,6 +86,8 @@ struct Core {
     prev: Vec<u32>,
     /// The sound filter's last output, left and right.
     lp: [f32; 2],
+    /// The size of the last picture handed over (`m.shown`).
+    shown_size: (usize, usize),
 }
 
 impl std::ops::Deref for Core {
@@ -262,7 +264,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     }
     let s = env.map(|e| crate::options::read(e)).unwrap_or_default();
     let m = machine(rom, &s, (*game).path);
-    let mut core = Core { m, s: s.clone(), at_start: s, prev: Vec::new(), lp: [0.0; 2] };
+    let mut core = Core { m, s: s.clone(), at_start: s, prev: Vec::new(), lp: [0.0; 2], shown_size: (0, 0) };
     core.apply();
     if let Ok(mut c) = CORE.lock() {
         *c = Some(core);
@@ -393,7 +395,12 @@ pub unsafe extern "C" fn retro_run() {
         }
     }
     m.run_frame();
-    if let Some(video) = video {
+    // A 3-D glasses game with one eye chosen: the other eye's frames show the last one again.
+    let other_eye = m.bus.glasses_used && m.s.glasses_eye.is_some_and(|left| left != m.frame_left_eye) && !m.shown.is_empty();
+    if let (Some(video), true) = (video, other_eye) {
+        let (w, h) = m.shown_size;
+        video(m.shown.as_ptr() as *const c_void, w as u32, h as u32, w * 4);
+    } else if let Some(video) = video {
         let mut shown = std::mem::take(&mut m.shown);
         let (mut w, h) = m.bus.vdp.shown(&mut shown);
         if m.at_start.hide_left && !m.bus.gg && m.bus.vdp.borders == 0 {
@@ -412,6 +419,7 @@ pub unsafe extern "C" fn retro_run() {
         }
         video(shown.as_ptr() as *const c_void, w as u32, h as u32, w * 4);
         m.shown = shown;
+        m.shown_size = (w, h);
     }
     let mut samples = std::mem::take(&mut m.samples);
     if m.s.mono {
