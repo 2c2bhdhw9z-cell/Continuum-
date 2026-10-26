@@ -115,7 +115,7 @@ pub fn system_for_extension(ext: &str) -> Option<&'static str> {
         "gba" | "agb" => "gba",
         "sms" => "sms",
         "gg" => "gg",
-        "sg" | "mv" => "sg1000",
+        "sg" | "mv" | "sc" => "sg1000",
         "md" | "gen" | "smd" => "genesis",
         "32x" => "sega32x",
         "pce" => "tg16",
@@ -161,7 +161,7 @@ const QUICK_SNIFF_BYTES: usize = 4096;
 /// are never judged by their bytes.
 pub const CARTRIDGE_EXTENSIONS: &[&str] = &[
     "nes", "unf", "unif", "fc", "sfc", "smc", "swc", "fig", "snes", "gb", "gbc", "sgb", "gba", "agb",
-    "sms", "gg", "sg", "mv", "bms", "md", "gen", "smd", "32x", "bin", "rom", "pce", "sgx", "n64",
+    "sms", "gg", "sg", "mv", "sc", "bms", "md", "gen", "smd", "32x", "bin", "rom", "pce", "sgx", "n64",
     "z64", "v64", "nds", "ds", "3ds", "cci", "cxi", "a26", "a52", "a78", "lnx", "lyx", "j64", "jag",
     "ws", "wsc", "pc2", "pcv2", "ngp", "ngc", "ngpc", "npc", "min", "vb", "vboy", "crt",
 ];
@@ -1456,6 +1456,7 @@ mod tests {
         assert!(d.is_sure());
         assert_eq!(system_for_extension(".ws"), Some("wswan"));
         assert_eq!(system_for_extension("mv"), Some("sg1000"));
+        assert_eq!(system_for_extension("sc"), Some("sg1000"), "SC-3000 software");
         assert_eq!(system_for_extension("SG"), Some("sg1000"));
         assert_eq!(system_for_extension("cue"), None);
     }

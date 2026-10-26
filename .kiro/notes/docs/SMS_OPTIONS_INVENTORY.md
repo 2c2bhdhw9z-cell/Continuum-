@@ -134,7 +134,7 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gpgx | `genesis_plus_gx_sms_fm_channel_7_volume` | Master System FM (YM2413) Channel 7 Volume % | done | `cgear_vol_fm8` | 0,10,20,30,40,50,60,70,80,90,... |
 | gpgx | `genesis_plus_gx_sms_fm_channel_8_volume` | Master System FM (YM2413) Channel 8 Volume % | done | `cgear_vol_fm9` | 0,10,20,30,40,50,60,70,80,90,... |
 | picodrive | `picodrive_region` | System Region | done | `cgear_region` + `cgear_refresh` | Auto,Japan NTSC,Japan PAL,US,Europe |
-| picodrive | `picodrive_smstype` | Master System Type | done | `cgear_console` (no SC-3000 yet) | Auto,Game Gear,Master System,SG-1000,SC-3000 |
+| picodrive | `picodrive_smstype` | Master System Type | done | `cgear_console` (SC-3000 with its keyboard; .sc files open on cGear) | Auto,Game Gear,Master System,SG-1000,SC-3000 |
 | picodrive | `picodrive_smsmapper` | Master System ROM Mapping | done | `cgear_mapper` (Sega, Codemasters, Korean, Korean MSX, Nemesis, Janggun) | Auto,Sega,Codemasters,Korea,Korea MSX,Korea X-in-1,Korea 4-Pak,Korea Janggun,Korea Nemesis,Taiwan 8K RAM |
 | picodrive | `picodrive_smstms` | Master System Palette in TMS modes | done | `cgear_tms_colours` (Auto = the real console: Master System fixed colours, SG-1000 TMS colours, Game Gear colour memory) | SMS,SG-1000 |
 | picodrive | `picodrive_ramcart` | Sega CD RAM Cart | n/a | Mega Drive or Mega-CD only | disabled,enabled |

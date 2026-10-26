@@ -849,6 +849,9 @@ enum CoreCatalog {
         // same cartridges, which Gearsystem declares too.
         "sg": Route(coreId: gearsystem.coreId, system: .sg1000),
         "mv": Route(coreId: gearsystem.coreId, system: .sg1000),
+        // SC-3000 software (the SG-1000 with a keyboard, BASIC and its programs): only cGear has
+        // the keyboard, so it opens there.
+        "sc": Route(coreId: continuumSms.coreId, system: .sg1000),
         "md": Route(coreId: blastem.coreId, system: .genesis),
         "gen": Route(coreId: blastem.coreId, system: .genesis),
         // Interleaved Mega Drive dumps, which are extremely common in older ROM sets and were

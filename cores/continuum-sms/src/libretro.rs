@@ -62,6 +62,7 @@ const PIXEL_FORMAT_XRGB8888: u32 = 1;
 const DEVICE_JOYPAD: u32 = 1;
 const DEVICE_ANALOG: u32 = 5;
 const DEVICE_POINTER: u32 = 6;
+const DEVICE_KEYBOARD: u32 = 3;
 const MEMORY_SAVE_RAM: u32 = 0;
 const MEMORY_SYSTEM_RAM: u32 = 2;
 const MEMORY_VIDEO_RAM: u32 = 3;
@@ -337,7 +338,8 @@ impl Core {
 unsafe fn machine(rom: Vec<u8>, s: &Settings, path: *const c_char) -> Box<Sms> {
     let console = match s.console {
         Console::Auto if is_game_gear(&rom, path) => Console::GameGear,
-        Console::Auto if has_extension(path, &[".sg", ".sc", ".mv"]) => Console::Sg1000,
+        Console::Auto if has_extension(path, &[".sc"]) => Console::Sc3000,
+        Console::Auto if has_extension(path, &[".sg", ".mv"]) => Console::Sg1000,
         Console::Auto => Console::Sms,
         c => c,
     };
@@ -346,6 +348,7 @@ unsafe fn machine(rom: Vec<u8>, s: &Settings, path: *const c_char) -> Box<Sms> {
     match console {
         Console::GameGear => m.bus.set_game_gear(),
         Console::Sg1000 => m.bus.set_sg1000(),
+        Console::Sc3000 => m.bus.set_sc3000(),
         _ => {}
     }
     let japan = if s.region_auto { is_japanese(&m.bus.rom, path) } else { s.japan };
@@ -570,6 +573,8 @@ fn power_cycle(m: &mut Box<Sms>) {
     let mut fresh = Sms::new(rom);
     if gg {
         fresh.bus.set_game_gear();
+    } else if m.bus.sc3000 {
+        fresh.bus.set_sc3000();
     } else if sg {
         fresh.bus.set_sg1000();
     }
@@ -709,6 +714,31 @@ fn draw_crosshairs(m: &Core, px: &mut [u32], w: usize, h: usize) {
 /// The pads as the console's ports read them, from the two players' buttons: $DC holds the
 /// first pad and the second's Up and Down, $DD the second's other buttons. A held button reads 0.
 /// Start on either pad is the console's Pause button.
+/// The SC-3000's keys from the phone's keyboard (libretro key codes), row by row as its matrix
+/// has them (MacDonald's table): bits 0-7 port A's columns, 8-11 port B's. The keys a phone
+/// keyboard lacks: ENG DIER'S on End, HOME CLR on Home, INS DEL on Backspace, Delete or Insert,
+/// the pi key on Page Up, the yen key on backslash, BREAK on Escape, GRAPH on Alt, FUNC on Tab.
+unsafe fn read_keyboard(input: InputFn) -> [u16; 7] {
+    const ROWS: [[&[u32]; 12]; 7] = [
+        [&[49], &[113], &[97], &[122], &[279], &[44], &[107], &[105], &[56], &[], &[], &[]],
+        [&[50], &[119], &[115], &[120], &[32], &[46], &[108], &[111], &[57], &[], &[], &[]],
+        [&[51], &[101], &[100], &[99], &[278], &[47], &[59], &[112], &[48], &[], &[], &[]],
+        [&[52], &[114], &[102], &[118], &[8, 127, 277], &[280], &[58, 39], &[64, 96], &[45], &[], &[], &[]],
+        [&[53], &[116], &[103], &[98], &[], &[274], &[93], &[91], &[94, 61], &[], &[], &[]],
+        [&[54], &[121], &[104], &[110], &[], &[276], &[13, 271], &[], &[92], &[], &[], &[9]],
+        [&[55], &[117], &[106], &[109], &[], &[275], &[273], &[], &[27], &[308, 307], &[306, 305], &[304, 303]],
+    ];
+    let mut rows = [0u16; 7];
+    for (r, keys) in ROWS.iter().enumerate() {
+        for (bit, codes) in keys.iter().enumerate() {
+            if codes.iter().any(|c| input(0, DEVICE_KEYBOARD, 0, *c) != 0) {
+                rows[r] |= 1 << bit;
+            }
+        }
+    }
+    rows
+}
+
 /// Two Game Gears' pictures as one (side by side or stacked, or only one, the second first when
 /// swapped). Returns the size.
 fn compose_pair(m: &mut Core, shown: &mut Vec<u32>, w: usize, h: usize) -> (usize, usize) {
@@ -813,6 +843,9 @@ pub unsafe extern "C" fn retro_run() {
     }
     if let Some(input) = input {
         read_devices(m, input);
+        if m.bus.sc3000 {
+            m.bus.keys = read_keyboard(input);
+        }
     }
     if let Some(two) = m.second.as_mut() {
         m.m.run_frame_linked(&mut two.m);

@@ -121,6 +121,17 @@ pub struct Bus {
     /// seen eight times over at $C000, no memory control port.
     #[serde(default)]
     pub sg: bool,
+    /// An SC-3000: the SG-1000 with a keyboard, read through its 8255 at ports $DC-$DF (port C's
+    /// low three bits pick one of eight rows: seven of keys, the last the two pads), 2 KiB of
+    /// work RAM, and RAM at $8000-$BFFF on the cartridge for BASIC (Charles MacDonald's SC-3000H
+    /// hardware notes).
+    #[serde(default)]
+    pub sc3000: bool,
+    #[serde(default = "row7")]
+    pub ppi_c: u8,
+    /// The keys held, per row: bits 0-7 the ones on port A, 8-11 on port B (1 held).
+    #[serde(skip)]
+    pub keys: [u16; 7],
     /// The Game Gear's Start button is held.
     #[serde(skip)]
     pub gg_start: bool,
@@ -148,6 +159,10 @@ const IO_OFFSET: u32 = 11;
 
 fn yes() -> bool {
     true
+}
+
+fn row7() -> u8 {
+    7
 }
 
 fn natural8() -> [u8; 4] {
@@ -188,6 +203,9 @@ impl Bus {
             hcount: 0,
             sg: false,
             gg_start: false,
+            sc3000: false,
+            ppi_c: 7,
+            keys: [0; 7],
             export: true,
             console: String::new(),
             console_stop: false,
@@ -270,6 +288,27 @@ impl Bus {
         self.vdp.tms = true;
     }
 
+    /// Makes this an SC-3000 (an SG-1000 with its keyboard).
+    pub fn set_sc3000(&mut self) {
+        self.set_sg1000();
+        self.sc3000 = true;
+    }
+
+    /// The SC-3000's 8255: port A ($DC), port B ($DD), port C ($DE, as last written); the
+    /// control register reads $FF.
+    fn ppi_read(&self, a: u8) -> u8 {
+        let row = usize::from(self.ppi_c & 7);
+        match a {
+            0 if row == 7 => self.pad_dc,
+            0 => !(self.keys[row] as u8),
+            // Port B: the printer's BUSY and FAULT high, the cassette input low, /CONT high.
+            1 if row == 7 => 0x70 | (self.pad_dd & 0x0F),
+            1 => 0x70 | (!(self.keys[row] >> 8) as u8 & 0x0F),
+            2 => self.ppi_c,
+            _ => 0xFF,
+        }
+    }
+
     /// Makes this a Game Gear.
     pub fn set_game_gear(&mut self) {
         self.gg = true;
@@ -340,6 +379,10 @@ impl Bus {
 
 impl z80::Bus for Bus {
     fn read(&mut self, addr: u16) -> u8 {
+        if self.sc3000 && addr >= 0x8000 && !(addr < 0xC000 && self.rom.len() > 0x8000) {
+            // 2 KiB of work RAM at $C000, and the cartridge's 16 KiB at $8000 (kept with the save).
+            return if addr >= 0xC000 { self.ram[usize::from(addr & 0x7FF)] } else { self.cart_ram[usize::from(addr & 0x3FFF)] };
+        }
         if self.sg && addr >= 0xC000 {
             return self.ram[usize::from(addr & 0x3FF)];
         }
@@ -358,6 +401,15 @@ impl z80::Bus for Bus {
             // the write too, below.
             self.glasses_left = v & 1 != 0;
             self.glasses_used = true;
+        }
+        if self.sc3000 && addr >= 0x8000 && !(addr < 0xC000 && self.rom.len() > 0x8000) {
+            if addr >= 0xC000 {
+                self.ram[usize::from(addr & 0x7FF)] = v;
+            } else {
+                self.cart_ram[usize::from(addr & 0x3FFF)] = v;
+                self.cart_ram_used = true;
+            }
+            return;
         }
         if self.sg {
             if addr >= 0xC000 {
@@ -449,6 +501,9 @@ impl z80::Bus for Bus {
             let c = ((n >> 11 & 1) << 7 | (n >> 7 & 1) << 6 | (n >> 3 & 1) << 5) as u8;
             return c | (self.audio_ctrl & 3);
         }
+        if self.sc3000 && (0xC0..=0xDF).contains(&p) {
+            return self.ppi_read(p & 3);
+        }
         match p & 0xC1 {
             0x00 | 0x01 => 0xFF,
             0x40 => {
@@ -504,6 +559,18 @@ impl z80::Bus for Bus {
             } else if (1..=5).contains(&p) {
                 let now = self.now();
                 self.ext.write(p, v, now);
+            }
+            return;
+        }
+        if self.sc3000 && (0xC0..=0xDF).contains(&p) {
+            // Port C picks the keyboard row; a control write with bit 7 clear sets one of its bits.
+            match p & 3 {
+                2 => self.ppi_c = v,
+                3 if v & 0x80 == 0 => {
+                    let bit = (v >> 1) & 7;
+                    self.ppi_c = (self.ppi_c & !(1 << bit)) | (v & 1) << bit;
+                }
+                _ => {}
             }
             return;
         }
@@ -687,5 +754,26 @@ mod tests {
         assert_eq!((j.read(0x8000), j.read(0xA000)), (6u8.reverse_bits(), 7u8.reverse_bits()));
         assert_eq!(j.read(0x8001), 0x80, "every byte reversed");
         assert_eq!(j.read(0xFFFF), 0x43, "and the write landed in work RAM too");
+    }
+
+    #[test]
+    fn the_sc3000_keyboard_is_read_a_row_at_a_time_and_row_7_is_the_pads() {
+        let mut b = Bus::new(vec![0; 0x8000]);
+        b.set_sc3000();
+        b.keys[2] = 1 << 1 | 1 << 8; // E and 0
+        b.pad_dc = !0x01; // pad 1 up
+        b.output(0xDF, 0x92);
+        b.output(0xDE, 0x02);
+        assert_eq!(b.input(0xDC), !0x02, "E held, the rest up");
+        assert_eq!(b.input(0xDD) & 0x0F, 0x0E, "0 held");
+        b.output(0xDF, 0x01); // the bit-set form: port C bit 0 on
+        b.output(0xDF, 0x03);
+        b.output(0xDF, 0x05);
+        assert_eq!(b.input(0xDC), !0x01, "row 7: the pads");
+        assert_eq!(b.input(0xDE), 0x07);
+        b.write(0x8123, 0x5A);
+        assert_eq!(b.read(0x8123), 0x5A, "BASIC's RAM on the cartridge");
+        b.write(0xC001, 0x11);
+        assert_eq!(b.read(0xC801), 0x11, "2 KiB of work RAM, seen again");
     }
 }
