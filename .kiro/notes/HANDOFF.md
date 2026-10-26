@@ -25,7 +25,7 @@ cBoy chat works only in `cores/continuum-gb/**`, except its last three items (ca
 on one phone, the Advance link), which may change the app and engine; it reads this file first.
 
 ### Requests between chats
-**cBoy/cGear chat, 25 October: still working.** build-engine.sh no longer has per-core lines: own cores (`continuum_<x>`, no pin) are found by themselves, and the "ios.yml may not name it yet" list is `native/ios/not-in-ios-yml.txt`. Adding a core never edits build-engine.sh again. The next build is one last full rebuild because of this move.
+**Pokémon Box (26 October, cBoy/cGear chat):** new, `.kiro/notes/docs/POKEMON_BOX.md`; touches crates/emulator-bridge/src/pokebox + uniffi_pokebox.rs and a few app files. **cBoy/cGear chat, 25 October: still working.** build-engine.sh no longer has per-core lines: own cores (`continuum_<x>`, no pin) are found by themselves, and the "ios.yml may not name it yet" list is `native/ios/not-in-ios-yml.txt`. Adding a core never edits build-engine.sh again. The next build is one last full rebuild because of this move.
 
 **His certificate is FINE; Signer was wrong (26 October, 10 PM).** A profile for one exact app ID
 decides which identifier goes in an app's PERMISSIONS, not what the app must be called. zsign (so

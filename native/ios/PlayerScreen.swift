@@ -370,6 +370,13 @@ struct PlayerScreen: View {
             host.leavePlayer()
             return
         }
+        // The Pokémon Box closes the game (a game's save can only change while it is closed) and
+        // opens it again afterwards.
+        if choice == .pokemonBox, let entry = host.activeEntry {
+            pausedForMenu = false
+            host.openPokemonBox(for: entry, fromGame: true)
+            return
+        }
 
         switch choice {
         case .saveState: host.saveStateToSlot()
@@ -751,6 +758,15 @@ struct PlayerActionsMenu: View, Equatable {
                 SkinRuntime.shared.sheet = .functions
             } label: {
                 Label("All functions...", systemImage: "square.grid.3x3")
+            }
+            // Only in a Pokémon game the Box knows (PokemonBox.swift). It closes the game first and
+            // opens it again afterwards.
+            if !netplayLive, let entry = host.activeEntry, PokemonGames.game(for: entry) != nil {
+                Button {
+                    host.openPokemonBox(for: entry, fromGame: true)
+                } label: {
+                    Label("Pokémon Box...", systemImage: "shippingbox")
+                }
             }
 
             let states = host.activeEntry.map { saveStates.states(for: $0) } ?? []

@@ -1511,6 +1511,46 @@ final class SaveStates: ObservableObject {
         return "\(entry.name) started fresh. Your old auto-save is in slot \(slot). \(how)"
     }
 
+    /// The Pokémon Box is about to change this game's own save. Its auto-save holds the game's
+    /// memory from before, and resuming it would bring the old save back (and write it over the
+    /// change at the next save), so it is moved into the lowest free numbered slot, labelled, and
+    /// kept. False when it can't be moved (every slot full): then the Box doesn't change the game.
+    func setAsideAutoSaveForPokemonBox(entry: LibraryEntry) -> Bool {
+        let gameId = Self.gameId(for: entry)
+        guard let record = autoState(forGameId: gameId) else { return true }
+        guard let slot = firstFreeSlot(forGameId: gameId) else { return false }
+        let files = FileManager.default
+        guard let source = SaveStateDisk.payloadURL(gameId: gameId, slot: record.slot, isAuto: true),
+              let target = SaveStateDisk.payloadURL(gameId: gameId, slot: slot, isAuto: false),
+              !files.fileExists(atPath: target.path),
+              (try? files.moveItem(at: source, to: target)) != nil else {
+            return false
+        }
+        if let oldThumb = SaveStateDisk.thumbnailURL(gameId: gameId, slot: record.slot, isAuto: true),
+           let newThumb = SaveStateDisk.thumbnailURL(gameId: gameId, slot: slot, isAuto: false),
+           files.fileExists(atPath: oldThumb.path) {
+            try? files.moveItem(at: oldThumb, to: newThumb)
+        }
+        let kept = SaveStateRecord(gameId: gameId, slot: slot, isAuto: false,
+                                   createdAt: record.createdAt, frame: record.frame,
+                                   byteCount: record.byteCount, coreId: record.coreId,
+                                   coreVersion: record.coreVersion,
+                                   label: "before the Pokémon Box",
+                                   coreOptions: record.coreOptions)
+        var updated = records.filter { $0.id != record.id && $0.id != kept.id }
+        updated.append(kept)
+        records = Self.sortedNewestFirst(updated)
+        lastAutoSaveKey = nil
+        thumbnailGeneration += 1
+        if let failure = SaveStateDisk.writeIndex(records) {
+            FeedbackCenter.step("saves: moved the auto-save of \(gameId) to slot \(slot) for the "
+                                + "Pokémon Box, but \(failure)")
+        }
+        refreshMissingCount()
+        FeedbackCenter.step("saves: auto-save of \(gameId) kept in slot \(slot) before the Pokémon Box")
+        return true
+    }
+
     /// "FCEUmm" for "fceumm" ("FCEUmm (NES)" without the part in brackets), or the id itself.
     static func shortCoreName(_ coreId: String?) -> String {
         guard let coreId, !coreId.isEmpty else { return "its old core" }

@@ -489,6 +489,8 @@ targets:
       # language, plus the silent-switch setting. WITHOUT THIS LINE LibraryShell, LibraryCards,
       # ArtworkStore and GameDetailSheet fail to compile.
       - path: LibraryExtras.swift
+      # The Pokémon Box: Pokémon moved between the player's Pokémon games (crates/emulator-bridge/src/pokebox).
+      - path: PokemonBox.swift
       # The pieces the shell is built from: hero, cards, list rows, palette, status tint.
       - path: LibraryCards.swift
       # Settings, LOOK: the second look (Current or New), its Home pieces and its pause menu.

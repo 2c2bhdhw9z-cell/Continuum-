@@ -1065,6 +1065,15 @@ struct GameCardExtras: View {
 
             secondGameBoyPicker
 
+            // The Pokémon Box (PokemonBox.swift): only on a Pokémon game it knows.
+            if PokemonGames.game(for: entry) != nil {
+                SettingsButton(title: "Pokémon Box...", role: .normal) {
+                    host.openPokemonBox(for: entry, fromGame: false)
+                }
+                SettingsNote("Move Pokémon between your Pokémon games, keep them in a box of their "
+                             + "own, or trade two, even between Red, Gold and Ruby.")
+            }
+
             if !line.isEmpty {
                 SettingsNote(line)
             }

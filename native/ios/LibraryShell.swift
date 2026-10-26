@@ -489,6 +489,12 @@ struct LibraryShell: View {
             GameDetailSheet(entry: entry, host: host, artwork: artwork,
                             saveStates: host.saveStates, cheats: host.cheats)
         }
+        // The Pokémon Box (PokemonBox.swift), on its own view so it never fights the detail sheet.
+        .background(
+            Color.clear.sheet(item: $host.pokemonBox, onDismiss: { host.finishPokemonBox() }) { request in
+                PokemonBoxSheet(host: host, request: request)
+            }
+        )
         // Attached to a different view than the detail sheet, so the two never fight.
         .background(
             Color.clear.sheet(isPresented: $host.showImportScreen) {

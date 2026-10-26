@@ -23,6 +23,7 @@ enum PauseChoice: String {
     case cover
     case feedback
     case details
+    case pokemonBox
     case quit
 }
 
@@ -76,6 +77,10 @@ struct NewLookPauseSheet: View {
             out.append(Tile(id: .netplay, icon: "person.2.fill",
                             title: netplayLive ? "Online play" : "Play online"))
             out.append(Tile(id: .cover, icon: "camera.viewfinder", title: "Use as cover"))
+        }
+        // Only in a Pokémon game the Box knows (PokemonBox.swift).
+        if !isWebPlayer, !netplayLive, let entry, PokemonGames.game(for: entry) != nil {
+            out.append(Tile(id: .pokemonBox, icon: "shippingbox.fill", title: "Pokémon Box"))
         }
         out.append(Tile(id: .functions, icon: "square.grid.3x3.fill", title: "All functions"))
         out.append(Tile(id: .feedback, icon: "envelope.fill", title: "Feedback"))

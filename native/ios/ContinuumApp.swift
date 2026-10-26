@@ -3309,6 +3309,13 @@ final class EngineHost: ObservableObject {
     /// to nil is what closes it.
     @Published var detailEntry: LibraryEntry?
 
+    /// The Pokémon Box (PokemonBox.swift) while it is open, presented from this like the detail
+    /// sheet; and the game to open again when it closes (it was opened from that game's pause menu).
+    @Published var pokemonBox: PokemonBoxRequest?
+    var pokemonBoxReturn: LibraryEntry?
+    /// Games whose own saves the Box changed while it was open.
+    var pokemonBoxChanged: Set<String> = []
+
     /// Which library tab is showing, and what is in the search field.
     ///
     /// HELD HERE RATHER THAN AS VIEW STATE, because the shell is removed from the view tree while a

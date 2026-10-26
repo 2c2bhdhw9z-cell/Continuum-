@@ -83,6 +83,7 @@ pub mod snes_chips;
 // Which region a running game is in (why a European NES game runs at 50 frames a second).
 pub mod game_region;
 pub mod feedback;
+pub mod pokebox;
 pub mod netplay;
 pub mod sync;
 pub mod telemetry;
@@ -134,6 +135,10 @@ pub mod uniffi_feedback;
 // Emulator updates (src/core_updates.rs): save-state version pairs and the heads-up line.
 #[cfg(feature = "uniffi-bindings")]
 pub mod uniffi_cores;
+
+// The Pokémon Box (src/pokebox): moving Pokémon between the games' saves, as free functions.
+#[cfg(feature = "uniffi-bindings")]
+pub mod uniffi_pokebox;
 
 pub use bridge::{BridgeStatus, EmulatorBridge, TickReport};
 pub use error::{BridgeError, GfxError};
