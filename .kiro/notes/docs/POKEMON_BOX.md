@@ -31,7 +31,15 @@ Pokémon game's card and in its pause menu.
   first and reopens from its title screen when its save changed.
 - Only English and European cartridges (Gen 2: English only); Japanese ones are not offered.
 
+## Tools (26 October afternoon, "don't stop, continue")
+Picked by me from G1R Deluxe's list, the ones whose meaning is plain from the name (change freely):
+Boxes (Move / Trade), Team (a game's team; a team Pokémon into the Box, never the last one),
+List (every Pokémon in the Box, every game's PCs and teams; search, sort by number/level/name),
+Dashboard (totals, kinds of 386/251/151, shinies, eggs, where they are), Arrange (sort a Box box,
+or move a Pokémon to a chosen place, swapping). Engine: `save::read_party`/`take_party`,
+`Change::PartyToStorage`, `InStorageTo`, `Sort`.
+
 ## Not done yet (owner's 5 A: later)
-G1R's other tools (Teams, Gifts, Items, Dashboard, Showcase, Migration), renaming boxes, the party
-(only PC boxes are touched), Gen 3 Unown/Spinda Pokédex personality fields. Tested only on save files
+G1R's Gifts, Events, Items, Showcase, Files and Migration (asked the owner what each should do),
+renaming boxes, putting a Pokémon INTO a team (needs its stats worked out), Gen 3 Unown/Spinda Pokédex personality fields. Tested only on save files
 built by the tests from the documented layouts; not yet on the owner's real saves.

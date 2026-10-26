@@ -76,6 +76,10 @@ pub enum PokeChange {
     ToStorage { rom_path: String, save_path: String, from_box: u32, slot: u32, to_box: u32 },
     ToGame { rom_path: String, save_path: String, from_box: u32, slot: u32, to_box: u32 },
     InStorage { from_box: u32, slot: u32, to_box: u32 },
+    InStorageTo { from_box: u32, slot: u32, to_box: u32, to_slot: u32 },
+    PartyToStorage { rom_path: String, save_path: String, slot: u32, to_box: u32 },
+    /// `by`: 0 Pokédex number, 1 level, 2 name.
+    Sort { box_index: u32, by: u8 },
     Trade {
         a_rom_path: String,
         a_save_path: String,
@@ -152,6 +156,13 @@ pub fn pokebox_read_game(rom_path: String, save_path: String) -> Result<PokePc, 
     })
 }
 
+/// A game's team, each Pokémon as the Box shows it.
+#[uniffi::export]
+pub fn pokebox_read_party(rom_path: String, save_path: String) -> Result<Vec<PokeMon>, EngineError> {
+    let g = pokebox::open_game(Path::new(&rom_path), Path::new(&save_path)).map_err(other)?;
+    Ok(save::read_party(g.game, &g.bytes).map_err(other)?.iter().map(shown).collect())
+}
+
 /// Finishes a change that was cut off; a line for the player when there was one.
 #[uniffi::export]
 pub fn pokebox_recover(dir: String) -> Option<String> {
@@ -175,6 +186,20 @@ fn with_change<T>(c: &PokeChange, f: impl FnOnce(&Change) -> T) -> T {
             rom: Path::new(rom_path), save: Path::new(save_path), b: u(*from_box), slot: u(*slot), to_box: u(*to_box),
         }),
         PokeChange::InStorage { from_box, slot, to_box } => f(&Change::InStorage { b: u(*from_box), slot: u(*slot), to_box: u(*to_box) }),
+        PokeChange::InStorageTo { from_box, slot, to_box, to_slot } => f(&Change::InStorageTo {
+            b: u(*from_box), slot: u(*slot), to_box: u(*to_box), to_slot: u(*to_slot),
+        }),
+        PokeChange::PartyToStorage { rom_path, save_path, slot, to_box } => f(&Change::PartyToStorage {
+            rom: Path::new(rom_path), save: Path::new(save_path), slot: u(*slot), to_box: u(*to_box),
+        }),
+        PokeChange::Sort { box_index, by } => f(&Change::Sort {
+            b: u(*box_index),
+            by: match by {
+                1 => pokebox::Order::Level,
+                2 => pokebox::Order::Name,
+                _ => pokebox::Order::Number,
+            },
+        }),
         PokeChange::Trade { a_rom_path, a_save_path, a_box, a_slot, b_rom_path, b_save_path, b_box, b_slot } => f(&Change::Trade {
             a: Side { rom: Path::new(a_rom_path), save: Path::new(a_save_path), b: u(*a_box), slot: u(*a_slot) },
             b: Side { rom: Path::new(b_rom_path), save: Path::new(b_save_path), b: u(*b_box), slot: u(*b_slot) },

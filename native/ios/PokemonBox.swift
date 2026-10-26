@@ -99,6 +99,15 @@ private enum BoxPlace: Equatable {
     /// A game's PC: which side (0, or 1 for the second game when trading), box and place.
     case game(side: Int, box: Int, slot: Int)
     case storage(box: Int, slot: Int)
+    /// A place in the first game's team.
+    case team(slot: Int)
+}
+
+/// One Pokémon found anywhere, for the List.
+private struct Found: Identifiable {
+    let id: String
+    let mon: PokeMon
+    let place: String
 }
 
 /// A change waiting for the player's yes, with what it will do.
@@ -116,6 +125,33 @@ struct PokemonBoxSheet: View {
     private enum Mode: String {
         case move, trade
     }
+
+    /// The Box's tools, after G1R Deluxe's (the owner's pick: the box first, then these).
+    private enum Tool: String, CaseIterable {
+        case boxes = "Boxes"
+        case team = "Team"
+        case list = "List"
+        case dashboard = "Dashboard"
+        case arrange = "Arrange"
+
+        var icon: String {
+            switch self {
+            case .boxes: return "shippingbox"
+            case .team: return "person.3"
+            case .list: return "list.bullet"
+            case .dashboard: return "chart.bar"
+            case .arrange: return "arrow.left.arrow.right"
+            }
+        }
+    }
+
+    @State private var tool = Tool.boxes
+    @State private var team: [PokeMon] = []
+    @State private var teamProblem = ""
+    @State private var everyone: [Found] = []
+    @State private var search = ""
+    /// 0 Pokédex number, 1 level, 2 name.
+    @State private var listOrder = 0
 
     @State private var mode = Mode.move
     @State private var games: [LibraryEntry] = []
@@ -138,16 +174,37 @@ struct PokemonBoxSheet: View {
                     SettingsNote("Move Pokémon between your Pokémon games, keep them here, or trade "
                                  + "two in one go. Only what you saved inside a game is here, so "
                                  + "save in the game first.")
-                    Picker("", selection: $mode) {
-                        Text("Move").tag(Mode.move)
-                        Text("Trade").tag(Mode.trade)
+                    Menu {
+                        ForEach(Tool.allCases, id: \.self) { t in
+                            Button { pick(t) } label: { Label(t.rawValue, systemImage: t.icon) }
+                        }
+                    } label: {
+                        pickerLabel("Tools: \(tool.rawValue)")
                     }
-                    .pickerStyle(.segmented)
-                    .onChange(of: mode) { _ in chosen = [] }
+                    if tool == .boxes {
+                        Picker("", selection: $mode) {
+                            Text("Move").tag(Mode.move)
+                            Text("Trade").tag(Mode.trade)
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: mode) { _ in chosen = [] }
+                    }
 
-                    if games.isEmpty {
+                    if games.isEmpty && tool != .list && tool != .dashboard && tool != .arrange {
                         SettingsNote("No Pokémon games from Red to LeafGreen are in your library "
                                      + "(English or European cartridges).")
+                    } else if tool == .team {
+                        gamePane(side: 0, showBoxes: false)
+                        teamPane
+                        storagePane
+                        detailCard
+                    } else if tool == .list {
+                        listPane
+                    } else if tool == .dashboard {
+                        dashboardPane
+                    } else if tool == .arrange {
+                        arrangePane
+                        detailCard
                     } else {
                         gamePane(side: 0)
                         if mode == .move {
@@ -216,6 +273,55 @@ struct PokemonBoxSheet: View {
         loadGame(0)
         loadGame(1)
         loadStorage()
+        loadTeam()
+    }
+
+    private func pick(_ t: Tool) {
+        tool = t
+        chosen = []
+        if t == .list || t == .dashboard {
+            gatherEveryone()
+        }
+    }
+
+    private func loadTeam() {
+        guard let entry = game[0] else {
+            team = []
+            return
+        }
+        do {
+            team = try pokeboxReadParty(romPath: entry.path, savePath: PokemonGames.savePath(for: entry))
+            teamProblem = ""
+        } catch {
+            team = []
+            teamProblem = "\(error)"
+        }
+    }
+
+    /// Every Pokémon in the Box and in every Pokémon game's PC, for the List and the Dashboard.
+    private func gatherEveryone() {
+        var out: [Found] = []
+        for (b, page) in storage.enumerated() {
+            for (i, m) in page.slots.enumerated() {
+                if let m { out.append(Found(id: "box\(b)/\(i)", mon: m, place: "Pokémon Box, box \(b + 1)")) }
+            }
+        }
+        for entry in games {
+            let title = PokemonGames.title(entry)
+            if let read = try? pokeboxReadGame(romPath: entry.path, savePath: PokemonGames.savePath(for: entry)) {
+                for (b, page) in read.boxes.enumerated() {
+                    for (i, m) in page.slots.enumerated() {
+                        if let m { out.append(Found(id: "\(entry.path)#\(b)/\(i)", mon: m, place: "\(title), \(page.name)")) }
+                    }
+                }
+            }
+            if let party = try? pokeboxReadParty(romPath: entry.path, savePath: PokemonGames.savePath(for: entry)) {
+                for (i, m) in party.enumerated() {
+                    out.append(Found(id: "\(entry.path)#team/\(i)", mon: m, place: "\(title), team"))
+                }
+            }
+        }
+        everyone = out
     }
 
     private func loadGame(_ side: Int) {
@@ -245,7 +351,7 @@ struct PokemonBoxSheet: View {
 
     // MARK: The panes
 
-    private func gamePane(side: Int) -> some View {
+    private func gamePane(side: Int, showBoxes: Bool = true) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             SettingsLabel(side == 0 ? (mode == .trade ? "First game" : "Game") : "Second game")
             Menu {
@@ -260,6 +366,7 @@ struct PokemonBoxSheet: View {
                         gameBox[side] = -1
                         chosen = []
                         loadGame(side)
+                        if side == 0 { loadTeam() }
                     }
                 }
             } label: {
@@ -269,6 +376,8 @@ struct PokemonBoxSheet: View {
                 Text("\(read.trainer) · ID \(String(format: "%05d", Int(read.trainerId)))")
                     .font(.system(size: 12))
                     .foregroundStyle(ShellPalette.secondaryText)
+            }
+            if let read = pc[side], showBoxes {
                 let index = min(gameBox[side], max(read.boxes.count - 1, 0))
                 if read.boxes.indices.contains(index) {
                     boxNavigator(name: read.boxes[index].name, index: index, count: read.boxes.count) { gameBox[side] = $0 }
@@ -341,6 +450,10 @@ struct PokemonBoxSheet: View {
                 let mon: PokeMon? = slot < page.slots.count ? page.slots[slot] : nil
                 cell(mon, selected: chosen.contains(place(slot)))
                     .onTapGesture {
+                        if tool == .arrange, case .storage? = chosen.first, chosen.first != place(slot) {
+                            arrangeTo(place(slot))
+                            return
+                        }
                         guard mon != nil else { return }
                         choose(place(slot))
                     }
@@ -379,7 +492,7 @@ struct PokemonBoxSheet: View {
             chosen.remove(at: i)
             return
         }
-        if mode == .move {
+        if mode == .move || tool != .boxes {
             chosen = [place]
         } else {
             // One per game: a new pick in a game replaces that game's pick.
@@ -397,6 +510,8 @@ struct PokemonBoxSheet: View {
         case .storage(let box, let slot):
             guard storage.indices.contains(box), storage[box].slots.indices.contains(slot) else { return nil }
             return storage[box].slots[slot]
+        case .team(let slot):
+            return team.indices.contains(slot) ? team[slot] : nil
         }
     }
 
@@ -487,6 +602,177 @@ struct PokemonBoxSheet: View {
         chosen = []
         loadGame(0)
         loadGame(1)
+        loadStorage()
+        loadTeam()
+        if tool == .list || tool == .dashboard { gatherEveryone() }
+    }
+
+    // MARK: The other tools
+
+    @ViewBuilder
+    private var teamPane: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SettingsLabel("Team")
+            if team.isEmpty {
+                SettingsNote(teamProblem.isEmpty ? "No team in this save yet." : teamProblem)
+            }
+            ForEach(Array(team.enumerated()), id: \.offset) { i, m in
+                Button { choose(.team(slot: i)) } label: {
+                    HStack {
+                        Text("\(m.name)\(m.gender.isEmpty ? "" : " \(m.gender)")\(m.shiny ? " ★" : "")")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(ShellPalette.text)
+                        Spacer()
+                        Text(m.egg ? "Egg" : "Lv \(m.level)")
+                            .font(.system(size: 12))
+                            .foregroundStyle(ShellPalette.secondaryText)
+                    }
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(ShellPalette.surfaceStrong))
+                    .overlay(RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(chosen.contains(.team(slot: i)) ? ShellPalette.accent : Color.clear, lineWidth: 2))
+                }
+                .buttonStyle(.plain)
+            }
+            SettingsButton(title: "↓ Into the Box, box \(storageBox + 1)", role: .normal) {
+                guard case .team(let slot)? = chosen.first, let entry = game[0] else { return }
+                ask(.partyToStorage(romPath: entry.path, savePath: PokemonGames.savePath(for: entry),
+                                    slot: UInt32(slot), toBox: UInt32(storageBox)),
+                    games: [entry])
+            }
+            .disabled(!chosenIsTeam)
+            .opacity(chosenIsTeam ? 1 : 0.5)
+            SettingsNote("Pick a team Pokémon to keep it in the Box. The last one stays: a team can't be empty. "
+                         + "To put one in a team, put it in the game's PC and take it out there.")
+        }
+        .padding(12)
+        .modifier(LookBlockCard(radius: 12))
+    }
+
+    private var chosenIsTeam: Bool {
+        if case .team? = chosen.first { return true }
+        return false
+    }
+
+    private var listed: [Found] {
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        let hits = everyone.filter { f in
+            q.isEmpty || f.mon.name.lowercased().contains(q) || f.mon.speciesName.lowercased().contains(q)
+                || f.place.lowercased().contains(q) || f.mon.trainer.lowercased().contains(q)
+        }
+        switch listOrder {
+        case 1: return hits.sorted { ($0.mon.level, $1.mon.species) > ($1.mon.level, $0.mon.species) }
+        case 2: return hits.sorted { $0.mon.name < $1.mon.name }
+        default: return hits.sorted { ($0.mon.species, $1.mon.level) < ($1.mon.species, $0.mon.level) }
+        }
+    }
+
+    @ViewBuilder
+    private var listPane: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Search Pokémon, games or trainers", text: $search)
+                .textInputAutocapitalization(.never)
+                .disableAutocorrection(true)
+                .padding(10)
+                .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 10))
+            Picker("", selection: $listOrder) {
+                Text("Number").tag(0)
+                Text("Level").tag(1)
+                Text("Name").tag(2)
+            }
+            .pickerStyle(.segmented)
+            let rows = listed
+            Text("\(rows.count) Pokémon")
+                .font(.system(size: 11))
+                .foregroundStyle(ShellPalette.tertiaryText)
+            LazyVStack(alignment: .leading, spacing: 6) {
+                ForEach(rows) { f in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(f.mon.egg ? "Egg" : f.mon.name)\(f.mon.gender.isEmpty ? "" : " \(f.mon.gender)")\(f.mon.shiny ? " ★" : "")"
+                             + (f.mon.egg || !f.mon.readable ? "" : "  Lv \(f.mon.level)"))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(ShellPalette.text)
+                        Text((f.mon.name != f.mon.speciesName && !f.mon.egg ? "\(f.mon.speciesName) · " : "") + f.place)
+                            .font(.system(size: 11))
+                            .foregroundStyle(ShellPalette.secondaryText)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(ShellPalette.surfaceStrong))
+                }
+            }
+        }
+        .padding(12)
+        .modifier(LookBlockCard(radius: 12))
+    }
+
+    @ViewBuilder
+    private var dashboardPane: some View {
+        let real = everyone.filter { $0.mon.readable && !$0.mon.egg }
+        let species = Set(real.map(\.mon.species))
+        VStack(alignment: .leading, spacing: 10) {
+            SettingsLabel("Everything you have")
+            dashRow("Pokémon", "\(real.count)")
+            dashRow("Different kinds", "\(species.count) of 386")
+            dashRow("Of the first 151", "\(species.filter { $0 <= 151 }.count) of 151")
+            dashRow("Of the first 251", "\(species.filter { $0 <= 251 }.count) of 251")
+            dashRow("Shiny", "\(real.filter(\.mon.shiny).count)")
+            dashRow("Eggs", "\(everyone.filter(\.mon.egg).count)")
+            dashRow("Highest level", real.map(\.mon.level).max().map { "\($0)" } ?? "-")
+            SettingsLabel("Where they are")
+            let inBox = everyone.filter { $0.id.hasPrefix("box") }.count
+            dashRow("Pokémon Box", "\(inBox) of \(storage.count * 30)")
+            ForEach(games, id: \.id) { entry in
+                let n = everyone.filter { $0.id.hasPrefix(entry.path + "#") }.count
+                dashRow(PokemonGames.title(entry), "\(n)")
+            }
+        }
+        .padding(12)
+        .modifier(LookBlockCard(radius: 12))
+    }
+
+    private func dashRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).font(.system(size: 14)).foregroundStyle(ShellPalette.text)
+            Spacer()
+            Text(value).font(.system(size: 14, weight: .semibold)).foregroundStyle(ShellPalette.accent)
+        }
+    }
+
+    @ViewBuilder
+    private var arrangePane: some View {
+        storagePane
+        HStack(spacing: 8) {
+            SettingsButton(title: "By number", role: .normal) { sortBox(0) }
+            SettingsButton(title: "By level", role: .normal) { sortBox(1) }
+            SettingsButton(title: "By name", role: .normal) { sortBox(2) }
+        }
+        SettingsNote("Put this box in order, or tap a Pokémon and then the place it should go: it swaps "
+                     + "with whatever is there. Change box with the arrows to move it to another box.")
+    }
+
+    private func sortBox(_ by: UInt8) {
+        do {
+            let done = try pokeboxApply(dir: PokemonGames.folder, change: .sort(boxIndex: UInt32(storageBox), by: by))
+            notice = done.title
+        } catch {
+            notice = "\(error)"
+        }
+        chosen = []
+        loadStorage()
+    }
+
+    private func arrangeTo(_ place: BoxPlace) {
+        guard case .storage(let fb, let fs)? = chosen.first, case .storage(let tb, let ts) = place else { return }
+        do {
+            let done = try pokeboxApply(dir: PokemonGames.folder,
+                                        change: .inStorageTo(fromBox: UInt32(fb), slot: UInt32(fs),
+                                                             toBox: UInt32(tb), toSlot: UInt32(ts)))
+            notice = done.title
+        } catch {
+            notice = "\(error)"
+        }
+        chosen = []
         loadStorage()
     }
 

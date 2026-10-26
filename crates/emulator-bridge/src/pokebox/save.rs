@@ -143,22 +143,28 @@ fn g2(game: Game) -> &'static G2 {
 }
 
 /// A Pokémon list of Red to Crystal: its count, species list, Pokémon, trainers' names, names.
-fn read_list(save: &[u8], at: usize, len: usize, game: Game) -> Option<Vec<Stored>> {
+/// A PC box holds 20, the team 6; `len` is the size of one Pokémon there, of which the first
+/// `keep` bytes are what a box keeps (a team's Pokémon have their worked-out stats after them).
+fn read_list_of(save: &[u8], at: usize, len: usize, cap: usize, keep: usize, game: Game) -> Option<Vec<Stored>> {
     let count = usize::from(*save.get(at)?);
-    if count > 20 || save.get(at + 1 + count) != Some(&0xFF) {
+    if count > cap || save.get(at + 1 + count) != Some(&0xFF) {
         return None;
     }
-    let data = at + 22;
-    let ots = data + 20 * len;
-    let names = ots + 20 * NAME_LEN;
+    let data = at + cap + 2;
+    let ots = data + cap * len;
+    let names = ots + cap * NAME_LEN;
     let mut out = Vec::new();
     for i in 0..count {
-        let mut d = save.get(data + i * len..data + (i + 1) * len)?.to_vec();
+        let mut d = save.get(data + i * len..data + i * len + keep)?.to_vec();
         d.extend_from_slice(save.get(ots + i * NAME_LEN..ots + (i + 1) * NAME_LEN)?);
         d.extend_from_slice(save.get(names + i * NAME_LEN..names + (i + 1) * NAME_LEN)?);
         out.push(Stored { game, egg: game.gen() == 2 && save[at + 1 + i] == 0xFD, data: d });
     }
     Some(out)
+}
+
+fn read_list(save: &[u8], at: usize, len: usize, game: Game) -> Option<Vec<Stored>> {
+    read_list_of(save, at, len, 20, len, game)
 }
 
 fn write_list(save: &mut [u8], at: usize, len: usize, list: &[Stored]) {
@@ -532,6 +538,90 @@ pub fn put(game: Game, save: &mut [u8], b: usize, s: &Stored) -> Result<usize, S
     Ok(slot)
 }
 
+// --- the team ------------------------------------------------------------------------------------
+
+/// Where the team is and how it is kept: (offset in the save, or in section 1 for Ruby to
+/// LeafGreen; bytes a Pokémon takes there; bytes of that a box keeps).
+fn party_at(game: Game) -> (usize, usize, usize) {
+    match game {
+        Game::Red | Game::Blue | Game::Yellow => (0x2F2C, 44, GEN1_LEN),
+        Game::Gold | Game::Silver => (0x288A, 48, GEN2_LEN),
+        Game::Crystal => (0x2865, 48, GEN2_LEN),
+        Game::FireRed | Game::LeafGreen => (0x0034, 100, GEN3_LEN),
+        _ => (0x0234, 100, GEN3_LEN),
+    }
+}
+
+/// The team, each Pokémon as a box would keep it (its stats are worked out again when it joins a
+/// team, as the games do when one is taken out of the PC).
+pub fn read_party(game: Game, save: &[u8]) -> Result<Vec<Stored>, String> {
+    let (at, len, keep) = party_at(game);
+    let damaged = || "The team in this save can't be read.".to_string();
+    if game.gen() == 3 {
+        let s1 = g3_current(save)?[1];
+        let count = (le32(save, s1 + at) as usize).min(6);
+        return Ok((0..count)
+            .map(|i| {
+                let d = &save[s1 + at + 4 + i * len..s1 + at + 4 + i * len + keep];
+                Stored { game, egg: false, data: d.to_vec() }
+            })
+            .collect());
+    }
+    let mut list = read_list_of(save, at, len, 6, keep, game).ok_or_else(damaged)?;
+    if game.gen() == 1 {
+        // A team Pokémon's level is kept after its box part; the box part's own copy may be old.
+        let data = at + 8;
+        for (i, s) in list.iter_mut().enumerate() {
+            s.data[3] = save[data + i * len + 33];
+        }
+    }
+    Ok(list)
+}
+
+/// Takes the Pokémon in place `slot` of the team; the rest move up. Never the last one: a game
+/// can't be played with an empty team.
+pub fn take_party(game: Game, save: &mut [u8], slot: usize) -> Result<Stored, String> {
+    let team = read_party(game, save)?;
+    if team.len() <= 1 {
+        return Err("That's the only Pokémon in the team, and a team can't be empty. Put another in the team first.".into());
+    }
+    let out = team.get(slot).cloned().ok_or("That Pokémon isn't in the team any more. Close this and open it again.")?;
+    let (at, len, _) = party_at(game);
+    let n = team.len();
+    if game.gen() == 3 {
+        let ids = g3_current(save)?;
+        let base = ids[1] + at + 4;
+        for i in slot..n - 1 {
+            let next = save[base + (i + 1) * len..base + (i + 2) * len].to_vec();
+            save[base + i * len..base + (i + 1) * len].copy_from_slice(&next);
+        }
+        save[base + (n - 1) * len..base + n * len].fill(0);
+        save[ids[1] + at..ids[1] + at + 4].copy_from_slice(&((n - 1) as u32).to_le_bytes());
+        seal(game, save, Some(&ids));
+        return Ok(out);
+    }
+    let cap = 6;
+    let species = at + 1;
+    let data = at + cap + 2;
+    let ots = data + cap * len;
+    let names = ots + cap * NAME_LEN;
+    for i in slot..n - 1 {
+        save[species + i] = save[species + i + 1];
+        for (base, size) in [(data, len), (ots, NAME_LEN), (names, NAME_LEN)] {
+            let next = save[base + (i + 1) * size..base + (i + 2) * size].to_vec();
+            save[base + i * size..base + (i + 1) * size].copy_from_slice(&next);
+        }
+    }
+    for (base, size) in [(data, len), (ots, NAME_LEN), (names, NAME_LEN)] {
+        save[base + (n - 1) * size..base + n * size].fill(0);
+    }
+    save[species + n - 1] = 0xFF;
+    save[species + n] = 0;
+    save[at] = (n - 1) as u8;
+    seal(game, save, None);
+    Ok(out)
+}
+
 /// Marks a species seen and caught in the game's Pokédex, as a trade does.
 pub fn register(game: Game, save: &mut [u8], dex: u16) -> Result<(), String> {
     if dex == 0 || dex > game.last_species() {
@@ -649,6 +739,56 @@ pub mod tests {
             check(game, &mut s).unwrap();
             assert!(read_pc(game, &s).unwrap().boxes[0].slots.iter().all(|x| x.is_none()), "{game:?}");
             assert_eq!(read_pc(game, &s).unwrap().trainer_id, 4321);
+        }
+    }
+
+    /// Puts `team` in the game's team the way the game keeps it (box part, then zeros for the
+    /// stats; Red's level copied after the box part).
+    fn set_party(game: Game, s: &mut [u8], team: &[Stored]) {
+        let (at, len, keep) = party_at(game);
+        if game.gen() == 3 {
+            let ids = g3_current(s).unwrap();
+            let base = ids[1] + at;
+            s[base..base + 4].copy_from_slice(&(team.len() as u32).to_le_bytes());
+            for (i, m) in team.iter().enumerate() {
+                s[base + 4 + i * len..base + 4 + i * len + keep].copy_from_slice(&m.data);
+            }
+            g3_seal(s, &ids);
+            return;
+        }
+        s[at] = team.len() as u8;
+        let data = at + 8;
+        let ots = data + 6 * len;
+        let names = ots + 6 * NAME_LEN;
+        for (i, m) in team.iter().enumerate() {
+            s[at + 1 + i] = m.data[0];
+            s[data + i * len..data + i * len + keep].copy_from_slice(&m.data[..keep]);
+            if game.gen() == 1 {
+                s[data + i * len + 33] = m.data[3];
+            }
+            s[ots + i * NAME_LEN..ots + (i + 1) * NAME_LEN].copy_from_slice(&m.data[keep..keep + NAME_LEN]);
+            s[names + i * NAME_LEN..names + (i + 1) * NAME_LEN].copy_from_slice(&m.data[keep + NAME_LEN..]);
+        }
+        s[at + 1 + team.len()] = 0xFF;
+        seal(game, s, None);
+    }
+
+    #[test]
+    fn a_team_pokemon_comes_out_and_the_rest_move_up_but_never_the_last() {
+        for game in Game::ALL {
+            let mut s = blank(game);
+            let a = encode(&mon(25), game, 2).0;
+            let b = encode(&mon(1), game, 2).0;
+            set_party(game, &mut s, &[a.clone(), b.clone()]);
+            check(game, &mut s).unwrap();
+            assert_eq!(read_party(game, &s).unwrap().len(), 2, "{game:?}");
+            let out = take_party(game, &mut s, 0).unwrap();
+            assert_eq!(out.data, a.data, "{game:?}");
+            check(game, &mut s).unwrap_or_else(|e| panic!("{game:?}: {e}"));
+            let left = read_party(game, &s).unwrap();
+            assert_eq!(left.len(), 1);
+            assert_eq!(left[0].mon().unwrap().species, 1, "{game:?}: Bulbasaur moved up");
+            assert!(take_party(game, &mut s, 0).is_err(), "{game:?}: the last stays");
         }
     }
 

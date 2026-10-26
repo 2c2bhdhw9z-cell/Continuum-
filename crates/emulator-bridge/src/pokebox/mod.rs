@@ -293,6 +293,76 @@ fn work_to_game(dir: &Path, rom: &Path, save_path: &Path, b: usize, slot: usize,
     Ok(Worked { plan: Plan { allowed: true, title, changes }, writes: vec![(g.path, g.bytes), (storage_path(dir), st.to_bytes())] })
 }
 
+fn work_party_to_storage(dir: &Path, rom: &Path, save_path: &Path, slot: usize, to_box: usize) -> Result<Worked, String> {
+    let mut g = open_game(rom, save_path)?;
+    let mut st = Storage::load(dir)?;
+    let s = save::take_party(g.game, &mut g.bytes, slot)?;
+    let name = display_name(&s);
+    st.put(to_box, s)?;
+    let plan = Plan {
+        allowed: true,
+        title: format!("{name} leaves the team in {} for the Pokémon Box, box {}.", g.game.name(), to_box + 1),
+        changes: vec!["It keeps everything it has. Its health is restored when it next joins a team, as when it is taken out of a PC.".into()],
+    };
+    Ok(Worked { plan, writes: vec![(g.path, g.bytes), (storage_path(dir), st.to_bytes())] })
+}
+
+/// Moves a Pokémon to one place in the Box: swapped with whatever is there.
+fn work_storage_place(dir: &Path, b: usize, slot: usize, to_box: usize, to_slot: usize) -> Result<Worked, String> {
+    let mut st = Storage::load(dir)?;
+    let s = st.take(b, slot)?;
+    let name = display_name(&s);
+    let there = st.boxes.get_mut(to_box).and_then(|x| x.get_mut(to_slot)).ok_or("There's no such place.")?;
+    let other = there.replace(s);
+    if let Some(o) = other {
+        st.boxes[b][slot] = Some(o);
+    }
+    Ok(Worked {
+        plan: Plan { allowed: true, title: format!("{name} moves to box {}, place {}.", to_box + 1, to_slot + 1), changes: Vec::new() },
+        writes: vec![(storage_path(dir), st.to_bytes())],
+    })
+}
+
+/// How a Box box can be put in order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Order {
+    Number,
+    Level,
+    Name,
+}
+
+fn work_sort(dir: &Path, b: usize, by: Order) -> Result<Worked, String> {
+    let mut st = Storage::load(dir)?;
+    let slots = st.boxes.get_mut(b).ok_or("There's no such box.")?;
+    let mut all: Vec<Stored> = slots.iter_mut().filter_map(Option::take).collect();
+    let key = |s: &Stored| s.mon().map(|m| (m.species, m.level, if m.nicknamed { m.nickname.clone() } else { mon::species_name(m.species).to_owned() }));
+    all.sort_by(|a, c| {
+        let (ka, kc) = (key(a), key(c));
+        match (ka, kc) {
+            (Some(x), Some(y)) => match by {
+                Order::Number => (x.0, std::cmp::Reverse(x.1)).cmp(&(y.0, std::cmp::Reverse(y.1))),
+                Order::Level => (std::cmp::Reverse(x.1), x.0).cmp(&(std::cmp::Reverse(y.1), y.0)),
+                Order::Name => x.2.cmp(&y.2),
+            },
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        }
+    });
+    for (i, s) in all.into_iter().enumerate() {
+        slots[i] = Some(s);
+    }
+    let how = match by {
+        Order::Number => "by Pokédex number",
+        Order::Level => "by level, highest first",
+        Order::Name => "by name",
+    };
+    Ok(Worked {
+        plan: Plan { allowed: true, title: format!("Box {} is put in order {how}.", b + 1), changes: Vec::new() },
+        writes: vec![(storage_path(dir), st.to_bytes())],
+    })
+}
+
 fn work_storage_move(dir: &Path, b: usize, slot: usize, to_box: usize) -> Result<Worked, String> {
     let mut st = Storage::load(dir)?;
     let s = st.take(b, slot)?;
@@ -360,6 +430,12 @@ pub enum Change<'a> {
     ToStorage { rom: &'a Path, save: &'a Path, b: usize, slot: usize, to_box: usize },
     ToGame { rom: &'a Path, save: &'a Path, b: usize, slot: usize, to_box: usize },
     InStorage { b: usize, slot: usize, to_box: usize },
+    /// One place in the Box to another (swapped with what is there).
+    InStorageTo { b: usize, slot: usize, to_box: usize, to_slot: usize },
+    /// A Pokémon from a game's team into the Box.
+    PartyToStorage { rom: &'a Path, save: &'a Path, slot: usize, to_box: usize },
+    /// A Box box put in order.
+    Sort { b: usize, by: Order },
     Trade { a: Side<'a>, b: Side<'a> },
 }
 
@@ -371,6 +447,9 @@ fn work(dir: &Path, c: &Change) -> Result<Worked, String> {
         Change::ToStorage { rom, save, b, slot, to_box } => work_to_storage(dir, rom, save, *b, *slot, *to_box),
         Change::ToGame { rom, save, b, slot, to_box } => work_to_game(dir, rom, save, *b, *slot, *to_box),
         Change::InStorage { b, slot, to_box } => work_storage_move(dir, *b, *slot, *to_box),
+        Change::InStorageTo { b, slot, to_box, to_slot } => work_storage_place(dir, *b, *slot, *to_box, *to_slot),
+        Change::PartyToStorage { rom, save, slot, to_box } => work_party_to_storage(dir, rom, save, *slot, *to_box),
+        Change::Sort { b, by } => work_sort(dir, *b, *by),
         Change::Trade { a, b } => work_trade(a, b),
     }
 }
@@ -537,6 +616,25 @@ mod tests {
         fs::write(p.dir.join(JOURNAL), &j[..j.len() - 3]).unwrap();
         assert!(recover(&p.dir).unwrap().contains("nothing changed"));
         assert!(recover(&p.dir).is_none());
+    }
+
+    #[test]
+    fn a_box_is_put_in_order_and_a_pokemon_swaps_places() {
+        let p = Place::new("sort");
+        let mut st = Storage::empty();
+        for (i, (sp, exp)) in [(25u16, 100u32), (1, 9000), (150, 50)].into_iter().enumerate() {
+            st.boxes[0][i * 3] = Some(encode(&Mon { gen: 1, species: sp, exp, moves: [1, 0, 0, 0], ot_name: "A".into(), ..Mon::default() }, Game::Red, 2).0);
+        }
+        fs::write(p.dir.join(BOX_FILE), st.to_bytes()).unwrap();
+        apply(&p.dir, &Change::Sort { b: 0, by: Order::Number }).unwrap();
+        let order = |st: &Storage| st.boxes[0].iter().take(3).map(|s| s.as_ref().map(|x| x.mon().unwrap().species)).collect::<Vec<_>>();
+        assert_eq!(order(&Storage::load(&p.dir).unwrap()), [Some(1), Some(25), Some(150)]);
+        apply(&p.dir, &Change::Sort { b: 0, by: Order::Level }).unwrap();
+        assert_eq!(order(&Storage::load(&p.dir).unwrap())[0], Some(1), "level 30-odd Bulbasaur first");
+        apply(&p.dir, &Change::InStorageTo { b: 0, slot: 0, to_box: 0, to_slot: 2 }).unwrap();
+        let st = Storage::load(&p.dir).unwrap();
+        assert_eq!(st.boxes[0][2].as_ref().unwrap().mon().unwrap().species, 1, "swapped");
+        assert!(st.boxes[0][0].is_some());
     }
 
     #[test]
