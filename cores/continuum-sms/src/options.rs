@@ -61,6 +61,9 @@ const CATEGORIES: &[(&CStr, &CStr, &CStr)] = &[
 const OFF_ON: Values = &[(c"off", c"Off"), (c"on", c"On")];
 const PCT: Values = &[(c"100", c"100%"), (c"75", c"75%"), (c"50", c"50%"), (c"25", c"25%"), (c"0", c"Off")];
 
+/// An equaliser band's level, percent.
+const EQ: Values = &[(c"150", c"150%"), (c"125", c"125%"), (c"100", c"100%"), (c"75", c"75%"), (c"50", c"50%"), (c"25", c"25%"), (c"0", c"Off")];
+
 const SPECS: &[Spec] = &[
     (c"system", c"cgear_console", c"Console",
      c"Auto picks it from the game's file and header; changes apply at the next start.",
@@ -116,6 +119,9 @@ const SPECS: &[Spec] = &[
     (c"audio", c"cgear_lowpass", c"Soften the sound",
      c"Takes the edge off the high notes, like a TV's speaker.",
      &[(c"off", c"Off"), (c"light", c"Light"), (c"medium", c"Medium"), (c"strong", c"Strong")], c"off"),
+    (c"audio", c"cgear_eq_low", c"Bass", c"Below about 880 Hz.", EQ, c"100"),
+    (c"audio", c"cgear_eq_mid", c"Middle", c"", EQ, c"100"),
+    (c"audio", c"cgear_eq_high", c"Treble", c"Above about 5 kHz.", EQ, c"100"),
     (c"audio", c"cgear_mono", c"Mono sound",
      c"Game Gear games are in stereo; this mixes them into one.",
      OFF_ON, c"off"),
@@ -160,6 +166,8 @@ pub struct Settings {
     pub tms_colours_sms: Option<bool>,
     /// 3-D glasses games: None shows both eyes' pictures, Some(true) only the left's.
     pub glasses_eye: Option<bool>,
+    /// The equaliser: bass, middle and treble, percent.
+    pub eq: [u8; 3],
     /// The TV border: 0 none, 1 above and below, 2 all round.
     pub borders: u8,
     /// The CPU's speed, percent.
@@ -173,7 +181,7 @@ impl Default for Settings {
     fn default() -> Settings {
         Settings {
             console: Console::Auto, japan: false, pal: false, mapper: None, sprite_limit: true, hide_left: false,
-            gg_ghosting: 0, gg_full: false, fm_chan_vol: [100; 9], lowpass: 0, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100, cpu_percent: 100, tms_colours_sms: None, borders: 0, glasses_eye: None,
+            gg_ghosting: 0, gg_full: false, fm_chan_vol: [100; 9], lowpass: 0, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100, cpu_percent: 100, tms_colours_sms: None, borders: 0, glasses_eye: None, eq: [100; 3],
         }
     }
 }
@@ -234,6 +242,8 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
         Some("right") => Some(false),
         _ => None,
     };
+    let band = |k: &CStr| get(k).and_then(|v| v.parse::<u8>().ok()).unwrap_or(100).min(150);
+    s.eq = [band(c"cgear_eq_low"), band(c"cgear_eq_mid"), band(c"cgear_eq_high")];
     s.borders = match get(c"cgear_borders").as_deref() {
         Some("tb") => 1,
         Some("full") => 2,

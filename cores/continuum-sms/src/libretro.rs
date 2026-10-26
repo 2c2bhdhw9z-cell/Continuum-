@@ -86,6 +86,8 @@ struct Core {
     prev: Vec<u32>,
     /// The sound filter's last output, left and right.
     lp: [f32; 2],
+    /// The equaliser's two filters (880 Hz and 5 kHz), left and right.
+    eq: [[f32; 2]; 2],
     /// The size of the last picture handed over (`m.shown`).
     shown_size: (usize, usize),
 }
@@ -264,7 +266,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     }
     let s = env.map(|e| crate::options::read(e)).unwrap_or_default();
     let m = machine(rom, &s, (*game).path);
-    let mut core = Core { m, s: s.clone(), at_start: s, prev: Vec::new(), lp: [0.0; 2], shown_size: (0, 0) };
+    let mut core = Core { m, s: s.clone(), at_start: s, prev: Vec::new(), lp: [0.0; 2], shown_size: (0, 0), eq: [[0.0; 2]; 2] };
     core.apply();
     if let Ok(mut c) = CORE.lock() {
         *c = Some(core);
@@ -428,6 +430,10 @@ pub unsafe extern "C" fn retro_run() {
             pair.fill(v);
         }
     }
+    if m.s.eq != [100; 3] {
+        let gains = m.s.eq;
+        equalise(&mut m.eq, gains, &mut samples);
+    }
     if m.s.lowpass > 0 {
         // One pole: each sample moves part of the way to the new value.
         let a = 1.0 - (-std::f32::consts::TAU * f32::from(m.s.lowpass) / RATE as f32).exp();
@@ -511,5 +517,48 @@ pub extern "C" fn retro_get_memory_size(id: u32) -> usize {
         MEMORY_SYSTEM_RAM => m.bus.ram.len(),
         MEMORY_VIDEO_RAM => m.bus.vdp.vram.len(),
         _ => 0,
+    }
+}
+
+/// The equaliser: three bands from two one-pole low-passes (880 Hz and 5 kHz) per side, each
+/// band at its level (percent).
+fn equalise(state: &mut [[f32; 2]; 2], levels: [u8; 3], samples: &mut [i16]) {
+    let pole = |hz: f32| 1.0 - (-std::f32::consts::TAU * hz / RATE as f32).exp();
+    let (a, b) = (pole(880.0), pole(5000.0));
+    let g = levels.map(|v| f32::from(v) / 100.0);
+    for pair in samples.chunks_mut(2) {
+        for (c, x) in pair.iter_mut().enumerate() {
+            let v = f32::from(*x);
+            state[0][c] += a * (v - state[0][c]);
+            state[1][c] += b * (v - state[1][c]);
+            let (low, below_high) = (state[0][c], state[1][c]);
+            let out = low * g[0] + (below_high - low) * g[1] + (v - below_high) * g[2];
+            *x = out.clamp(-32768.0, 32767.0) as i16;
+        }
+    }
+}
+
+#[cfg(test)]
+mod eq_tests {
+    use super::*;
+
+    /// A sine of `hz` through the equaliser; its loudness at the end, as a fraction of the input's.
+    fn through(hz: f32, levels: [u8; 3]) -> f32 {
+        let mut s: Vec<i16> = (0..9600).flat_map(|i| {
+            let v = ((i as f32 * std::f32::consts::TAU * hz / RATE as f32).sin() * 10_000.0) as i16;
+            [v, v]
+        }).collect();
+        let mut st = [[0.0; 2]; 2];
+        equalise(&mut st, levels, &mut s);
+        s[s.len() - 2400..].iter().map(|v| i32::from(*v).abs()).max().unwrap() as f32 / 10_000.0
+    }
+
+    #[test]
+    fn each_band_turns_its_own_notes_up_or_down() {
+        assert!((through(200.0, [100; 3]) - 1.0).abs() < 0.01, "flat changes nothing");
+        assert!(through(100.0, [0, 100, 100]) < 0.25, "bass off: a low note mostly gone");
+        assert!(through(100.0, [100, 100, 0]) > 0.9, "treble off: a low note stays");
+        assert!(through(12_000.0, [100, 100, 0]) < 0.45, "treble off: a high note much quieter");
+        assert!(through(12_000.0, [150, 100, 150]) > 1.3, "treble up: a high note louder");
     }
 }

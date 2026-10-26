@@ -99,9 +99,9 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gpgx | `genesis_plus_gx_fm_preamp` | FM Preamp Level | done | `cgear_fm_volume` | 0,5,10,15,20,25,30,35,40,45,... |
 | gpgx | `genesis_plus_gx_cdda_volume` | CD-DA Volume | n/a | Mega Drive or Mega-CD only | 0,5,10,15,20,25,30,35,40,45,... |
 | gpgx | `genesis_plus_gx_pcm_volume` | PCM Volume | n/a | Mega Drive or Mega-CD only | 0,5,10,15,20,25,30,35,40,45,... |
-| gpgx | `genesis_plus_gx_audio_eq_low` | EQ Low | planned |  | 0,5,10,15,20,25,30,35,40,45,... |
-| gpgx | `genesis_plus_gx_audio_eq_mid` | EQ Mid | planned |  | 0,5,10,15,20,25,30,35,40,45,... |
-| gpgx | `genesis_plus_gx_audio_eq_high` | EQ High | planned |  | 0,5,10,15,20,25,30,35,40,45,... |
+| gpgx | `genesis_plus_gx_audio_eq_low` | EQ Low | done | `cgear_eq_low` (0-150%) | 0,5,10,15,20,25,30,35,40,45,... |
+| gpgx | `genesis_plus_gx_audio_eq_mid` | EQ Mid | done | `cgear_eq_mid` | 0,5,10,15,20,25,30,35,40,45,... |
+| gpgx | `genesis_plus_gx_audio_eq_high` | EQ High | done | `cgear_eq_high` | 0,5,10,15,20,25,30,35,40,45,... |
 | gpgx | `genesis_plus_gx_gun_input` | Light Gun Input | planned |  | lightgun,touchscreen |
 | gpgx | `genesis_plus_gx_gun_cursor` | Show Light Gun Crosshair | planned |  | disabled,enabled |
 | gpgx | `genesis_plus_gx_invert_mouse` | Invert Mouse Y-Axis | n/a | Mega Drive or Mega-CD only | disabled,enabled |
