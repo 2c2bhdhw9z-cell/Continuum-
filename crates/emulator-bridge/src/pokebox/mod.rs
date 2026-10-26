@@ -477,6 +477,85 @@ fn work(dir: &Path, c: &Change) -> Result<Worked, String> {
     }
 }
 
+// --- Pokémon files ----------------------------------------------------------------------------------
+
+/// A Box Pokémon as the file other Pokémon tools (PKHeX among them) read: .pk1 (69 bytes) or .pk2
+/// (73), a one-Pokémon list in the team's form; .pk3, the 100 bytes of a team Pokémon. Returns the
+/// file's name and its bytes.
+pub fn export(dir: &Path, b: usize, slot: usize) -> Result<(String, Vec<u8>), String> {
+    let st = Storage::load(dir)?;
+    let s = st.boxes.get(b).and_then(|x| x.get(slot)).and_then(Option::as_ref)
+        .ok_or("That Pokémon isn't there any more. Close this and open it again.")?;
+    let m = s.mon().ok_or("This one's data is damaged (a Bad Egg), so it can't be saved as a file.")?;
+    let tail = mon::party_tail(s).ok_or("This one's data is damaged.")?;
+    let name = if m.egg { "Egg".to_owned() } else if m.nicknamed { m.nickname.clone() } else { mon::species_name(m.species).to_owned() };
+    let clean: String = name.chars().filter(|c| c.is_alphanumeric() || *c == ' ').collect();
+    let gen = s.game.gen();
+    let bytes = match gen {
+        1 | 2 => {
+            let keep = if gen == 1 { mon::GEN1_LEN } else { mon::GEN2_LEN };
+            let mut out = vec![1, if s.egg { 0xFD } else { s.data[0] }, 0xFF];
+            let mut party = s.data[..keep].to_vec();
+            party.extend_from_slice(&tail);
+            out.extend_from_slice(&party);
+            out.extend_from_slice(&s.data[keep..]);
+            out
+        }
+        _ => {
+            let mut out = s.data.clone();
+            out.extend_from_slice(&tail);
+            out
+        }
+    };
+    Ok((format!("{:03} {}.pk{gen}", m.species, clean.trim()), bytes))
+}
+
+/// The game a Pokémon file's Pokémon is kept as: its generation's, and for Ruby to LeafGreen the
+/// game it was caught in when that is one of them.
+fn file_game(bytes: &[u8]) -> Option<(Game, Vec<u8>, bool)> {
+    match bytes.len() {
+        69 if bytes[0] == 1 && bytes[2] == 0xFF => {
+            let mut d = bytes[3..3 + mon::GEN1_LEN].to_vec();
+            d.extend_from_slice(&bytes[3 + 44..]);
+            Some((Game::Red, d, false))
+        }
+        73 if bytes[0] == 1 && bytes[2] == 0xFF => {
+            let mut d = bytes[3..3 + mon::GEN2_LEN].to_vec();
+            d.extend_from_slice(&bytes[3 + 48..]);
+            let crystal = d[29] != 0 || d[30] != 0;
+            Some((if crystal { Game::Crystal } else { Game::Gold }, d, bytes[1] == 0xFD))
+        }
+        80 | 100 => {
+            let d = bytes[..mon::GEN3_LEN].to_vec();
+            mon::gen3_parts(&d)?;
+            let game = Game::ALL.iter().copied().find(|g| g.gen() == 3 && {
+                let s = Stored { game: *g, egg: false, data: d.clone() };
+                s.mon().is_some_and(|m| m.origin == Some(*g))
+            });
+            Some((game.unwrap_or(Game::Emerald), d, false))
+        }
+        _ => None,
+    }
+}
+
+/// A Pokémon file into the Box, box `to_box`.
+pub fn import(dir: &Path, bytes: &[u8], to_box: usize) -> Result<Plan, String> {
+    if let Some(line) = recover(dir) {
+        log::info!("pokebox: {line}");
+    }
+    let (game, data, egg) = file_game(bytes)
+        .ok_or("That isn't a Pokémon file the Box can read (.pk1, .pk2 or .pk3 from Red to Emerald).")?;
+    let s = Stored { game, egg, data };
+    if s.mon().is_none() {
+        return Err("That file's Pokémon doesn't add up (its data is damaged), so it was left out.".into());
+    }
+    let name = display_name(&s);
+    let mut st = Storage::load(dir)?;
+    let at = st.put(to_box, s)?;
+    commit(dir, &[(storage_path(dir), st.to_bytes())])?;
+    Ok(Plan { allowed: true, title: format!("{name} is in the Pokémon Box, box {}, place {}.", to_box + 1, at + 1), changes: Vec::new() })
+}
+
 /// What the change would do, without doing it.
 pub fn plan(dir: &Path, c: &Change) -> Plan {
     match work(dir, c) {
@@ -673,6 +752,25 @@ mod tests {
         save::check(Game::FireRed, &mut b).unwrap();
         let team = save::read_party(Game::FireRed, &b).unwrap();
         assert_eq!(team.last().unwrap().mon().unwrap().species, 4);
+    }
+
+    #[test]
+    fn a_pokemon_goes_out_as_a_file_and_comes_back_the_same() {
+        let p = Place::new("files");
+        let mut st = Storage::empty();
+        st.boxes[0][0] = Some(encode(&charmander(), Game::Yellow, 2).0);
+        st.boxes[0][1] = Some(encode(&Mon { gen: 2, species: 152, exp: 400, moves: [33, 0, 0, 0], ot_name: "GOLD".into(), ..Mon::default() }, Game::Gold, 2).0);
+        st.boxes[0][2] = Some(encode(&Mon { gen: 3, species: 258, exp: 300, moves: [33, 0, 0, 0], ot_name: "MAY".into(), pid: 77, ..Mon::default() }, Game::Ruby, 2).0);
+        fs::write(p.dir.join(BOX_FILE), st.to_bytes()).unwrap();
+        for (slot, len, ext) in [(0, 69, "pk1"), (1, 73, "pk2"), (2, 100, "pk3")] {
+            let (name, bytes) = export(&p.dir, 0, slot).unwrap();
+            assert!(name.ends_with(ext) && bytes.len() == len, "{name} {}", bytes.len());
+            import(&p.dir, &bytes, 3).unwrap();
+            let back = Storage::load(&p.dir).unwrap().boxes[3][slot].clone().unwrap();
+            assert_eq!(back.mon().unwrap().species, st.boxes[0][slot].as_ref().unwrap().mon().unwrap().species);
+            assert_eq!(back.data, st.boxes[0][slot].as_ref().unwrap().data, "{ext}: byte for byte");
+        }
+        assert!(import(&p.dir, b"not a pokemon", 3).is_err());
     }
 
     #[test]

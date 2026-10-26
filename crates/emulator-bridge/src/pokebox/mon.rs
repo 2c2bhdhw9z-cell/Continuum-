@@ -700,6 +700,8 @@ fn from_gen3(out: &mut Mon, m: &Mon, target: Game, changes: &mut Vec<String>) {
 
 /// `m` as `game` stores it. Says whether every letter of its names could be written.
 pub fn encode(m: &Mon, game: Game, language: u8) -> (Stored, bool) {
+    // Its level is always the one its experience gives.
+    let m = &Mon { level: level_for(m.species, m.exp), ..m.clone() };
     match game.gen() {
         1 | 2 => encode_gb(m, game),
         _ => encode_gen3(m, game, language),

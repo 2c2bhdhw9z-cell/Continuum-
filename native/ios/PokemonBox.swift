@@ -758,6 +758,14 @@ struct PokemonBoxSheet: View {
         }
         SettingsNote("Put this box in order, or tap a Pokémon and then the place it should go: it swaps "
                      + "with whatever is there. Change box with the arrows to move it to another box.")
+        HStack(spacing: 8) {
+            SettingsButton(title: "Share as a file...", role: .normal) { shareChosen() }
+                .disabled(!chosenIsStorage)
+                .opacity(chosenIsStorage ? 1 : 0.5)
+            SettingsButton(title: "Add from a file...", role: .normal) { addFromFile() }
+        }
+        SettingsNote("A Pokémon file (.pk1, .pk2 or .pk3) is how Pokémon are shared, and other "
+                     + "Pokémon tools such as PKHeX open them. One added goes into the box shown.")
     }
 
     private func sortBox(_ by: UInt8) {
@@ -769,6 +777,34 @@ struct PokemonBoxSheet: View {
         }
         chosen = []
         loadStorage()
+    }
+
+    private func shareChosen() {
+        guard case .storage(let box, let slot)? = chosen.first else { return }
+        do {
+            let file = try pokeboxExport(dir: PokemonGames.folder, fromBox: UInt32(box), slot: UInt32(slot))
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(file.fileName)
+            try file.bytes.write(to: url)
+            GameShare.present([url])
+        } catch {
+            notice = "\(error)"
+        }
+    }
+
+    private func addFromFile() {
+        let box = storageBox
+        OneFilePicker.pick { picked in
+            guard let picked else { return }
+            defer { try? FileManager.default.removeItem(at: picked) }
+            do {
+                let data = try Data(contentsOf: picked)
+                let done = try pokeboxImport(dir: PokemonGames.folder, bytes: data, toBox: UInt32(box))
+                notice = done.title
+            } catch {
+                notice = "\(error)"
+            }
+            loadStorage()
+        }
     }
 
     private func arrangeTo(_ place: BoxPlace) {

@@ -38,10 +38,11 @@ Box Pokémon into the team with its stats worked out: `mon::stats`, base stats f
 pokemon_stats_past so they are the Gen 1-3 values),
 List (every Pokémon in the Box, every game's PCs and teams; search, sort by number/level/name),
 Dashboard (totals, kinds of 386/251/151, shinies, eggs, where they are), Arrange (sort a Box box,
-or move a Pokémon to a chosen place, swapping). Engine: `save::read_party`/`take_party`,
+or move a Pokémon to a chosen place, swapping; and Files folded in there: share a Box Pokémon as
+a .pk1/.pk2/.pk3 file, PKHeX's formats, or add one from Files). Engine: `save::read_party`/`take_party`,
 `Change::PartyToStorage`, `InStorageTo`, `Sort`.
 
 ## Not done yet (owner's 5 A: later)
-G1R's Gifts, Events, Items, Showcase, Files and Migration (asked the owner what each should do),
+G1R's Gifts, Events, Items, Showcase and Migration (asked the owner what each should do),
 renaming boxes, Gen 3 Unown/Spinda Pokédex personality fields. Tested only on save files
 built by the tests from the documented layouts; not yet on the owner's real saves.

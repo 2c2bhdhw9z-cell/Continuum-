@@ -168,6 +168,26 @@ pub fn pokebox_read_party(rom_path: String, save_path: String) -> Result<Vec<Pok
     Ok(save::read_party(g.game, &g.bytes).map_err(other)?.iter().map(shown).collect())
 }
 
+/// A Pokémon file (.pk1/.pk2/.pk3) of the Box Pokémon in `from_box`, `slot`.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PokeFile {
+    pub file_name: String,
+    pub bytes: Vec<u8>,
+}
+
+#[uniffi::export]
+pub fn pokebox_export(dir: String, from_box: u32, slot: u32) -> Result<PokeFile, EngineError> {
+    pokebox::export(Path::new(&dir), from_box as usize, slot as usize)
+        .map(|(file_name, bytes)| PokeFile { file_name, bytes })
+        .map_err(other)
+}
+
+/// A Pokémon file into the Box.
+#[uniffi::export]
+pub fn pokebox_import(dir: String, bytes: Vec<u8>, to_box: u32) -> Result<PokePlan, EngineError> {
+    pokebox::import(Path::new(&dir), &bytes, to_box as usize).map(plan_record).map_err(other)
+}
+
 /// Finishes a change that was cut off; a line for the player when there was one.
 #[uniffi::export]
 pub fn pokebox_recover(dir: String) -> Option<String> {
