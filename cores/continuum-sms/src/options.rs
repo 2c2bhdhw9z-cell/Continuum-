@@ -110,6 +110,9 @@ const SPECS: &[Spec] = &[
     (c"audio", c"cgear_mono", c"Mono sound",
      c"Game Gear games are in stereo; this mixes them into one.",
      OFF_ON, c"off"),
+    (c"system", c"cgear_cpu_speed", c"CPU speed",
+     c"Faster than the real console takes away slowdown in busy scenes; a few games then run too fast.",
+     &[(c"100", c"Real (100%)"), (c"150", c"150%"), (c"200", c"200%"), (c"300", c"300%")], c"100"),
     (c"input", c"cgear_opposing", c"Allow opposite directions",
      c"Up with Down, Left with Right; the pad itself can't, and some games glitch with it.",
      OFF_ON, c"off"),
@@ -144,6 +147,8 @@ pub struct Settings {
     pub chan_vol: [u8; 4],
     pub mono: bool,
     pub opposing: bool,
+    /// The CPU's speed, percent.
+    pub cpu_percent: u32,
     /// The FM chip: None for Auto (a Japanese Master System), or forced off or on.
     pub fm: Option<bool>,
     pub fm_volume: u8,
@@ -153,7 +158,7 @@ impl Default for Settings {
     fn default() -> Settings {
         Settings {
             console: Console::Auto, japan: false, pal: false, mapper: None, sprite_limit: true, hide_left: false,
-            gg_ghosting: 0, gg_full: false, fm_chan_vol: [100; 9], lowpass: 0, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100,
+            gg_ghosting: 0, gg_full: false, fm_chan_vol: [100; 9], lowpass: 0, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100, cpu_percent: 100,
         }
     }
 }
@@ -204,6 +209,7 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
         _ => None,
     };
     s.fm_volume = pct(c"cgear_fm_volume");
+    s.cpu_percent = get(c"cgear_cpu_speed").and_then(|v| v.parse::<u32>().ok()).unwrap_or(100).clamp(100, 300);
     s
 }
 

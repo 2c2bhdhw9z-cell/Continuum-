@@ -29,6 +29,13 @@ pub struct Sms {
     /// The picture as the screen shows it, handed to the app.
     #[serde(skip)]
     pub shown: Vec<u32>,
+    /// The CPU's speed, percent of the real one (a setting, for games that slow down; not saved).
+    #[serde(skip, default = "hundred")]
+    pub cpu_percent: u32,
+}
+
+fn hundred() -> u32 {
+    100
 }
 
 const STATE_MAGIC: &[u8; 8] = b"CGEARST1";
@@ -48,19 +55,23 @@ impl Sms {
         if bus.mapper == crate::bus::Mapper::Codemasters {
             bus.banks = [0, 1, 0];
         }
-        Sms { cpu, bus, over: 0, frames: 0, samples: Vec::new(), rate: default_rate(), pause_held: false, shown: Vec::new() }
+        Sms { cpu, bus, over: 0, frames: 0, samples: Vec::new(), rate: default_rate(), pause_held: false, shown: Vec::new(), cpu_percent: 100 }
     }
 
     /// One line of CPU time, with the picture chip's line events at its start.
     pub fn run_line(&mut self, line: u16) {
         self.bus.vdp.start_line(line);
+        // Faster than the real CPU: more of its cycles fit in a line, and the counters the game
+        // reads still see the line's own time.
+        let k = self.cpu_percent.max(100);
+        let budget = LINE_CYCLES * k / 100;
         let mut spent = self.over;
-        while spent < LINE_CYCLES {
-            self.bus.line_cycle = spent;
+        while spent < budget {
+            self.bus.line_cycle = spent * 100 / k;
             self.cpu.set_irq(self.bus.vdp.irq());
             spent += self.cpu.step(&mut self.bus);
         }
-        self.over = spent - LINE_CYCLES;
+        self.over = spent - budget;
         let hz = if self.bus.vdp.pal { CPU_HZ_PAL } else { CPU_HZ_NTSC };
         let start = self.samples.len();
         self.bus.psg.run(LINE_CYCLES, hz, self.rate, &mut self.samples);
@@ -146,6 +157,35 @@ mod tests {
         assert_eq!(m.bus.ram[0], 0x42);
         assert_eq!(m.bus.rom.len(), 0x8000);
         assert!(m.load_state(&s[..10]).is_err());
+    }
+
+    #[test]
+    fn a_faster_cpu_runs_more_instructions_in_the_same_frame() {
+        // INC (HL) at $C000, forever: count how often it runs in a frame.
+        let mut rom = vec![0u8; 0x8000];
+        rom[..6].copy_from_slice(&[0x21, 0x00, 0xC0, 0x34, 0x18, 0xFD]);
+        let sound = |pct: u32| {
+            let mut m = Sms::new(rom.clone());
+            m.cpu_percent = pct;
+            m.run_frame();
+            m.samples.len()
+        };
+        assert_eq!(sound(100), sound(200), "the frame lasts as long and makes as much sound");
+        // 23 cycles a loop, about 2600 a frame, so the byte wraps: count it line by line.
+        let loops = |pct: u32| {
+            let mut m = Sms::new(rom.clone());
+            m.cpu_percent = pct;
+            let mut n = 0u32;
+            let mut last = 0u8;
+            for line in 0..m.bus.vdp.lines() {
+                m.run_line(line);
+                n += u32::from(m.bus.ram[0].wrapping_sub(last));
+                last = m.bus.ram[0];
+            }
+            n
+        };
+        let (a, b) = (loops(100), loops(200));
+        assert!((b as f32 / a as f32 - 2.0).abs() < 0.01, "twice the work: {a} {b}");
     }
 
     #[test]

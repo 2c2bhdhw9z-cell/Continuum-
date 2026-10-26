@@ -110,6 +110,7 @@ impl Core {
         self.m.bus.psg.volume = s.volume;
         self.m.bus.fm.volume = s.fm_volume;
         self.m.bus.fm.chan_vol = s.fm_chan_vol;
+        self.m.cpu_percent = s.cpu_percent;
         self.m.bus.vdp.gg_full = self.at_start.gg_full;
     }
 }

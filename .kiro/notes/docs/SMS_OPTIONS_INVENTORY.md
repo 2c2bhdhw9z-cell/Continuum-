@@ -108,7 +108,7 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gpgx | `genesis_plus_gx_no_sprite_limit` | Remove Per-Line Sprite Limit | done | `cgear_sprite_limit` | disabled,enabled |
 | gpgx | `genesis_plus_gx_enhanced_vscroll` | Enhanced per-tile vertical scroll | n/a | Mega Drive or Mega-CD only | disabled,enabled |
 | gpgx | `genesis_plus_gx_enhanced_vscroll_limit` | Enhanced per-tile vertical scroll limit | n/a | Mega Drive or Mega-CD only | 2,3,4,5,6,7,8,9,10,11,... |
-| gpgx | `genesis_plus_gx_overclock` | CPU Speed | planned | Z80 speed above the console's, for slowdown | 100,125,150,175,200,225,250,275,300,325,... |
+| gpgx | `genesis_plus_gx_overclock` | CPU Speed | done | `cgear_cpu_speed` (100/150/200/300%) | 100,125,150,175,200,225,250,275,300,325,... |
 | gpgx | `genesis_plus_gx_force_dtack` | System Lock-Ups | n/a | Mega Drive or Mega-CD only | enabled,disabled |
 | gpgx | `genesis_plus_gx_addr_error` | 68K Address Error | n/a | Mega Drive or Mega-CD only | enabled,disabled |
 | gpgx | `genesis_plus_gx_cd_latency` | CD Access Time | n/a | Mega Drive or Mega-CD only | enabled,disabled |
