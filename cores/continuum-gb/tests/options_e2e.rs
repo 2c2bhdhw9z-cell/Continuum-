@@ -1118,6 +1118,32 @@ fn two_game_boys_on_one_phone() {
     let bytes = std::fs::read(&save).unwrap();
     assert_eq!((bytes[0], bytes[1]), (0x5A, 0x77));
 
+    // A different game on the second Game Boy, picked on the card: its own save, the app's file
+    // for it, written as the app writes it (the cartridge memory alone), and both saves kept as
+    // they were before the two linked.
+    let mut other = data.clone();
+    other[0x14C] = 1; // another cartridge (its version byte; the code reaches past $134)
+    other[0x106] = 0x6B; // it writes $6B to its battery memory instead
+    let rom2 = dir.join("Blue.gb");
+    std::fs::write(&rom2, &other).unwrap();
+    let srm2 = dir.join("Blue.gb.srm");
+    let mut old = vec![0u8; 8192];
+    old[1] = 0x99;
+    std::fs::write(&srm2, &old).unwrap();
+    let srm1 = dir.join("Red.gb.srm");
+    std::fs::write(&srm1, [1u8; 8192]).unwrap();
+    let (r2, s2, s1) = (rom2.to_string_lossy().into_owned(), srm2.to_string_lossy().into_owned(), srm1.to_string_lossy().into_owned());
+    let (_, h, px, _) = shot(&[("cboy_dual", "on"), ("cboy_dual_second_rom", &r2), ("cboy_dual_second_save", &s2), ("cboy_dual_first_save", &s1)]);
+    assert_eq!(h, 288);
+    assert!(all(&px[..160 * 144], got) && all(&px[160 * 144..], sent), "the two still talk");
+    let bytes = std::fs::read(&srm2).unwrap();
+    assert_eq!((bytes.len(), bytes[0], bytes[1]), (8192, 0x6B, 0x99), "Blue's own save, its progress kept");
+    assert_eq!(std::fs::read(dir.join("Blue.gb.srm.before-link")).unwrap(), old, "and a copy from before");
+    assert_eq!(std::fs::read(dir.join("Red.gb.srm.before-link")).unwrap(), vec![1u8; 8192]);
+    // A second game that can't be opened: the same game again, never a refusal.
+    let (_, h, _, _) = shot(&[("cboy_dual", "on"), ("cboy_dual_second_rom", "/nowhere/x.gb")]);
+    assert_eq!(h, 288);
+
     *SAVE_DIR.lock().unwrap() = None;
     let _ = std::fs::remove_dir_all(&dir);
 }

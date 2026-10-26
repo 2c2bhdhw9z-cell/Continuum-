@@ -402,6 +402,10 @@ struct Second {
     written: Vec<u8>,
     rtc_block: [u8; RTC_LEN],
     frames: u32,
+    /// The save is another game's own battery save in the app (`<game>.srm`, the cartridge
+    /// memory alone, its clock beside it in `<game>.rtc`), not cBoy's own file: the second Game
+    /// Boy plays a different game, with that game's real progress.
+    app_layout: bool,
 }
 
 /// How often the second console's save is written when it has changed: every two seconds, so
@@ -523,9 +527,33 @@ unsafe fn second_save_path(env: EnvFn, game_path: *const c_char) -> Option<std::
 
 impl Second {
     /// The second console, with its battery save from its own file when there is one.
-    fn new(mut gb: GameBoy, save_path: Option<std::path::PathBuf>, s: &crate::options::Settings) -> Second {
+    fn new(mut gb: GameBoy, save_path: Option<std::path::PathBuf>, s: &crate::options::Settings, app_layout: bool) -> Second {
         let mut rtc_block = [0u8; RTC_LEN];
         let mut written = Vec::new();
+        if app_layout {
+            let cart = &mut gb.bus.cart;
+            if let Some(bytes) = save_path.as_ref().and_then(|p| std::fs::read(p).ok()) {
+                let ram = cart.ram.len();
+                if cart.has_battery && bytes.len() >= ram {
+                    cart.ram.copy_from_slice(&bytes[..ram]);
+                    written = bytes[..ram].to_vec();
+                    log_line("second Game Boy: its game's own save is loaded");
+                }
+            }
+            if let Some(clock) = save_path.as_ref().and_then(|p| std::fs::read(p.with_extension("rtc")).ok()) {
+                if cart.has_rtc && clock.len() == RTC_LEN {
+                    rtc_block.copy_from_slice(&clock);
+                    rtc_from_block(cart, &rtc_block, s);
+                }
+            }
+            if cart.has_rtc {
+                rtc_to_block(cart, &mut rtc_block);
+            }
+            return Second {
+                gb, post: crate::options::Post::default(), picture: vec![0; W * H], leftover: Vec::new(),
+                save_path, written, rtc_block, frames: 0, app_layout,
+            };
+        }
         if let Some(bytes) = save_path.as_ref().and_then(|p| std::fs::read(p).ok()) {
             let cart = &mut gb.bus.cart;
             let ram = cart.ram.len();
@@ -546,7 +574,7 @@ impl Second {
         }
         Second {
             gb, post: crate::options::Post::default(), picture: vec![0; W * H], leftover: Vec::new(),
-            save_path, written, rtc_block, frames: 0,
+            save_path, written, rtc_block, frames: 0, app_layout,
         }
     }
 
@@ -558,7 +586,12 @@ impl Second {
             return;
         }
         let Some(path) = self.save_path.as_ref() else { return };
-        let bytes = second_save_bytes(&self.gb, &self.rtc_block);
+        let bytes = if self.app_layout { cart.ram.clone() } else { second_save_bytes(&self.gb, &self.rtc_block) };
+        if self.app_layout && cart.has_rtc {
+            let clock = path.with_extension("rtc");
+            let part = clock.with_extension("rtc.part");
+            let _ = std::fs::write(&part, self.rtc_block).and_then(|_| std::fs::rename(&part, &clock));
+        }
         // The clock's own block moves every second; only a change to the game's memory, or a
         // first save, is worth a write.
         let ram = cart.ram.len();
@@ -1317,7 +1350,16 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
         }
     }
     let mut settings = env.map(|e| crate::options::read(e, system_dir.as_deref())).unwrap_or_default();
-    let second_rom = settings.dual.then(|| rom.clone());
+    // The second Game Boy plays the same game, or the one picked for it on this game's card.
+    let picked = (settings.dual && !settings.dual_second_rom.is_empty())
+        .then(|| std::fs::read(&settings.dual_second_rom).ok())
+        .flatten()
+        .filter(|r| !gba::is_gba_rom(r) && crate::cart::Cart::new(r.clone()).is_ok());
+    if settings.dual && !settings.dual_second_rom.is_empty() && picked.is_none() {
+        log_line("second Game Boy: its game could not be opened, so it plays this one");
+    }
+    let second_is_other = picked.is_some();
+    let second_rom = if settings.dual { picked.or_else(|| Some(rom.clone())) } else { None };
     let Some((gb, gba_machine)) = build_machine(rom, &settings, system_dir.as_deref()) else { return false };
     // Two Game Boys: the same cartridge again, its own save in its own file. Game Boy and Color
     // games only.
@@ -1327,11 +1369,24 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     }
     let second = match (second_rom, gba_machine.is_none()) {
         (Some(r), true) => match build_machine(r, &settings, system_dir.as_deref()) {
+            Some((g, None)) if second_is_other => {
+                let path = (!settings.dual_second_save.is_empty()).then(|| std::path::PathBuf::from(&settings.dual_second_save));
+                // Before two games link, both saves are kept as they were: trading changes both,
+                // and a session cut off in the middle must not cost either game its progress.
+                for save in [path.clone(), (!settings.dual_first_save.is_empty()).then(|| std::path::PathBuf::from(&settings.dual_first_save))].into_iter().flatten() {
+                    let keep = save.with_extension("srm.before-link");
+                    if std::fs::copy(&save, &keep).is_ok() {
+                        log_line(&format!("kept \"{}\" as it was before linking", keep.display()));
+                    }
+                }
+                log_line(&format!("two Game Boys on this phone, joined by a link cable; the second plays \"{}\"", g.bus.cart.title));
+                Some(Box::new(Second::new(g, path, &settings, true)))
+            }
             Some((g, None)) => {
                 let path = env.and_then(|e| second_save_path(e, (*game).path));
                 log_line(&format!("two Game Boys on this phone, joined by a link cable; the second one's save is {}",
                     path.as_ref().map_or("not kept (no save folder)".into(), |p| format!("\"{}\"", p.display()))));
-                Some(Box::new(Second::new(g, path, &settings)))
+                Some(Box::new(Second::new(g, path, &settings, false)))
             }
             _ => None,
         },

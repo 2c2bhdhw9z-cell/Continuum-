@@ -274,6 +274,11 @@ const SPECS: &[Spec] = &[
     (c"link", c"cboy_dual_audio", c"Two Game Boys: sound",
      c"Which console you hear.",
      &[(c"1", c"The first console"), (c"2", c"The second console"), (c"both", c"Both together")], c"1"),
+    // Set by the app from a game's card ("Second Game Boy's game"), never shown with the others
+    // (`APP_SET`): file paths, which the empty value list lets through.
+    (c"link", c"cboy_dual_second_rom", c"Second Game Boy's game", c"Picked on the game's card.", &[], c""),
+    (c"link", c"cboy_dual_second_save", c"Second Game Boy's save", c"Picked on the game's card.", &[], c""),
+    (c"link", c"cboy_dual_first_save", c"First Game Boy's save", c"Picked on the game's card.", &[], c""),
     (c"link", c"cboy_dual_controls", c"Two Game Boys: your controls play",
      c"The on-screen buttons and the first controller play this console; a second controller plays the other one.",
      &[(c"1", c"The first console"), (c"2", c"The second console")], c"1"),
@@ -375,9 +380,12 @@ static ENV: std::sync::Mutex<Option<unsafe extern "C" fn(u32, *mut c_void) -> bo
 /// Keeps the layer switches out of the settings page. They are for finding a drawing problem, and
 /// a player who turns one off just gets a game that looks broken, so they are not shown with the
 /// ordinary settings; the app has its own switch for seeing what a core is hiding.
+/// Settings the app sets itself and the player never picks from the list.
+const APP_SET: [&CStr; 3] = [c"cboy_dual_second_rom", c"cboy_dual_second_save", c"cboy_dual_first_save"];
+
 unsafe fn hide_debug(env: unsafe extern "C" fn(u32, *mut c_void) -> bool) {
     for (cat, key, ..) in SPECS {
-        if *cat == c"debug" {
+        if *cat == c"debug" || APP_SET.contains(key) {
             let mut d = OptDisplay { key: key.as_ptr(), visible: false };
             env(ENV_SET_CORE_OPTIONS_DISPLAY, &mut d as *mut OptDisplay as *mut c_void);
         }
@@ -506,6 +514,11 @@ pub struct Settings {
     pub dual_audio: Which,
     /// The on-screen buttons and the first controller play the second console.
     pub dual_controls_second: bool,
+    /// Another game for the second Game Boy, and the app's battery save files for it and for the
+    /// first game (empty: the same game, with the second console's own save).
+    pub dual_second_rom: String,
+    pub dual_second_save: String,
+    pub dual_first_save: String,
 }
 
 /// Of two Game Boys on one phone: the first, the second, or both.
@@ -564,7 +577,8 @@ impl Default for Settings {
             exact_renderer: false,
             gba_wireless: true,
             dual: false, dual_side_by_side: false, dual_show: Which::Both, dual_swap: false, dual_audio: Which::First,
-            dual_controls_second: false,
+            dual_controls_second: false, dual_second_rom: String::new(), dual_second_save: String::new(),
+            dual_first_save: String::new(),
         }
     }
 }
@@ -827,6 +841,9 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     s.dual_audio = which(c"cboy_dual_audio", Which::First);
     s.dual_swap = on(c"cboy_dual_swap", false);
     s.dual_controls_second = get(c"cboy_dual_controls").is_some_and(|v| v == "2");
+    s.dual_second_rom = get(c"cboy_dual_second_rom").unwrap_or_default();
+    s.dual_second_save = get(c"cboy_dual_second_save").unwrap_or_default();
+    s.dual_first_save = get(c"cboy_dual_first_save").unwrap_or_default();
     s.gb_layers = u8::from(on(c"cboy_layer_bg", true)) | u8::from(on(c"cboy_layer_window", true)) << 1
         | u8::from(on(c"cboy_layer_obj", true)) << 2;
     s.gba_layers = u8::from(on(c"cboy_layer_bg0", true)) | u8::from(on(c"cboy_layer_bg1", true)) << 1
@@ -1029,6 +1046,11 @@ mod tests {
             assert!(k.starts_with("cboy_"), "{k}");
             assert!(seen.insert(k), "duplicate {k}");
             assert!(CATEGORIES.iter().any(|c| c.0 == *cat), "{k}");
+            // The app-set ones hold a file path, so they have no list, and their default is none.
+            if APP_SET.contains(key) {
+                assert!(values.is_empty() && default.is_empty(), "{k}");
+                continue;
+            }
             assert!(values.iter().any(|v| v.0 == *default), "{k}");
         }
     }
@@ -1180,7 +1202,8 @@ mod tests {
         let hidden = HIDDEN.lock().unwrap().clone();
         let debug: Vec<String> = SPECS.iter().filter(|s| s.0 == c"debug").map(|s| s.1.to_string_lossy().into_owned()).collect();
         assert!(debug.len() >= 10, "{debug:?}");
-        assert_eq!(hidden, debug, "every Debug option, and nothing else, is hidden");
+        let want: Vec<String> = SPECS.iter().filter(|s| s.0 == c"debug" || APP_SET.contains(&s.1)).map(|s| s.1.to_string_lossy().into_owned()).collect();
+        assert_eq!(hidden, want, "every Debug option and the app-set ones, and nothing else, are hidden");
         assert!(*ASKED_AGAIN.lock().unwrap(), "the frontend must be able to ask again before it lists them");
         // Settings a player has a use for stay in the page, including the two accuracy switches
         // that used to sit in the Debug group.
