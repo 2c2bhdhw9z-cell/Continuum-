@@ -1,11 +1,26 @@
 # What to test, and what to tell me
 
-Last updated 25 October 2026, 6:40 PM Eastern. **Build 234** (`fb4af3b`) is the newest install:
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-234-fb4af3b/Continuum-234.ipa
-Its checks are "Build 234" just below; the older sections are history. Do not ask the 192
+Last updated 25 October 2026, 10:15 PM Eastern. **Build 235** (`5cd5592`) is the newest install:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-235-5cd5592/Continuum-235.ipa
+Its checks are "Build 235" just below, then 234's; the older sections are history. Do not ask the 192
 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
+
+## Build 235 (25 October, 10 PM): cGear in the app, cBoy's Wireless Adapter
+
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-235-5cd5592/Continuum-235.ipa
+(0.8.0 build 235, 39 emulators: 234's 38 plus cGear, the JIT helper inside.)
+
+1. cGear: Settings → Cores → Core for Master System games → cGear (and Game Gear, SG-1000 if
+   you have those). Open a Master System game. ✅ It starts, the picture and sound are there, the
+   pad works, Start pauses. Then a Game Gear game. ✅ The small Game Gear screen, in colour.
+2. In a cGear game, ⋯ → Core settings... ✅ Its settings are there (Console, Region, Refresh rate,
+   Cartridge wiring, sprites, the left column, Game Gear ghosting, volumes, mono, opposite
+   directions). Known not yet in: the Japanese FM sound chip, light gun and paddle.
+3. Pokémon FireRed, LeafGreen or Emerald on cBoy (Core for Game Boy Advance games → cBoy): it
+   should now find a Wireless Adapter (the wireless options in the Pokémon Center). Only a second
+   phone can test the actual trading, so that waits.
 
 ## Build 234 (25 October, evening): cBoy batch B1 to B8
 

@@ -40,14 +40,16 @@ helper to app.sweetpotato2703.cancer3985.JITHelper. The helper is found by FILE 
 (Bundle.main.builtInPlugInsURL + "ContinuumJITHelper.appex", BuiltInJIT.swift), so renaming is fine:
 do not add a hardcoded helper bundle id anywhere.
 
-### cBoy chat, 25 October 2026 evening: where cboy-finish.json stands
-B1-B4, B6, B7 done; B8 the cable done (gba/sio.rs), the wireless adapter not (no game here to check it
-with: asked the owner). Build 234 (fb4af3b) has all of it, checked (0.8.0 234, 38 emulators, same list
-as 233). Waiting on the owner: B5 (his Advance games on cBoy) and B9 (his checks, and whether cBoy
-becomes the default for Game Boy games); steps in TESTING.md "Build 234". S1 (the Sega core, shown as cGear,
-cores/continuum-sms) has its first working version: see tasks/cboy-finish.json S1 "progress" for
-what is done and next. ZEXALL for the Master System passes in full on its own memory map. Not yet in
-the app's build (no build-core.sh entry): that is an app change, so ask the owner first.
+### cBoy/cGear chat, 25 October 2026, 10 PM Eastern: where things stand
+cBoy: every item of tasks/cboy-finish.json is done except B5 (the owner's Advance games) and the
+owner's checks of builds 234 and 235; the owner said cBoy is NOT the default for now. B8 now has the
+Wireless Adapter too (gba/rfu.rs, tested with afska's LinkWireless demo on two Advances).
+cGear (S1, cores/continuum-sms) is in the app since build 235 as the second choice for Master
+System, Game Gear and SG-1000 (Gearsystem the default); about 35-40% of the way: see S1 "progress"
+and "vdptest_25_october" in tasks/cboy-finish.json for what is done, measured and next. The H
+counter work after 5cd5592 is not built yet.
+Owner answers of 25 October 8 PM are in tasks/cboy-finish.json "owner_answers_25_october_8pm"; the
+question about two different games on two Game Boys is still open.
 
 GameCube state for whoever picks it up: build 233 (next section) = the GPU drawer. Before it, Animal
 Crossing ran in the town at about 85% of real speed, 42-61 pictures a second, drawing the limit. What
