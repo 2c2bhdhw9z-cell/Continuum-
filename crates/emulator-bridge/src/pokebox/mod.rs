@@ -12,6 +12,8 @@
 //! The games' own saves are only ever changed while the game is closed (the app makes sure).
 
 pub mod data;
+pub mod events;
+pub mod gifts;
 pub mod items;
 pub mod mon;
 pub mod save;
@@ -357,6 +359,7 @@ fn work_to_storage(dir: &Path, rom: &Path, save_path: &Path, b: usize, slot: usi
     let s = save::take(g.game, &mut g.bytes, b, slot)?;
     let name = display_name(&s);
     st.put(to_box, s)?;
+    gifts::note_peak(&mut st, g.game, &g.bytes);
     let plan = Plan {
         allowed: true,
         title: format!("{name} goes from {} into the Pokémon Box, box {}.", g.game.name(), to_box + 1),
@@ -389,6 +392,7 @@ fn work_party_to_storage(dir: &Path, rom: &Path, save_path: &Path, slot: usize, 
     let s = save::take_party(g.game, &mut g.bytes, slot)?;
     let name = display_name(&s);
     st.put(to_box, s)?;
+    gifts::note_peak(&mut st, g.game, &g.bytes);
     let plan = Plan {
         allowed: true,
         title: format!("{name} leaves the team in {} for the Pokémon Box, box {}.", g.game.name(), to_box + 1),
@@ -549,6 +553,23 @@ pub enum Change<'a> {
     /// A Box box put in order.
     Sort { b: usize, by: Order },
     Trade { a: Side<'a>, b: Side<'a> },
+    /// Items: from a game's bag into the locker, and back out into a game's bag.
+    Deposit { rom: &'a Path, save: &'a Path, item: u16, count: u16 },
+    Withdraw { rom: &'a Path, save: &'a Path, item: u16, count: u16 },
+    /// A Box Pokémon given a locker item to hold (what it held goes in the locker), or its item
+    /// taken into the locker.
+    GiveHeld { b: usize, slot: usize, item: u16 },
+    TakeHeld { b: usize, slot: usize },
+    /// A Ruby-to-LeafGreen Box Pokémon moved into another ball (PokeAPI number) from the locker.
+    SwapBall { b: usize, slot: usize, ball: u16 },
+    /// The trainer's next gift egg, into the Box.
+    ClaimGift { rom: &'a Path, save: &'a Path, to_box: usize },
+    /// An event ticket into a game.
+    ReceiveEvent { rom: &'a Path, save: &'a Path, id: &'a str },
+    /// A Box Pokémon made into `to`'s generation's form inside the Box, its form now kept so it
+    /// can be had back (`Restore`); `nature` asks for that Nature in Ruby to LeafGreen.
+    Migrate { b: usize, slot: usize, to: Game, nature: Option<u8> },
+    Restore { b: usize, slot: usize, index: usize },
 }
 
 fn work(dir: &Path, c: &Change) -> Result<Worked, String> {
@@ -564,7 +585,203 @@ fn work(dir: &Path, c: &Change) -> Result<Worked, String> {
         Change::Sort { b, by } => work_sort(dir, *b, *by),
         Change::StorageToParty { rom, save, b, slot } => work_storage_to_party(dir, rom, save, *b, *slot),
         Change::Trade { a, b } => work_trade(a, b),
+        Change::Deposit { rom, save, item, count } => work_deposit(dir, rom, save, *item, *count),
+        Change::Withdraw { rom, save, item, count } => work_withdraw(dir, rom, save, *item, *count),
+        Change::GiveHeld { b, slot, item } => work_held(dir, *b, *slot, Some(*item)),
+        Change::TakeHeld { b, slot } => work_held(dir, *b, *slot, None),
+        Change::SwapBall { b, slot, ball } => work_ball(dir, *b, *slot, *ball),
+        Change::ClaimGift { rom, save, to_box } => work_gift(dir, rom, save, *to_box),
+        Change::ReceiveEvent { rom, save, id } => work_event(rom, save, id),
+        Change::Migrate { b, slot, to, nature } => work_migrate(dir, *b, *slot, *to, *nature),
+        Change::Restore { b, slot, index } => work_restore(dir, *b, *slot, *index),
     }
+}
+
+// --- items, gifts, events, migration --------------------------------------------------------------
+
+fn locker_add(st: &mut Storage, item: u16, n: u32) -> Result<(), String> {
+    let have = st.items.entry(item).or_insert(0);
+    if *have + n > items::LOCKER_MAX {
+        return Err(format!("The locker holds at most {} of each item.", items::LOCKER_MAX));
+    }
+    *have += n;
+    Ok(())
+}
+
+fn locker_take(st: &mut Storage, item: u16, n: u32) -> Result<(), String> {
+    let have = st.items.get(&item).copied().unwrap_or(0);
+    if have < n {
+        return Err(format!("The locker only has {have} {}.", mon::item_name(item)));
+    }
+    if have == n {
+        st.items.remove(&item);
+    } else {
+        st.items.insert(item, have - n);
+    }
+    Ok(())
+}
+
+fn work_deposit(dir: &Path, rom: &Path, save_path: &Path, item: u16, count: u16) -> Result<Worked, String> {
+    if count == 0 {
+        return Err("Choose how many.".into());
+    }
+    if !items::depositable(item) {
+        return Err("Key items, TMs and HMs, and mail stay in their game.".into());
+    }
+    let mut g = open_game(rom, save_path)?;
+    let mut st = Storage::load(dir)?;
+    items::bag_remove(g.game, &mut g.bytes, item, count)?;
+    locker_add(&mut st, item, u32::from(count))?;
+    Ok(Worked {
+        plan: Plan { allowed: true, title: format!("{count} {} go from {}'s bag into the locker.", mon::item_name(item), g.game.name()), changes: Vec::new() },
+        writes: vec![(g.path, g.bytes), (storage_path(dir), st.to_bytes())],
+    })
+}
+
+fn work_withdraw(dir: &Path, rom: &Path, save_path: &Path, item: u16, count: u16) -> Result<Worked, String> {
+    if count == 0 {
+        return Err("Choose how many.".into());
+    }
+    let mut g = open_game(rom, save_path)?;
+    let mut st = Storage::load(dir)?;
+    locker_take(&mut st, item, u32::from(count))?;
+    items::bag_add(g.game, &mut g.bytes, item, count)?;
+    Ok(Worked {
+        plan: Plan { allowed: true, title: format!("{count} {} go from the locker into {}'s bag.", mon::item_name(item), g.game.name()), changes: Vec::new() },
+        writes: vec![(g.path, g.bytes), (storage_path(dir), st.to_bytes())],
+    })
+}
+
+fn box_mon(st: &mut Storage, b: usize, slot: usize) -> Result<&mut Stored, String> {
+    st.boxes.get_mut(b).and_then(|x| x.get_mut(slot)).and_then(Option::as_mut)
+        .ok_or_else(|| "That Pokémon isn't there any more. Close this and open it again.".into())
+}
+
+/// Keeps a Pokémon's Migration originals with it after its bytes change.
+fn rekey(st: &mut Storage, before: u64, after: &Stored) {
+    if let Some(list) = st.archives.remove(&before) {
+        st.archives.insert(archive_key(after), list);
+    }
+}
+
+fn work_held(dir: &Path, b: usize, slot: usize, give: Option<u16>) -> Result<Worked, String> {
+    let mut st = Storage::load(dir)?;
+    let mut s = box_mon(&mut st, b, slot)?.clone();
+    let before = archive_key(&s);
+    let had = items::held(&s).ok_or("This Pokémon can't hold items.")?;
+    let name = display_name(&s);
+    if give.is_none() && had == 0 {
+        return Err("This Pokémon isn't holding anything.".into());
+    }
+    if let Some(item) = give {
+        locker_take(&mut st, item, 1)?;
+    }
+    items::set_held(&mut s, give.unwrap_or(0))?;
+    if had != 0 {
+        locker_add(&mut st, had, 1)?;
+    }
+    rekey(&mut st, before, &s);
+    *box_mon(&mut st, b, slot)? = s;
+    let title = match give {
+        Some(i) => format!("{name} now holds {}{}.", mon::item_name(i), if had != 0 { format!("; its {} goes in the locker", mon::item_name(had)) } else { String::new() }),
+        None => format!("{name}'s {} goes in the locker.", mon::item_name(had)),
+    };
+    Ok(Worked { plan: Plan { allowed: true, title, changes: Vec::new() }, writes: vec![(storage_path(dir), st.to_bytes())] })
+}
+
+fn work_ball(dir: &Path, b: usize, slot: usize, ball: u16) -> Result<Worked, String> {
+    let mut st = Storage::load(dir)?;
+    let mut s = box_mon(&mut st, b, slot)?.clone();
+    let before = archive_key(&s);
+    let index = mon::item_to_game(3, ball).filter(|i| (1..=12).contains(i)).ok_or("Choose a Poké Ball.")?;
+    if items::ball(&s) == Some(index) {
+        return Err("It's already in that ball.".into());
+    }
+    locker_take(&mut st, ball, 1)?;
+    items::set_ball(&mut s, index)?;
+    let name = display_name(&s);
+    rekey(&mut st, before, &s);
+    *box_mon(&mut st, b, slot)? = s;
+    Ok(Worked {
+        plan: Plan { allowed: true, title: format!("{name} moves into a {}.", mon::item_name(ball)), changes: vec!["The ball it was in before is gone, as when a Pokémon is caught again.".into()] },
+        writes: vec![(storage_path(dir), st.to_bytes())],
+    })
+}
+
+fn work_gift(dir: &Path, rom: &Path, save_path: &Path, to_box: usize) -> Result<Worked, String> {
+    let g = open_game(rom, save_path)?;
+    let mut st = Storage::load(dir)?;
+    gifts::note_peak(&mut st, g.game, &g.bytes);
+    let seed = fnv(&g.bytes) as u32;
+    let (egg, line) = gifts::claim(&mut st, g.game, &g.bytes, seed)?;
+    let at = st.put(to_box, egg)?;
+    Ok(Worked {
+        plan: Plan { allowed: true, title: line, changes: vec![format!("It goes in box {}, place {}. Move it into Pokémon {} to hatch it.", to_box + 1, at + 1, g.game.name())] },
+        writes: vec![(storage_path(dir), st.to_bytes())],
+    })
+}
+
+fn work_event(rom: &Path, save_path: &Path, id: &str) -> Result<Worked, String> {
+    let mut g = open_game(rom, save_path)?;
+    let line = events::receive(g.game, g.language, &mut g.bytes, id)?;
+    Ok(Worked { plan: Plan { allowed: true, title: line, changes: Vec::new() }, writes: vec![(g.path, g.bytes)] })
+}
+
+fn work_migrate(dir: &Path, b: usize, slot: usize, to: Game, nature: Option<u8>) -> Result<Worked, String> {
+    let mut st = Storage::load(dir)?;
+    let mut source = box_mon(&mut st, b, slot)?.clone();
+    let original = source.clone();
+    let name = display_name(&source);
+    let title = format!("{name} is made a Pokémon of {} here in the Box.", to.name());
+    if source.game.gen() == to.gen() {
+        return Err(format!("It's already kept the way {} keeps it.", to.name()));
+    }
+    let mut extra = Vec::new();
+    if let (Some(n), true) = (nature, to.gen() == 3 && source.game.gen() < 3) {
+        // Ruby to LeafGreen give a Pokémon from the older games the Nature its experience points
+        // name (their remainder by 25): a few more points pick another.
+        let mut m = source.mon().ok_or("This one's data is damaged.")?;
+        let now = (m.exp % 25) as u8;
+        let add = u32::from((n % 25 + 25 - now) % 25);
+        if add > 0 {
+            m.exp += add;
+            source = mon::encode(&m, source.game, 2).0;
+            extra.push(format!("It gets {add} more experience points, so its Nature is {}.", mon::NATURES[usize::from(n % 25)]));
+        }
+    }
+    let (into, mut changes) = match mon::convert(&source, to, 2) {
+        Ok(x) => x,
+        Err(why) => return Ok(Worked { plan: Plan::refused(title, why), writes: Vec::new() }),
+    };
+    changes.splice(0..0, extra);
+    changes.push("Its form now is kept in the Box, so it can be had back exactly (Restore) while it stays here.".into());
+    let mut list = st.archives.remove(&archive_key(&original)).unwrap_or_default();
+    list.push(original);
+    st.archives.insert(archive_key(&into), list);
+    *box_mon(&mut st, b, slot)? = into;
+    Ok(Worked { plan: Plan { allowed: true, title, changes }, writes: vec![(storage_path(dir), st.to_bytes())] })
+}
+
+fn work_restore(dir: &Path, b: usize, slot: usize, index: usize) -> Result<Worked, String> {
+    let mut st = Storage::load(dir)?;
+    let now = box_mon(&mut st, b, slot)?.clone();
+    let mut list = st.archives.remove(&archive_key(&now)).unwrap_or_default();
+    if index >= list.len() {
+        return Err("There's no kept form of it to go back to.".into());
+    }
+    let back = list.remove(index);
+    list.push(now);
+    let title = format!("{} goes back to the way Pokémon {} kept it.", display_name(&back), back.game.name());
+    st.archives.insert(archive_key(&back), list);
+    *box_mon(&mut st, b, slot)? = back;
+    Ok(Worked { plan: Plan { allowed: true, title, changes: vec!["Exactly as it was, with what it had then.".into()] }, writes: vec![(storage_path(dir), st.to_bytes())] })
+}
+
+/// The forms kept of a Box Pokémon (oldest first): the games they were kept the way of.
+pub fn archived(dir: &Path, b: usize, slot: usize) -> Result<Vec<Stored>, String> {
+    let st = Storage::load(dir)?;
+    let s = st.boxes.get(b).and_then(|x| x.get(slot)).and_then(Option::as_ref).ok_or("That Pokémon isn't there any more.")?;
+    Ok(st.archives.get(&archive_key(s)).cloned().unwrap_or_default())
 }
 
 // --- Pokémon files ----------------------------------------------------------------------------------
@@ -861,6 +1078,66 @@ mod tests {
             assert_eq!(back.data, st.boxes[0][slot].as_ref().unwrap().data, "{ext}: byte for byte");
         }
         assert!(import(&p.dir, b"not a pokemon", 3).is_err());
+    }
+
+    #[test]
+    fn items_go_from_one_bag_through_the_locker_into_another_and_onto_a_pokemon() {
+        let p = Place::new("items");
+        let (red, red_sav) = p.game(Game::Red);
+        let (em, em_sav) = p.game(Game::Emerald);
+        let mut b = fs::read(&red_sav).unwrap();
+        items::bag_add(Game::Red, &mut b, 17, 10).unwrap();
+        fs::write(&red_sav, b).unwrap();
+        apply(&p.dir, &Change::Deposit { rom: &red, save: &red_sav, item: 17, count: 6 }).unwrap();
+        assert_eq!(Storage::load(&p.dir).unwrap().items.get(&17), Some(&6));
+        apply(&p.dir, &Change::Withdraw { rom: &em, save: &em_sav, item: 17, count: 4 }).unwrap();
+        let mut eb = fs::read(&em_sav).unwrap();
+        save::check(Game::Emerald, &mut eb).unwrap();
+        assert_eq!(items::read_bag(Game::Emerald, &eb).unwrap()[0].count, 4);
+        let mut st = Storage::load(&p.dir).unwrap();
+        st.boxes[0][0] = Some(encode(&Mon { gen: 3, species: 25, exp: 100, moves: [84, 0, 0, 0], pid: 3, ot_name: "A".into(), ..Mon::default() }, Game::Emerald, 2).0);
+        fs::write(p.dir.join(BOX_FILE), st.to_bytes()).unwrap();
+        apply(&p.dir, &Change::GiveHeld { b: 0, slot: 0, item: 17 }).unwrap();
+        let st = Storage::load(&p.dir).unwrap();
+        assert_eq!(items::held(st.boxes[0][0].as_ref().unwrap()), Some(17));
+        assert_eq!(st.items.get(&17), Some(&1));
+        apply(&p.dir, &Change::TakeHeld { b: 0, slot: 0 }).unwrap();
+        assert_eq!(Storage::load(&p.dir).unwrap().items.get(&17), Some(&2));
+        assert!(apply(&p.dir, &Change::SwapBall { b: 0, slot: 0, ball: 1 }).is_err(), "no Master Ball in the locker");
+    }
+
+    #[test]
+    fn a_pokemon_migrated_inside_the_box_can_be_had_back_exactly() {
+        let p = Place::new("migrate");
+        let mut st = Storage::empty();
+        let red = encode(&charmander(), Game::Red, 2).0;
+        st.boxes[0][0] = Some(red.clone());
+        fs::write(p.dir.join(BOX_FILE), st.to_bytes()).unwrap();
+        let pl = apply(&p.dir, &Change::Migrate { b: 0, slot: 0, to: Game::Emerald, nature: Some(3) }).unwrap();
+        assert!(pl.changes.iter().any(|c| c.contains("Adamant")), "{pl:?}");
+        let st = Storage::load(&p.dir).unwrap();
+        let m = st.boxes[0][0].as_ref().unwrap();
+        assert_eq!((m.game.gen(), m.mon().unwrap().pid % 25), (3, 3));
+        assert_eq!(archived(&p.dir, 0, 0).unwrap().len(), 1);
+        apply(&p.dir, &Change::InStorageTo { b: 0, slot: 0, to_box: 4, to_slot: 9 }).unwrap();
+        apply(&p.dir, &Change::Restore { b: 4, slot: 9, index: 0 }).unwrap();
+        let st = Storage::load(&p.dir).unwrap();
+        assert_eq!(st.boxes[4][9].as_ref().unwrap().data, red.data, "the Red original, byte for byte");
+        assert_eq!(archived(&p.dir, 4, 9).unwrap()[0].game.gen(), 3, "and the Emerald form kept in turn");
+    }
+
+    #[test]
+    fn a_gift_egg_and_an_event_ticket_arrive() {
+        let p = Place::new("gifts");
+        let (ruby, ruby_sav) = p.game(Game::Ruby);
+        let pl = apply(&p.dir, &Change::ClaimGift { rom: &ruby, save: &ruby_sav, to_box: 0 }).unwrap();
+        assert!(pl.title.contains("Swablu"));
+        assert!(Storage::load(&p.dir).unwrap().boxes[0][0].as_ref().unwrap().mon().unwrap().egg);
+        assert!(apply(&p.dir, &Change::ClaimGift { rom: &ruby, save: &ruby_sav, to_box: 0 }).is_err());
+        apply(&p.dir, &Change::ReceiveEvent { rom: &ruby, save: &ruby_sav, id: "eon" }).unwrap();
+        let mut b = fs::read(&ruby_sav).unwrap();
+        save::check(Game::Ruby, &mut b).unwrap();
+        assert!(items::key_items(Game::Ruby, &b).unwrap().contains(&275));
     }
 
     #[test]

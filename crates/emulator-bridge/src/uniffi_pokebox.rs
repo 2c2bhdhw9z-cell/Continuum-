@@ -44,6 +44,39 @@ pub struct PokeMon {
     pub readable: bool,
     /// HP, Attack, Defense, Speed, Sp. Atk, Sp. Def at its level (empty for an egg or a Bad Egg).
     pub stats: Vec<u16>,
+    /// The ball it is in (Ruby to LeafGreen), "" otherwise.
+    pub ball: String,
+    /// Whether it can hold an item (Gold on, not an egg).
+    pub can_hold: bool,
+}
+
+/// An item: PokeAPI's number, its name, how many, and its pocket ("" in the locker).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PokeItem {
+    pub item: u16,
+    pub name: String,
+    pub count: u32,
+    pub pocket: String,
+    pub is_ball: bool,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PokeGift {
+    pub now: u32,
+    pub peak: u32,
+    pub claimed: u8,
+    /// The next egg's Pokémon ("" when all four are had) and how many it needs.
+    pub next_species: String,
+    pub next_need: u32,
+    pub ready: bool,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct PokeEvent {
+    pub id: String,
+    pub name: String,
+    pub place: String,
+    pub have: bool,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -83,6 +116,17 @@ pub enum PokeChange {
     StorageToParty { rom_path: String, save_path: String, from_box: u32, slot: u32 },
     /// `by`: 0 Pokédex number, 1 level, 2 name.
     Sort { box_index: u32, by: u8 },
+    /// Items (PokeAPI numbers, as `PokeItem.item`).
+    Deposit { rom_path: String, save_path: String, item: u16, count: u16 },
+    Withdraw { rom_path: String, save_path: String, item: u16, count: u16 },
+    GiveHeld { from_box: u32, slot: u32, item: u16 },
+    TakeHeld { from_box: u32, slot: u32 },
+    SwapBall { from_box: u32, slot: u32, ball: u16 },
+    ClaimGift { rom_path: String, save_path: String, to_box: u32 },
+    ReceiveEvent { rom_path: String, save_path: String, id: String },
+    /// `to`: a game's name ("Emerald"); `nature`: 0-24 (`pokebox_natures`), for Ruby to LeafGreen.
+    Migrate { from_box: u32, slot: u32, to: String, nature: Option<u8> },
+    Restore { from_box: u32, slot: u32, index: u32 },
     Trade {
         a_rom_path: String,
         a_save_path: String,
@@ -114,6 +158,8 @@ fn shown(s: &mon::Stored) -> PokeMon {
             nature: mon::nature_of(&m).to_owned(),
             readable: true,
             stats: if m.egg { Vec::new() } else { mon::stats(&m).to_vec() },
+            ball: pokebox::items::ball(s).filter(|b| *b > 0).map(|b| mon::item_name(mon::item_from_game(3, b)).to_owned()).unwrap_or_default(),
+            can_hold: pokebox::items::held(s).is_some(),
         },
         None => PokeMon {
             species: 0,
@@ -132,6 +178,8 @@ fn shown(s: &mon::Stored) -> PokeMon {
             nature: String::new(),
             readable: false,
             stats: Vec::new(),
+            ball: String::new(),
+            can_hold: false,
         },
     }
 }
@@ -188,6 +236,65 @@ pub fn pokebox_import(dir: String, bytes: Vec<u8>, to_box: u32) -> Result<PokePl
     pokebox::import(Path::new(&dir), &bytes, to_box as usize).map(plan_record).map_err(other)
 }
 
+/// The items in a game's bag that can go in the locker.
+#[uniffi::export]
+pub fn pokebox_read_bag(rom_path: String, save_path: String) -> Result<Vec<PokeItem>, EngineError> {
+    let g = pokebox::open_game(Path::new(&rom_path), Path::new(&save_path)).map_err(other)?;
+    Ok(pokebox::items::read_bag(g.game, &g.bytes).map_err(other)?.into_iter().map(|b| PokeItem {
+        item: b.item, name: mon::item_name(b.item).to_owned(), count: u32::from(b.count), pocket: b.pocket.to_owned(),
+        is_ball: mon::item_pocket(b.item) == 3,
+    }).collect())
+}
+
+/// The Box's item locker.
+#[uniffi::export]
+pub fn pokebox_read_locker(dir: String) -> Result<Vec<PokeItem>, EngineError> {
+    let st = pokebox::Storage::load(Path::new(&dir)).map_err(other)?;
+    Ok(st.items.iter().map(|(i, n)| PokeItem {
+        item: *i, name: mon::item_name(*i).to_owned(), count: *n, pocket: String::new(), is_ball: mon::item_pocket(*i) == 3,
+    }).collect())
+}
+
+/// Where a Ruby-to-LeafGreen trainer stands with the Box's gift eggs.
+#[uniffi::export]
+pub fn pokebox_gift_progress(dir: String, rom_path: String, save_path: String) -> Result<PokeGift, EngineError> {
+    let g = pokebox::open_game(Path::new(&rom_path), Path::new(&save_path)).map_err(other)?;
+    let st = pokebox::Storage::load(Path::new(&dir)).map_err(other)?;
+    let p = pokebox::gifts::progress(&st, g.game, &g.bytes).map_err(other)?;
+    Ok(PokeGift {
+        now: p.now,
+        peak: p.peak,
+        claimed: p.claimed,
+        next_species: p.next.map(|(sp, _)| mon::species_name(sp).to_owned()).unwrap_or_default(),
+        next_need: p.next.map_or(0, |(_, n)| n),
+        ready: p.next.is_some_and(|(_, n)| p.peak >= n),
+    })
+}
+
+/// The event tickets this game and language really had, each with whether the save has it; and
+/// where the tickets are used (the last entry's `place`, with an empty id).
+#[uniffi::export]
+pub fn pokebox_events(rom_path: String, save_path: String) -> Result<Vec<PokeEvent>, EngineError> {
+    let g = pokebox::open_game(Path::new(&rom_path), Path::new(&save_path)).map_err(other)?;
+    let mut out: Vec<PokeEvent> = pokebox::events::list(g.game, g.language, &g.bytes).map_err(other)?.into_iter()
+        .map(|(e, have)| PokeEvent { id: e.id.into(), name: e.name.into(), place: e.place.into(), have })
+        .collect();
+    out.push(PokeEvent { id: String::new(), name: String::new(), place: pokebox::events::how(g.game).into(), have: false });
+    Ok(out)
+}
+
+/// The forms kept of a Box Pokémon by Migration, oldest first.
+#[uniffi::export]
+pub fn pokebox_archived(dir: String, from_box: u32, slot: u32) -> Result<Vec<PokeMon>, EngineError> {
+    Ok(pokebox::archived(Path::new(&dir), from_box as usize, slot as usize).map_err(other)?.iter().map(shown).collect())
+}
+
+/// The 25 Natures, in their numbers' order.
+#[uniffi::export]
+pub fn pokebox_natures() -> Vec<String> {
+    mon::NATURES.iter().map(|n| (*n).to_owned()).collect()
+}
+
 /// Finishes a change that was cut off; a line for the player when there was one.
 #[uniffi::export]
 pub fn pokebox_recover(dir: String) -> Option<String> {
@@ -220,6 +327,18 @@ fn with_change<T>(c: &PokeChange, f: impl FnOnce(&Change) -> T) -> T {
         PokeChange::StorageToParty { rom_path, save_path, from_box, slot } => f(&Change::StorageToParty {
             rom: Path::new(rom_path), save: Path::new(save_path), b: u(*from_box), slot: u(*slot),
         }),
+        PokeChange::Deposit { rom_path, save_path, item, count } => f(&Change::Deposit { rom: Path::new(rom_path), save: Path::new(save_path), item: *item, count: *count }),
+        PokeChange::Withdraw { rom_path, save_path, item, count } => f(&Change::Withdraw { rom: Path::new(rom_path), save: Path::new(save_path), item: *item, count: *count }),
+        PokeChange::GiveHeld { from_box, slot, item } => f(&Change::GiveHeld { b: u(*from_box), slot: u(*slot), item: *item }),
+        PokeChange::TakeHeld { from_box, slot } => f(&Change::TakeHeld { b: u(*from_box), slot: u(*slot) }),
+        PokeChange::SwapBall { from_box, slot, ball } => f(&Change::SwapBall { b: u(*from_box), slot: u(*slot), ball: *ball }),
+        PokeChange::ClaimGift { rom_path, save_path, to_box } => f(&Change::ClaimGift { rom: Path::new(rom_path), save: Path::new(save_path), to_box: u(*to_box) }),
+        PokeChange::ReceiveEvent { rom_path, save_path, id } => f(&Change::ReceiveEvent { rom: Path::new(rom_path), save: Path::new(save_path), id }),
+        PokeChange::Migrate { from_box, slot, to, nature } => {
+            let game = mon::Game::ALL.iter().copied().find(|g| g.name() == to).unwrap_or(mon::Game::Emerald);
+            f(&Change::Migrate { b: u(*from_box), slot: u(*slot), to: game, nature: *nature })
+        }
+        PokeChange::Restore { from_box, slot, index } => f(&Change::Restore { b: u(*from_box), slot: u(*slot), index: u(*index) }),
         PokeChange::Sort { box_index, by } => f(&Change::Sort {
             b: u(*box_index),
             by: match by {

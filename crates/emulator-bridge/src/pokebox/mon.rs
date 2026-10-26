@@ -315,7 +315,7 @@ fn unown_gen3(pid: u32) -> u8 {
     (v % 28) as u8
 }
 
-const NATURES: [&str; 25] = [
+pub const NATURES: [&str; 25] = [
     "Hardy", "Lonely", "Brave", "Adamant", "Naughty", "Bold", "Docile", "Relaxed", "Impish", "Lax",
     "Timid", "Hasty", "Serious", "Jolly", "Naive", "Modest", "Mild", "Quiet", "Bashful", "Rash",
     "Calm", "Gentle", "Sassy", "Careful", "Quirky",
@@ -561,7 +561,15 @@ pub fn convert(s: &Stored, target: Game, language: u8) -> Converted {
         }
     }
     if moves.is_empty() {
-        return Err(format!("None of {name}'s moves exist in {}, and a Pokémon can't have no moves. Teach it an older move first.", target.name()));
+        // None of its moves exist there: it gets the moves that game teaches its kind by its level,
+        // as G1R Deluxe recommends, and the preview says so.
+        let learnt = recommended_moves(m.species, target.gen(), level_for(m.species, m.exp));
+        if learnt.is_empty() {
+            return Err(format!("None of {name}'s moves exist in {}, and that game teaches its kind none by its level.", target.name()));
+        }
+        changes.push(format!("None of its moves exist in {}, so it knows what that game teaches its kind by its level: {}.",
+                             target.name(), learnt.iter().map(|m| move_name(*m)).collect::<Vec<_>>().join(", ")));
+        moves = learnt.into_iter().map(|m| (m, 0)).collect();
     }
     let item = match target.gen() {
         1 => None,
@@ -600,6 +608,24 @@ pub fn convert(s: &Stored, target: Game, language: u8) -> Converted {
         changes.push(format!("Its level is worked out again from its experience: level {level}."));
     }
     Ok((stored, changes))
+}
+
+/// The last four different moves a generation teaches `species` by `level`, in learning order.
+pub fn recommended_moves(species: u16, gen: u8, level: u8) -> Vec<u16> {
+    let list: &[(u16, u8, u16)] = match gen {
+        1 => &super::data::LEARNSET_GEN1,
+        2 => &super::data::LEARNSET_GEN2,
+        _ => &super::data::LEARNSET_GEN3,
+    };
+    let mut seen: Vec<(u8, u16)> = list.iter().filter(|(s, l, _)| *s == species && *l <= level).map(|(_, l, m)| (*l, *m)).collect();
+    seen.sort_by_key(|(l, _)| *l);
+    let mut out: Vec<u16> = Vec::new();
+    for (_, m) in seen {
+        out.retain(|x| *x != m);
+        out.push(m);
+    }
+    let n = out.len();
+    out.split_off(n.saturating_sub(4))
 }
 
 /// A tiny repeatable random number source, seeded from the Pokémon, so the same Pokémon always
@@ -804,13 +830,25 @@ fn encode_gen3(m: &Mon, game: Game, language: u8) -> (Stored, bool) {
     p[24..30].copy_from_slice(&m.evs);
     p[36] = m.pokerus;
     p[37] = 0xFE; // met in a trade
-    let origins = u16::from(m.level.min(100)) | game.origin_code() << 7 | 4 << 11 | u16::from(m.ot_female) << 15;
+    let met_level = if m.egg { 0 } else { u16::from(m.level.min(100)) };
+    let origins = met_level | game.origin_code() << 7 | 4 << 11 | u16::from(m.ot_female) << 15;
     put_le16(&mut p, 38, origins);
     let mut ivw = 0u32;
     for (i, iv) in m.ivs.iter().enumerate() {
         ivw |= u32::from(*iv & 31) << (5 * i);
     }
     ivw |= (m.pid & 1) << 31;
+    if m.egg {
+        // An egg as the games keep one: "タマゴ" in the Japanese letters with the Japanese language
+        // byte, the egg-name flag, the egg bit, its hatch count in the friendship byte, and a
+        // fateful-encounter meeting place.
+        ivw |= 1 << 30;
+        d[8..18].fill(0);
+        d[8..12].copy_from_slice(&[0x60, 0x6F, 0x8B, 0xFF]);
+        d[18] = 1;
+        d[19] = 0x06;
+        p[37] = 0xFF;
+    }
     put_le32(&mut p, 40, ivw);
     gen3_seal(&mut d, &p);
     (Stored { game, egg: false, data: d }, a && b)
@@ -1001,7 +1039,9 @@ mod tests {
         assert!(convert(&ruby, Game::Gold, 2).unwrap_err().contains("first 251"));
         let pika = Mon { gen: 3, species: 25, exp: 100, moves: [344, 0, 0, 0], ot_name: "MAY".into(), pid: 9, ..Mon::default() };
         let (ruby, _) = encode(&pika, Game::Emerald, 2);
-        assert!(convert(&ruby, Game::Red, 2).unwrap_err().contains("no moves"));
+        let (red, changes) = convert(&ruby, Game::Red, 2).unwrap();
+        assert!(changes.iter().any(|c| c.contains("teaches")), "{changes:?}");
+        assert!(red.mon().unwrap().moves.contains(&84), "Thunder Shock, which Red's Pikachu starts with");
         let pika = Mon { moves: [344, 84, 0, 0], ..pika };
         let (ruby, _) = encode(&pika, Game::Emerald, 2);
         let (red, changes) = convert(&ruby, Game::Red, 2).unwrap();

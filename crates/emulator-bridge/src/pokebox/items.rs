@@ -58,7 +58,11 @@ fn pockets(game: Game) -> Vec<Pocket> {
 /// Where a SaveBlock1 offset of Ruby to LeafGreen is in the save file (sections 1-4, 3968 bytes
 /// of it each).
 pub fn block1(save: &[u8], offset: usize) -> Result<usize, String> {
-    let at = save::g3_current(save)?;
+    block1_in(&save::g3_current(save)?, offset)
+}
+
+/// The same, in a block found earlier (`current_block`), for a save already being changed.
+pub fn block1_in(at: &[usize; 14], offset: usize) -> Result<usize, String> {
     let section = 1 + offset / 3968;
     if section > 4 {
         return Err("That part of the save is out of reach.".into());
@@ -261,13 +265,17 @@ pub fn set_ball(s: &mut mon::Stored, ball_index: u16) -> Result<(), String> {
 /// A Ruby-to-LeafGreen game's flag, by its number in pret's flags.h (SaveBlock1's flag bytes are
 /// at $1220 in Ruby and Sapphire, $1270 in Emerald, $EE0 in FireRed and LeafGreen).
 fn flag_at(game: Game, save: &[u8], flag: u16) -> Result<(usize, u8), String> {
+    flag_in(game, &save::g3_current(save)?, flag)
+}
+
+fn flag_in(game: Game, at: &[usize; 14], flag: u16) -> Result<(usize, u8), String> {
     let base = match game {
         Game::Ruby | Game::Sapphire => 0x1220,
         Game::Emerald => 0x1270,
         Game::FireRed | Game::LeafGreen => 0xEE0,
         _ => return Err("Only Ruby to LeafGreen have these.".into()),
     };
-    Ok((block1(save, base + usize::from(flag / 8))?, 1 << (flag % 8)))
+    Ok((block1_in(at, base + usize::from(flag / 8))?, 1 << (flag % 8)))
 }
 
 pub fn flag(game: Game, save: &[u8], f: u16) -> Result<bool, String> {
@@ -275,9 +283,10 @@ pub fn flag(game: Game, save: &[u8], f: u16) -> Result<bool, String> {
     Ok(save[at] & bit != 0)
 }
 
-/// Sets a flag; the sums are worked out by the caller (`finish`).
-pub fn set_flag(game: Game, save: &mut [u8], f: u16) -> Result<(), String> {
-    let (at, bit) = flag_at(game, save, f)?;
+/// Sets a flag in the block found before the changes; the sums are worked out by the caller
+/// (`seal_block`).
+pub fn set_flag(game: Game, save: &mut [u8], block: &[usize; 14], f: u16) -> Result<(), String> {
+    let (at, bit) = flag_in(game, block, f)?;
     save[at] |= bit;
     Ok(())
 }
