@@ -220,6 +220,8 @@ struct Core {
     lp: [f32; 2],
     /// The equaliser's two filters (880 Hz and 5 kHz), left and right.
     eq: [[f32; 2]; 2],
+    /// A Game Gear playing a Master System game: the picture is shrunk to its 160 x 144 screen.
+    gg_sms: bool,
     /// The size of the last picture handed over (`m.shown`).
     shown_size: (usize, usize),
     /// The second of two Game Gears on one phone (link.rs). The app knows nothing about it, so it
@@ -357,7 +359,7 @@ unsafe fn machine(rom: Vec<u8>, s: &Settings, path: *const c_char) -> Box<Sms> {
     m.bus.has_fm = matches!(console, Console::Sms | Console::Sms1) && s.fm.unwrap_or(japan);
     m.bus.vdp.sms1 = console == Console::Sms1;
     let pal = if s.refresh_auto { is_european(path) } else { s.pal };
-    m.bus.vdp.pal = pal && console != Console::GameGear;
+    m.bus.vdp.pal = pal && !matches!(console, Console::GameGear | Console::GameGearSms);
     if let Some(mapper) = s.mapper {
         m.bus.mapper = mapper;
         m.bus.banks = if mapper == crate::bus::Mapper::Codemasters { [0, 1, 0] } else { [0, 1, 2] };
@@ -389,7 +391,7 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
     if info.is_null() {
         return;
     }
-    let dual = CORE.lock().ok().and_then(|c| c.as_ref().and_then(Core::dual_size));
+    let dual = CORE.lock().ok().and_then(|c| c.as_ref().and_then(|m| if m.gg_sms { Some((160, 144)) } else { m.dual_size() }));
     if let Some((w, h)) = dual {
         *info = RetroSystemAvInfo {
             geometry: RetroGameGeometry { base_width: w, base_height: h, max_width: 320, max_height: 294, aspect_ratio: w as f32 / h as f32 },
@@ -491,6 +493,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     }
     let s = env.map(|e| crate::options::read(e)).unwrap_or_default();
     let copy = s.gg_link.then(|| rom.clone());
+    let gg_sms = s.console == Console::GameGearSms;
     let mut m = machine(rom, &s, (*game).path);
     let bios = match (env, s.bios && !m.bus.sg) {
         (Some(e), true) => read_bios(e, m.bus.gg),
@@ -525,7 +528,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     if let (Some(env), true) = (env, m.bus.gg && second.is_none()) {
         offer_the_link(env);
     }
-    let mut core = Core { m, s: s.clone(), at_start: s, prev: Vec::new(), lp: [0.0; 2], shown_size: (0, 0), eq: [[0.0; 2]; 2], second };
+    let mut core = Core { m, s: s.clone(), at_start: s, prev: Vec::new(), lp: [0.0; 2], shown_size: (0, 0), eq: [[0.0; 2]; 2], second, gg_sms };
     core.apply();
     if let Ok(mut c) = CORE.lock() {
         *c = Some(core);
@@ -739,6 +742,40 @@ unsafe fn read_keyboard(input: InputFn) -> [u16; 7] {
     rows
 }
 
+/// A picture made smaller by averaging the pixels each new one covers (parts of pixels at its
+/// edges counted by how much is covered), as the Game Gear's screen shows a Master System game.
+fn shrink(px: &mut Vec<u32>, w: usize, h: usize, nw: usize, nh: usize) -> (usize, usize) {
+    if w <= nw || h <= nh || px.len() < w * h {
+        return (w, h);
+    }
+    let (sx, sy) = (w as f32 / nw as f32, h as f32 / nh as f32);
+    let mut out = Vec::with_capacity(nw * nh);
+    for y in 0..nh {
+        let (y0, y1) = (y as f32 * sy, (y + 1) as f32 * sy);
+        for x in 0..nw {
+            let (x0, x1) = (x as f32 * sx, (x + 1) as f32 * sx);
+            let mut acc = [0f32; 3];
+            let mut total = 0f32;
+            for yy in y0 as usize..(y1.ceil() as usize).min(h) {
+                let wy = (y1.min(yy as f32 + 1.0) - y0.max(yy as f32)).max(0.0);
+                for xx in x0 as usize..(x1.ceil() as usize).min(w) {
+                    let wx = (x1.min(xx as f32 + 1.0) - x0.max(xx as f32)).max(0.0);
+                    let k = wx * wy;
+                    let p = px[yy * w + xx];
+                    acc[0] += ((p >> 16) & 0xFF) as f32 * k;
+                    acc[1] += ((p >> 8) & 0xFF) as f32 * k;
+                    acc[2] += (p & 0xFF) as f32 * k;
+                    total += k;
+                }
+            }
+            let c = |v: f32| (v / total.max(1e-6)).round().clamp(0.0, 255.0) as u32;
+            out.push(c(acc[0]) << 16 | c(acc[1]) << 8 | c(acc[2]));
+        }
+    }
+    *px = out;
+    (nw, nh)
+}
+
 /// Two Game Gears' pictures as one (side by side or stacked, or only one, the second first when
 /// swapped). Returns the size.
 fn compose_pair(m: &mut Core, shown: &mut Vec<u32>, w: usize, h: usize) -> (usize, usize) {
@@ -871,6 +908,7 @@ pub unsafe extern "C" fn retro_run() {
             w -= 8;
         }
         draw_crosshairs(m, &mut shown, w, h);
+        let (w, h) = if m.gg_sms { shrink(&mut shown, w, h, 160, 144) } else { (w, h) };
         let (w, h) = compose_pair(m, &mut shown, w, h);
         if m.s.gg_ghosting > 0 && m.bus.gg {
             if m.prev.len() == shown.len() {

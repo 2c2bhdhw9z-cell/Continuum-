@@ -162,6 +162,9 @@ fn two_game_gears_show_side_by_side_or_stacked_and_save_both() {
     assert_eq!((w, h), (160, 288));
     let (w, h, _, _) = run_with(&[("cgear_console", "gg"), ("cgear_gg_link", "on"), ("cgear_gg_link_show", "2")], 5);
     assert_eq!((w, h), (160, 144));
+    let (w, h, px, _) = run_with(&[("cgear_console", "ggsms")], 5);
+    assert_eq!((w, h), (160, 144), "a Master System game on a Game Gear's screen");
+    assert!(px.iter().all(|p| *p == 0x0000FF), "the blue backdrop, shrunk");
     let (w, h, _, _) = run_with(&[("cgear_gg_link", "on")], 5);
     assert_eq!((w, h), (256, 192), "a Master System game stays one console");
 }

@@ -80,7 +80,7 @@ const SPECS: &[Spec] = &[
     (c"system", c"cgear_console", c"Console",
      c"Auto picks it from the game's file and header; changes apply at the next start.",
      &[(c"auto", c"Auto"), (c"sms", c"Master System II"), (c"sms1", c"Master System (first model) / Mark III"),
-       (c"gg", c"Game Gear"), (c"sg", c"SG-1000"), (c"sc", c"SC-3000 (with its keyboard)")], c"auto"),
+       (c"gg", c"Game Gear"), (c"ggsms", c"Game Gear playing a Master System game"), (c"sg", c"SG-1000"), (c"sc", c"SC-3000 (with its keyboard)")], c"auto"),
     (c"system", c"cgear_region", c"Region",
      c"Some games change their text or music on a Japanese console; changes apply at the next start.",
      &[(c"auto", c"Auto"), (c"export", c"Export (America, Europe)"), (c"japan", c"Japan")], c"auto"),
@@ -189,6 +189,9 @@ pub enum Console {
     Sg1000,
     /// The SG-1000 with a keyboard.
     Sc3000,
+    /// A Game Gear in its Master System mode (the Master Gear converter): a Master System game,
+    /// its picture shrunk onto the Game Gear's screen.
+    GameGearSms,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -270,6 +273,7 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
         Some("gg") => Console::GameGear,
         Some("sg") => Console::Sg1000,
         Some("sc") => Console::Sc3000,
+        Some("ggsms") => Console::GameGearSms,
         _ => Console::Auto,
     };
     s.japan = get(c"cgear_region").is_some_and(|v| v == "japan");

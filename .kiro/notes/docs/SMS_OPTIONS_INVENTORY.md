@@ -43,7 +43,7 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 
 | Emulator | Key | Label | New core | Note | Values |
 |---|---|---|---|---|---|
-| gearsystem | `gearsystem_system` | System (restart) | done | `cgear_console` (Auto, Master System II, first Master System / Mark III, Game Gear, SG-1000; no Game Gear SMS mode or ASIC variants yet) | Auto,Master System / Mark III,Game Gear (2 ASIC),Game Gear (2 ASIC) SMS Mode,Game Gear (1 ASIC),Game Gear (1 ASIC) SMS Mode,SG-1000 / Multivision,SG-1000 II |
+| gearsystem | `gearsystem_system` | System (restart) | done | `cgear_console` (Auto, Master System II, first Master System / Mark III, Game Gear, Game Gear playing a Master System game, SG-1000, SC-3000; no ASIC variants) | Auto,Master System / Mark III,Game Gear (2 ASIC),Game Gear (2 ASIC) SMS Mode,Game Gear (1 ASIC),Game Gear (1 ASIC) SMS Mode,SG-1000 / Multivision,SG-1000 II |
 | gearsystem | `gearsystem_region` | Region (restart) | done | `cgear_region` Auto (header region code, file name), Export, Japan | Auto,Master System Japan,Master System Export,Game Gear Japan,Game Gear Export,Game Gear International |
 | gearsystem | `gearsystem_mapper` | Mapper (restart) | done | `cgear_mapper` + Korean MSX, Nemesis, Janggun (no Korean 2000 XOR / MSX 32KB variants yet) | Auto,ROM,SEGA,Codemasters,Korean,SG-1000,MSX,Janggun,Korean 2000 XOR 1F,Korean MSX 32KB 2000,... |
 | gearsystem | `gearsystem_timing` | Refresh Rate (restart) | done | `cgear_refresh` 60, 50, Auto (file name) | Auto,NTSC (60 Hz),PAL (50 Hz) |
