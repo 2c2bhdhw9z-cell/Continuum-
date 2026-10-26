@@ -72,14 +72,15 @@
       "id": "B8",
       "done": false,
       "title": "Game Boy Advance link: cable multiplayer and the wireless adapter",
-      "notes": "Gap gpsp_serial. The Game Boy/Color cable between two phones exists (Built, untested; link.rs).",
+      "notes": "Gap gpsp_serial. The Game Boy/Color cable between two phones exists (Built, untested; link.rs). Owner said yes to the wireless adapter (25 October).",
       "result": "Cable done: cores/continuum-gb/src/gba/sio.rs. Normal 8/32-bit and multi-player (16-bit) modes go to a second phone through the app's existing two-phone session (same netpacket interface as the Game Boy cable, own protocol name cboy-advance-link-1, own 7-byte packets). The hosting phone is the parent. The driving console's transfer stays busy until the other phone answers, gives up after 6 frames reading all 1s; with no second phone a transfer finishes on its own reading all 1s (before, the busy bit stuck for ever). Tests: sio.rs unit tests, link_e2e an_advance_word_crosses_to_the_other_phone_and_back and an_advance_on_its_own_reads_nobody. NOT done: the wireless adapter (a large command protocol that only real games such as Pokemon FireRed/Emerald could check, and none are here); UART and JOY Bus modes; more than two players."
     },
     {
       "id": "B9",
       "done": false,
       "title": "One build, the phone checks, then ask the owner whether cBoy becomes the default for Game Boy games",
-      "notes": "Hand over the link and numbered steps (owner rules)."
+      "notes": "Hand over the link and numbered steps (owner rules).",
+      "result": "Build 234 handed over. Owner: cBoy not the default for now."
     },
     {
       "id": "S1",
@@ -90,5 +91,6 @@
       "percent_25_october": "About 35%: CPU, mappers, picture (mode 4 and TMS modes, not yet measured against the picture test ROMs), basic sound, Game Gear, SG-1000, states, 14 settings done; YM2413, 67 settings, light phaser/paddle/sports pad, region/console differences, the start-up file, Game Gear link, mid-line picture timing, test-suite measuring, real games and the app hookup left."
     }
   ],
-  "order_note": "Reordered 25 October evening so the app-touching items come last: B1 Advance timing, B2 sound accuracy, B3 small settings, B4 rare Color picture cases, B5 real Advance games on the phone, B6 camera, B7 two Game Boys on one phone, B8 Advance link, B9 build and the default question, then S1."
+  "order_note": "Reordered 25 October evening so the app-touching items come last: B1 Advance timing, B2 sound accuracy, B3 small settings, B4 rare Color picture cases, B5 real Advance games on the phone, B6 camera, B7 two Game Boys on one phone, B8 Advance link, B9 build and the default question, then S1.",
+  "owner_answers_25_october_8pm": "Owner, 25 October about 8 PM Eastern, after build 234: 'Continue on cBoy, when it's done continue on cGear, cBoy not main for now, sure. Put cGear in the app.' Read as: cBoy stays the second choice (mGBA stays the default for Game Boy games); 'sure' answers the next question asked, build the Advance wireless adapter; cGear goes into the app as a choice (Gearsystem stays the default until the owner says otherwise). The question about two different games on two Game Boys (the app opening two files) was not answered: asked again in the final report."
 }
