@@ -81,10 +81,10 @@ const SPECS: &[Spec] = &[
      &[(c"auto", c"Auto"), (c"sms", c"Master System"), (c"gg", c"Game Gear"), (c"sg", c"SG-1000")], c"auto"),
     (c"system", c"cgear_region", c"Region",
      c"Some games change their text or music on a Japanese console; changes apply at the next start.",
-     &[(c"export", c"Export (America, Europe)"), (c"japan", c"Japan")], c"export"),
+     &[(c"auto", c"Auto"), (c"export", c"Export (America, Europe)"), (c"japan", c"Japan")], c"auto"),
     (c"system", c"cgear_refresh", c"Refresh rate",
-     c"European games want 50 Hz; changes apply at the next start.",
-     &[(c"60", c"60 Hz"), (c"50", c"50 Hz")], c"60"),
+     c"European games want 50 Hz; Auto goes by the file's name; changes apply at the next start.",
+     &[(c"60", c"60 Hz"), (c"50", c"50 Hz"), (c"auto", c"Auto")], c"60"),
     (c"system", c"cgear_mapper", c"Cartridge wiring",
      c"Auto works for nearly every game; changes apply at the next start.",
      &[(c"auto", c"Auto"), (c"sega", c"Sega"), (c"codemasters", c"Codemasters"), (c"korean", c"Korean"),
@@ -172,6 +172,9 @@ pub enum Console {
 pub struct Settings {
     pub console: Console,
     pub japan: bool,
+    /// Region and refresh rate picked from the game (its header's region, its file's name).
+    pub region_auto: bool,
+    pub refresh_auto: bool,
     pub pal: bool,
     pub mapper: Option<crate::bus::Mapper>,
     pub sprite_limit: bool,
@@ -215,7 +218,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Settings {
         Settings {
-            console: Console::Auto, japan: false, pal: false, mapper: None, sprite_limit: true, hide_left: false,
+            console: Console::Auto, japan: false, region_auto: true, refresh_auto: false, pal: false, mapper: None, sprite_limit: true, hide_left: false,
             gg_ghosting: 0, gg_full: false, fm_chan_vol: [100; 9], lowpass: 0, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100, cpu_percent: 100, tms_colours_sms: None, borders: 0, glasses_eye: None, eq: [100; 3], ports: [crate::peripherals::Device::Pad; 2], crosshair: true, crosshair_square: false, crosshair_colour: 0xFFFFFF, phaser_offset: (0, 0), device_speed: 5,
         }
     }
@@ -234,6 +237,8 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
         _ => Console::Auto,
     };
     s.japan = get(c"cgear_region").is_some_and(|v| v == "japan");
+    s.region_auto = get(c"cgear_region").is_none_or(|v| v == "auto");
+    s.refresh_auto = get(c"cgear_refresh").is_some_and(|v| v == "auto");
     s.pal = get(c"cgear_refresh").is_some_and(|v| v == "50");
     s.mapper = match get(c"cgear_mapper").as_deref() {
         Some("sega") => Some(Mapper::Sega),

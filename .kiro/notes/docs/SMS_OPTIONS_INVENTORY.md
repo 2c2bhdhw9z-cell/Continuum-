@@ -44,9 +44,9 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | Emulator | Key | Label | New core | Note | Values |
 |---|---|---|---|---|---|
 | gearsystem | `gearsystem_system` | System (restart) | planned |  | Auto,Master System / Mark III,Game Gear (2 ASIC),Game Gear (2 ASIC) SMS Mode,Game Gear (1 ASIC),Game Gear (1 ASIC) SMS Mode,SG-1000 / Multivision,SG-1000 II |
-| gearsystem | `gearsystem_region` | Region (restart) | planned |  | Auto,Master System Japan,Master System Export,Game Gear Japan,Game Gear Export,Game Gear International |
-| gearsystem | `gearsystem_mapper` | Mapper (restart) | planned |  | Auto,ROM,SEGA,Codemasters,Korean,SG-1000,MSX,Janggun,Korean 2000 XOR 1F,Korean MSX 32KB 2000,... |
-| gearsystem | `gearsystem_timing` | Refresh Rate (restart) | planned |  | Auto,NTSC (60 Hz),PAL (50 Hz) |
+| gearsystem | `gearsystem_region` | Region (restart) | done | `cgear_region` Auto (header region code, file name), Export, Japan | Auto,Master System Japan,Master System Export,Game Gear Japan,Game Gear Export,Game Gear International |
+| gearsystem | `gearsystem_mapper` | Mapper (restart) | done | `cgear_mapper` + Korean MSX, Nemesis, Janggun (no Korean 2000 XOR / MSX 32KB variants yet) | Auto,ROM,SEGA,Codemasters,Korean,SG-1000,MSX,Janggun,Korean 2000 XOR 1F,Korean MSX 32KB 2000,... |
+| gearsystem | `gearsystem_timing` | Refresh Rate (restart) | done | `cgear_refresh` 60, 50, Auto (file name) | Auto,NTSC (60 Hz),PAL (50 Hz) |
 | gearsystem | `gearsystem_bios_sms` | Master System BIOS (restart) | planned |  | Disabled,Enabled |
 | gearsystem | `gearsystem_bios_gg` | Game Gear BIOS (restart) | planned |  | Disabled,Enabled |
 | gearsystem | `gearsystem_aspect_ratio` | Aspect Ratio | app | the app has its own picture shape setting | 1:1 PAR,4:3 DAR,16:9 DAR,16:10 DAR |
@@ -72,8 +72,8 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gearsystem | `gearsystem_link_screen` | Dual Screen Selection | planned |  | Both Screens,Screen 1,Screen 2 |
 | gearsystem | `gearsystem_link_audio` | Dual Screen Audio | planned |  | Screen 1,Screen 2,Mix |
 | gpgx | `genesis_plus_gx_system_hw` | System Hardware | planned |  | auto,sg-1000,sg-1000 II,sg-1000 II + ram ext.,mark-III,master system,master system II,game gear,mega drive / genesis |
-| gpgx | `genesis_plus_gx_region_detect` | System Region | planned |  | auto,ntsc-u,pal,ntsc-j |
-| gpgx | `genesis_plus_gx_vdp_mode` | Force VDP Mode | planned |  | auto,60hz,50hz |
+| gpgx | `genesis_plus_gx_region_detect` | System Region | done | `cgear_region` + `cgear_refresh` | auto,ntsc-u,pal,ntsc-j |
+| gpgx | `genesis_plus_gx_vdp_mode` | Force VDP Mode | done | `cgear_refresh` | auto,60hz,50hz |
 | gpgx | `genesis_plus_gx_bios` | System Boot ROM | planned |  | disabled,enabled |
 | gpgx | `genesis_plus_gx_system_bram` | CD System BRAM (Requires Restart) | n/a | Mega Drive or Mega-CD only | per bios,per game |
 | gpgx | `genesis_plus_gx_cart_bram` | CD Backup Cart BRAM (Requires Restart) | n/a | Mega Drive or Mega-CD only | per cart,per game |
@@ -133,9 +133,9 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gpgx | `genesis_plus_gx_sms_fm_channel_6_volume` | Master System FM (YM2413) Channel 6 Volume % | done | `cgear_vol_fm7` | 0,10,20,30,40,50,60,70,80,90,... |
 | gpgx | `genesis_plus_gx_sms_fm_channel_7_volume` | Master System FM (YM2413) Channel 7 Volume % | done | `cgear_vol_fm8` | 0,10,20,30,40,50,60,70,80,90,... |
 | gpgx | `genesis_plus_gx_sms_fm_channel_8_volume` | Master System FM (YM2413) Channel 8 Volume % | done | `cgear_vol_fm9` | 0,10,20,30,40,50,60,70,80,90,... |
-| picodrive | `picodrive_region` | System Region | planned |  | Auto,Japan NTSC,Japan PAL,US,Europe |
+| picodrive | `picodrive_region` | System Region | done | `cgear_region` + `cgear_refresh` | Auto,Japan NTSC,Japan PAL,US,Europe |
 | picodrive | `picodrive_smstype` | Master System Type | planned | includes the SC-3000 (needs a keyboard) | Auto,Game Gear,Master System,SG-1000,SC-3000 |
-| picodrive | `picodrive_smsmapper` | Master System ROM Mapping | planned |  | Auto,Sega,Codemasters,Korea,Korea MSX,Korea X-in-1,Korea 4-Pak,Korea Janggun,Korea Nemesis,Taiwan 8K RAM |
+| picodrive | `picodrive_smsmapper` | Master System ROM Mapping | done | `cgear_mapper` (Sega, Codemasters, Korean, Korean MSX, Nemesis, Janggun) | Auto,Sega,Codemasters,Korea,Korea MSX,Korea X-in-1,Korea 4-Pak,Korea Janggun,Korea Nemesis,Taiwan 8K RAM |
 | picodrive | `picodrive_smstms` | Master System Palette in TMS modes | done | `cgear_tms_colours` (Auto = the real console: Master System fixed colours, SG-1000 TMS colours, Game Gear colour memory) | SMS,SG-1000 |
 | picodrive | `picodrive_ramcart` | Sega CD RAM Cart | n/a | Mega Drive or Mega-CD only | disabled,enabled |
 | picodrive | `picodrive_aspect` | Core-Provided Aspect Ratio | app | the app has its own picture shape setting | PAR,4/3,CRT |
@@ -156,7 +156,7 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | picodrive | `picodrive_overclk68k` | 68K Overclock | n/a | Mega Drive or Mega-CD only | disabled,+25%,+50%,+75%,+100%,+200%,+400% |
 | smsplus | `smsplus_sms_bios` | Master System BIOS (Restart Required) | planned |  | disabled,auto |
 | smsplus | `smsplus_hardware` | Hardware (Restart Required) | planned | includes ColecoVision, a different console (not in S1) | auto,master system,master system II,game gear,game gear (sms compatibility),coleco |
-| smsplus | `smsplus_region` | Region (Restart Required) | planned |  | auto,ntsc-u,pal,ntsc-j |
+| smsplus | `smsplus_region` | Region (Restart Required) | done | `cgear_region` | auto,ntsc-u,pal,ntsc-j |
 | smsplus | `smsplus_fm_sound` | Use FM (YM2413) (Restart Required) | done | `cgear_fm` | auto,disabled |
 | smsplus | `smsplus_hide_left_border` | Hide SMS Left Border | planned |  | disabled,enabled |
 | smsplus | `smsplus_ntsc_filter` | Blargg NTSC Filter | planned | as above | disabled,composite,svideo,rgb,monochrome |

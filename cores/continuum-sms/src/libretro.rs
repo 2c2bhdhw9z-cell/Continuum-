@@ -143,10 +143,12 @@ unsafe fn machine(rom: Vec<u8>, s: &Settings, path: *const c_char) -> Box<Sms> {
         Console::Sg1000 => m.bus.set_sg1000(),
         _ => {}
     }
-    m.bus.export = !s.japan;
+    let japan = if s.region_auto { is_japanese(&m.bus.rom, path) } else { s.japan };
+    m.bus.export = !japan;
     // Only a Master System ever had the FM chip.
-    m.bus.has_fm = console == Console::Sms && s.fm.unwrap_or(s.japan);
-    m.bus.vdp.pal = s.pal && console != Console::GameGear;
+    m.bus.has_fm = console == Console::Sms && s.fm.unwrap_or(japan);
+    let pal = if s.refresh_auto { is_european(path) } else { s.pal };
+    m.bus.vdp.pal = pal && console != Console::GameGear;
     if let Some(mapper) = s.mapper {
         m.bus.mapper = mapper;
         m.bus.banks = if mapper == crate::bus::Mapper::Codemasters { [0, 1, 0] } else { [0, 1, 2] };
@@ -332,6 +334,35 @@ unsafe fn has_extension(path: *const c_char, ends: &[&str]) -> bool {
     ends.iter().any(|e| p.ends_with(e))
 }
 
+/// The file's name, lower case ("" when the app gave none).
+unsafe fn file_name(path: *const c_char) -> String {
+    if path.is_null() {
+        return String::new();
+    }
+    let p = std::ffi::CStr::from_ptr(path).to_string_lossy().to_lowercase();
+    p.rsplit('/').next().unwrap_or("").to_owned()
+}
+
+/// A Japanese cartridge: its header's region code says so (3 Master System Japan, 5 Game Gear
+/// Japan), or its file is named the usual way for one ("(Japan)", "(J)").
+unsafe fn is_japanese(rom: &[u8], path: *const c_char) -> bool {
+    let name = file_name(path);
+    if name.contains("(japan") || name.contains("(j)") || name.contains("(jp)") {
+        return true;
+    }
+    [0x7FF0usize, 0x3FF0, 0x1FF0].iter().any(|&at| {
+        rom.get(at..at + 16).is_some_and(|h| &h[..8] == b"TMR SEGA" && matches!(h[15] >> 4, 3 | 5))
+    })
+}
+
+/// A European release, by its file's name: the 50 Hz consoles' games.
+unsafe fn is_european(path: *const c_char) -> bool {
+    let name = file_name(path);
+    ["(europe", "(e)", "(eu)", "(uk)", "(australia", "(germany", "(france", "(italy", "(spain"]
+        .iter()
+        .any(|t| name.contains(t))
+}
+
 /// A Game Gear cartridge: its file is a .gg one, or its header (at $7FF0, $3FF0 or $1FF0, after
 /// "TMR SEGA") gives a Game Gear region code (5, 6 or 7 in the top half of its last byte).
 unsafe fn is_game_gear(rom: &[u8], path: *const c_char) -> bool {
@@ -349,9 +380,6 @@ unsafe fn is_game_gear(rom: &[u8], path: *const c_char) -> bool {
     })
 }
 
-/// The pads as the console's ports read them, from the two players' buttons: $DC holds the
-/// first pad and the second's Up and Down, $DD the second's other buttons. A held button reads 0.
-/// Start on either pad is the console's Pause button.
 /// Where the console's picture starts in the picture handed to the app (the border, or the left
 /// column cut off).
 fn picture_offset(m: &Core) -> (i32, i32) {
@@ -419,6 +447,9 @@ fn draw_crosshairs(m: &Core, px: &mut [u32], w: usize, h: usize) {
     }
 }
 
+/// The pads as the console's ports read them, from the two players' buttons: $DC holds the
+/// first pad and the second's Up and Down, $DD the second's other buttons. A held button reads 0.
+/// Start on either pad is the console's Pause button.
 unsafe fn read_pads(input: InputFn, opposing: bool) -> (u8, u8, bool) {
     let held = |port: u32, id: u32| {
         let on = |i: u32| input(port, DEVICE_JOYPAD, 0, i) != 0;
@@ -628,6 +659,22 @@ mod eq_tests {
         let mut st = [[0.0; 2]; 2];
         equalise(&mut st, levels, &mut s);
         s[s.len() - 2400..].iter().map(|v| i32::from(*v).abs()).max().unwrap() as f32 / 10_000.0
+    }
+
+    #[test]
+    fn region_and_refresh_auto_go_by_the_header_and_the_file_name() {
+        let mut rom = vec![0u8; 0x8000];
+        rom[0x7FF0..0x7FF8].copy_from_slice(b"TMR SEGA");
+        rom[0x7FFF] = 0x3C;
+        let none = std::ptr::null();
+        unsafe {
+            assert!(is_japanese(&rom, none), "region code 3: Master System Japan");
+            rom[0x7FFF] = 0x4C;
+            assert!(!is_japanese(&rom, none));
+            assert!(is_japanese(&rom, c"/g/Hokuto no Ken (Japan).sms".as_ptr()));
+            assert!(is_european(c"/g/Sonic (Europe).sms".as_ptr()));
+            assert!(!is_european(c"/g/Sonic (USA).sms".as_ptr()));
+        }
     }
 
     #[test]
