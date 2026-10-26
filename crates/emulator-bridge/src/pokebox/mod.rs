@@ -12,10 +12,12 @@
 //! The games' own saves are only ever changed while the game is closed (the app makes sure).
 
 pub mod data;
+pub mod items;
 pub mod mon;
 pub mod save;
 pub mod text;
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -52,15 +54,37 @@ pub fn open_game(rom: &Path, save_path: &Path) -> Result<GameSave, String> {
     Ok(GameSave { game, language, path: save_path.to_path_buf(), bytes })
 }
 
-/// The app's own box: 50 boxes of 30.
+/// The app's own box: 50 boxes of 30, its item locker, the gift progress of each game's trainer,
+/// and the originals kept of Pokémon moved to another generation inside it (Migration).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Storage {
     pub boxes: Vec<Vec<Option<Stored>>>,
+    /// Item locker: PokeAPI item id to how many (at most `items::LOCKER_MAX` of each).
+    pub items: BTreeMap<u16, u32>,
+    /// Gifts: per trainer (`gifts::key`), the most of their Ruby-to-Emerald Pokémon ever kept
+    /// here at once, and how many gift eggs they have had.
+    pub gifts: BTreeMap<String, (u32, u8)>,
+    /// Migration: by the Pokémon's bytes now (`archive_key`), the forms it had before.
+    pub archives: BTreeMap<u64, Vec<Stored>>,
+}
+
+const BOX_MAGIC_2: &[u8; 8] = b"CPKBOX2\n";
+
+/// Which archive a Box Pokémon has: its bytes, so it is found again wherever it is moved to.
+pub fn archive_key(s: &Stored) -> u64 {
+    let mut b = vec![s.game.code(), u8::from(s.egg)];
+    b.extend_from_slice(&s.data);
+    fnv(&b)
 }
 
 impl Storage {
     pub fn empty() -> Storage {
-        Storage { boxes: vec![vec![None; STORAGE_SLOTS]; STORAGE_BOXES] }
+        Storage {
+            boxes: vec![vec![None; STORAGE_SLOTS]; STORAGE_BOXES],
+            items: BTreeMap::new(),
+            gifts: BTreeMap::new(),
+            archives: BTreeMap::new(),
+        }
     }
 
     pub fn load(dir: &Path) -> Result<Storage, String> {
@@ -70,29 +94,95 @@ impl Storage {
     }
 
     fn from_bytes(b: &[u8]) -> Option<Storage> {
-        let body = b.strip_prefix(BOX_MAGIC.as_slice())?;
         let mut s = Storage::empty();
+        if let Some(body) = b.strip_prefix(BOX_MAGIC.as_slice()) {
+            // The first layout: Pokémon only.
+            let mut at = 0;
+            while at < body.len() {
+                let h = body.get(at..at + 6)?;
+                let (bx, slot, game, egg) = (usize::from(h[0]), usize::from(h[1]), Game::from_code(h[2])?, h[3] != 0);
+                let n = usize::from(u16::from_le_bytes([h[4], h[5]]));
+                let data = body.get(at + 6..at + 6 + n)?.to_vec();
+                *s.boxes.get_mut(bx)?.get_mut(slot)? = Some(Stored { game, egg, data });
+                at += 6 + n;
+            }
+            return Some(s);
+        }
+        let body = b.strip_prefix(BOX_MAGIC_2.as_slice())?;
+        let u16_at = |at: usize| body.get(at..at + 2).map(|x| u16::from_le_bytes([x[0], x[1]]));
+        let u32_at = |at: usize| body.get(at..at + 4).map(|x| u32::from_le_bytes([x[0], x[1], x[2], x[3]]));
         let mut at = 0;
         while at < body.len() {
-            let h = body.get(at..at + 6)?;
-            let (bx, slot, game, egg) = (usize::from(h[0]), usize::from(h[1]), Game::from_code(h[2])?, h[3] != 0);
-            let n = usize::from(u16::from_le_bytes([h[4], h[5]]));
-            let data = body.get(at + 6..at + 6 + n)?.to_vec();
-            *s.boxes.get_mut(bx)?.get_mut(slot)? = Some(Stored { game, egg, data });
-            at += 6 + n;
+            match body[at] {
+                b'P' => {
+                    let h = body.get(at + 1..at + 7)?;
+                    let (bx, slot, game, egg) = (usize::from(h[0]), usize::from(h[1]), Game::from_code(h[2])?, h[3] != 0);
+                    let n = usize::from(u16::from_le_bytes([h[4], h[5]]));
+                    let data = body.get(at + 7..at + 7 + n)?.to_vec();
+                    *s.boxes.get_mut(bx)?.get_mut(slot)? = Some(Stored { game, egg, data });
+                    at += 7 + n;
+                }
+                b'I' => {
+                    s.items.insert(u16_at(at + 1)?, u32_at(at + 3)?);
+                    at += 7;
+                }
+                b'G' => {
+                    let n = usize::from(u16_at(at + 1)?);
+                    let key = String::from_utf8(body.get(at + 3..at + 3 + n)?.to_vec()).ok()?;
+                    let peak = u32_at(at + 3 + n)?;
+                    let claimed = *body.get(at + 7 + n)?;
+                    s.gifts.insert(key, (peak, claimed));
+                    at += 8 + n;
+                }
+                b'A' => {
+                    let key = u64::from_le_bytes(body.get(at + 1..at + 9)?.try_into().ok()?);
+                    let (game, egg) = (Game::from_code(*body.get(at + 9)?)?, *body.get(at + 10)? != 0);
+                    let n = usize::from(u16_at(at + 11)?);
+                    let data = body.get(at + 13..at + 13 + n)?.to_vec();
+                    s.archives.entry(key).or_default().push(Stored { game, egg, data });
+                    at += 13 + n;
+                }
+                _ => return None,
+            }
         }
         Some(s)
     }
 
     fn to_bytes(&self) -> Vec<u8> {
-        let mut out = BOX_MAGIC.to_vec();
+        let mut out = BOX_MAGIC_2.to_vec();
+        let mut kept = std::collections::BTreeSet::new();
         for (b, slots) in self.boxes.iter().enumerate() {
             for (i, s) in slots.iter().enumerate() {
                 if let Some(s) = s {
-                    out.extend_from_slice(&[b as u8, i as u8, s.game.code(), u8::from(s.egg)]);
+                    out.extend_from_slice(&[b'P', b as u8, i as u8, s.game.code(), u8::from(s.egg)]);
                     out.extend_from_slice(&(s.data.len() as u16).to_le_bytes());
                     out.extend_from_slice(&s.data);
+                    kept.insert(archive_key(s));
                 }
+            }
+        }
+        for (id, n) in &self.items {
+            if *n > 0 {
+                out.push(b'I');
+                out.extend_from_slice(&id.to_le_bytes());
+                out.extend_from_slice(&n.to_le_bytes());
+            }
+        }
+        for (key, (peak, claimed)) in &self.gifts {
+            out.push(b'G');
+            out.extend_from_slice(&(key.len() as u16).to_le_bytes());
+            out.extend_from_slice(key.as_bytes());
+            out.extend_from_slice(&peak.to_le_bytes());
+            out.push(*claimed);
+        }
+        // Only the originals of Pokémon still here: one that left the Box leaves its archive.
+        for (key, list) in self.archives.iter().filter(|(k, _)| kept.contains(k)) {
+            for a in list {
+                out.push(b'A');
+                out.extend_from_slice(&key.to_le_bytes());
+                out.extend_from_slice(&[a.game.code(), u8::from(a.egg)]);
+                out.extend_from_slice(&(a.data.len() as u16).to_le_bytes());
+                out.extend_from_slice(&a.data);
             }
         }
         out

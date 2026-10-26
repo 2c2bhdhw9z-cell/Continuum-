@@ -8,7 +8,8 @@ item makes which trade evolution, each move's PP in each generation.
 Run: python3 scripts/pokebox-data.py <folder with the csv files>
 The csv files: pokemon_species, pokemon_species_names, pokemon_game_indices, pokemon_stats,
 pokemon_types, pokemon_types_past, moves, move_names, move_changelog, item_game_indices,
-item_names, items, experience, pokemon_evolution, pokemon_stats_past.
+item_names, items, item_categories, experience, pokemon_evolution, pokemon_stats_past,
+pokemon_moves.
 """
 import csv
 import os
@@ -95,12 +96,14 @@ def pp_in(m, gen):
 
 item_names = {int(r["item_id"]): r["name"] for r in rows("item_names") if r["local_language_id"] == ENGLISH}
 item_ids = {r["identifier"]: int(r["id"]) for r in rows("items")}
-items = {2: [], 3: []}
+cat_pocket = {r["id"]: int(r["pocket_id"]) for r in rows("item_categories")}
+pocket_of = {int(r["id"]): cat_pocket.get(r["category_id"], 1) for r in rows("items")}
+items = {1: [], 2: [], 3: []}
 for r in rows("item_game_indices"):
     g = int(r["generation_id"])
     if g in items:
         i = int(r["item_id"])
-        items[g].append((int(r["game_index"]), i, item_names.get(i, r["item_id"])))
+        items[g].append((int(r["game_index"]), i, item_names.get(i, r["item_id"]), pocket_of.get(i, 1)))
 
 trade = []
 for r in rows("pokemon_evolution"):
@@ -132,6 +135,8 @@ w.append("    pub female_eighths: i8,")
 w.append("    pub catch_rate: u8,")
 w.append("    pub base_friendship: u8,")
 w.append("    pub base_hp: u8,")
+w.append("    /// Egg cycles to hatch (Gen 3 counts 256 steps a cycle).")
+w.append("    pub hatch: u8,")
 w.append("    /// Their two types as Red and Blue had them (PokeAPI type numbers; the same twice for one).")
 w.append("    pub gen1_types: [u8; 2],")
 w.append("    /// Their number inside Red, Blue and Yellow (0 for one added later).")
@@ -141,13 +146,13 @@ w.append("    pub gen3_index: u16,")
 w.append("}")
 w.append("")
 w.append(f"pub static SPECIES: [Species; {N + 1}] = [")
-w.append('    Species { name: "", growth: 2, female_eighths: -1, catch_rate: 0, base_friendship: 0, base_hp: 0, gen1_types: [1, 1], gen1_index: 0, gen3_index: 0 },')
+w.append('    Species { name: "", growth: 2, female_eighths: -1, catch_rate: 0, base_friendship: 0, base_hp: 0, hatch: 0, gen1_types: [1, 1], gen1_index: 0, gen3_index: 0 },')
 for p in range(1, N + 1):
     r = species[p]
     t = gen1_types(p) if p <= 151 else (0, 0)
     w.append(f"    Species {{ name: {s(names[p])}, growth: {GROWTH[int(r['growth_rate_id'])]}, "
              f"female_eighths: {int(r['gender_rate'])}, catch_rate: {int(r['capture_rate'])}, "
-             f"base_friendship: {int(r['base_happiness'] or 0)}, base_hp: {base_hp[p]}, "
+             f"base_friendship: {int(r['base_happiness'] or 0)}, base_hp: {base_hp[p]}, hatch: {int(r['hatch_counter'] or 0)}, "
              f"gen1_types: [{t[0]}, {t[1]}], gen1_index: {gen1_index.get(p, 0)}, gen3_index: {gen3_index[p]} }},")
 w.append("];")
 w.append("")
@@ -177,12 +182,29 @@ for m in range(1, 355):
     w.append(f"    ({s(move_names[m])}, [{pps[0]}, {pps[1]}, {pps[2]}]),")
 w.append("];")
 w.append("")
-for g in (2, 3):
+for g in (1, 2, 3):
     lst = sorted(items[g])
-    w.append(f"/// Generation {g}'s items: (number in the game, PokeAPI item id, name).")
-    w.append(f"pub static ITEMS_GEN{g}: [(u16, u16, &str); {len(lst)}] = [")
-    for gi, i, nm in lst:
-        w.append(f"    ({gi}, {i}, {s(nm)}),")
+    w.append(f"/// Generation {g}'s items: (number in the game, PokeAPI item id, name, PokeAPI pocket: 1 misc,")
+    w.append("/// 2 medicine, 3 balls, 4 machines, 5 berries, 6 mail, 7 battle, 8 key).")
+    w.append(f"pub static ITEMS_GEN{g}: [(u16, u16, &str, u8); {len(lst)}] = [")
+    for gi, i, nm, pk in lst:
+        w.append(f"    ({gi}, {i}, {s(nm)}, {pk}),")
+    w.append("];")
+    w.append("")
+groups = {1: "1", 2: "4", 3: "6"}
+learn = {1: [], 2: [], 3: []}
+for r in rows("pokemon_moves"):
+    if r["pokemon_move_method_id"] != "1" or int(r["pokemon_id"]) > N:
+        continue
+    for g, vg in groups.items():
+        if r["version_group_id"] == vg and int(r["move_id"]) <= 354:
+            learn[g].append((int(r["pokemon_id"]), int(r["level"] or 1), int(r["move_id"])))
+for g in (1, 2, 3):
+    lst = sorted(set(learn[g]))
+    w.append(f"/// Moves learnt by level in generation {g} (Red/Blue, Crystal, Emerald): (species, level, move).")
+    w.append(f"pub static LEARNSET_GEN{g}: [(u16, u8, u16); {len(lst)}] = [")
+    for chunk in range(0, len(lst), 8):
+        w.append("    " + " ".join(f"({a}, {b}, {c})," for a, b, c in lst[chunk:chunk + 8]))
     w.append("];")
     w.append("")
 w.append("/// Trades that evolve: (from, to, the PokeAPI item it must hold, 0 for none).")

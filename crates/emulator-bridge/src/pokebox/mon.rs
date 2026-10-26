@@ -6,7 +6,7 @@
 //! generations it goes through [`Mon`], what all three have in common, and every difference the
 //! player should know about comes back as a line of plain English for the preview.
 
-use super::data::{BASE_STATS, EXPERIENCE, ITEMS_GEN2, ITEMS_GEN3, MOVES, SPECIES};
+use super::data::{BASE_STATS, EXPERIENCE, ITEMS_GEN1, ITEMS_GEN2, ITEMS_GEN3, MOVES, SPECIES};
 use super::text;
 
 /// The games the Pokémon Box knows (English and European cartridges).
@@ -199,29 +199,41 @@ pub fn gen3_dex(index: u16) -> u16 {
     SPECIES.iter().position(|s| s.gen3_index == index).unwrap_or(0) as u16
 }
 
+/// A generation's items: (number in the game, PokeAPI id, name, pocket).
+pub fn items_of(gen: u8) -> &'static [(u16, u16, &'static str, u8)] {
+    match gen {
+        1 => &ITEMS_GEN1,
+        2 => &ITEMS_GEN2,
+        _ => &ITEMS_GEN3,
+    }
+}
+
 /// An item's PokeAPI number from its number in Gold to Crystal (`gen` 2) or Ruby to LeafGreen (3).
 pub fn item_from_game(gen: u8, index: u16) -> u16 {
     if index == 0 {
         return 0;
     }
-    let list: &[(u16, u16, &str)] = if gen == 2 { &ITEMS_GEN2 } else { &ITEMS_GEN3 };
-    list.iter().find(|(g, _, _)| *g == index).map_or(0, |(_, id, _)| *id)
+    items_of(gen).iter().find(|x| x.0 == index).map_or(0, |x| x.1)
 }
 
+/// An item's number in a generation that can hold items (2 and 3); None where it has none.
 pub fn item_to_game(gen: u8, item: u16) -> Option<u16> {
     if item == 0 {
         return Some(0);
     }
-    let list: &[(u16, u16, &str)] = match gen {
-        2 => &ITEMS_GEN2,
-        3 => &ITEMS_GEN3,
-        _ => return None,
-    };
-    list.iter().find(|(_, id, _)| *id == item).map(|(g, _, _)| *g)
+    if gen < 2 {
+        return None;
+    }
+    items_of(gen).iter().find(|x| x.1 == item).map(|x| x.0)
 }
 
 pub fn item_name(item: u16) -> &'static str {
-    ITEMS_GEN3.iter().chain(ITEMS_GEN2.iter()).find(|(_, id, _)| *id == item).map_or("an item", |(_, _, n)| n)
+    ITEMS_GEN3.iter().chain(ITEMS_GEN2.iter()).chain(ITEMS_GEN1.iter()).find(|x| x.1 == item).map_or("an item", |x| x.2)
+}
+
+/// PokeAPI's pocket for an item (8 key items, 4 machines, 6 mail, 3 balls, 5 berries).
+pub fn item_pocket(item: u16) -> u8 {
+    ITEMS_GEN3.iter().chain(ITEMS_GEN2.iter()).chain(ITEMS_GEN1.iter()).find(|x| x.1 == item).map_or(1, |x| x.3)
 }
 
 pub fn level_for(species: u16, exp: u32) -> u8 {

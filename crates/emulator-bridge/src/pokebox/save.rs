@@ -288,7 +288,7 @@ fn g3_block(save: &[u8], block: usize) -> Option<([usize; 14], u32)> {
 }
 
 /// The newer of the two saves that checks out.
-fn g3_current(save: &[u8]) -> Result<[usize; 14], String> {
+pub(super) fn g3_current(save: &[u8]) -> Result<[usize; 14], String> {
     if save.len() < 0x1C000 {
         return Err("This doesn't look like a save from that game (it's too small).".into());
     }
@@ -466,7 +466,7 @@ fn gb_box_at(game: Game, save: &mut [u8], b: usize) -> usize {
 
 /// Works the sums out again. Ruby to LeafGreen: of the save block `at`, chosen before the change
 /// (after it, that block's old sums no longer match, so it could not be found again).
-fn seal(game: Game, save: &mut [u8], at: Option<&[usize; 14]>) {
+pub(super) fn seal(game: Game, save: &mut [u8], at: Option<&[usize; 14]>) {
     match (game.gen(), at) {
         (1, _) => g1_seal(save),
         (2, _) => g2_seal(save, game),
