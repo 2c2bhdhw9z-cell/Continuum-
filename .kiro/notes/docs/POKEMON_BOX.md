@@ -42,7 +42,25 @@ or move a Pokémon to a chosen place, swapping; and Files folded in there: share
 a .pk1/.pk2/.pk3 file, PKHeX's formats, or add one from Files). Engine: `save::read_party`/`take_party`,
 `Change::PartyToStorage`, `InStorageTo`, `Sort`.
 
+## G1R's other tools (26 October evening; owner: "supposed to do what G1R does")
+Read from G1R Deluxe's src/box (GPL v3; behaviour only, no code taken):
+- Items (`items.rs`): bags of all 11 games (Gen 3 quantities XOR the security key's low half,
+  E 0xAC / FRLG 0xF20 in section 0), locker of up to 999 each (one locker, PokeAPI ids; G1R keeps
+  Gen 3 apart from Gen 1-2, ours lets an item go wherever that game has it), held items, Gen 3 ball.
+  Key items, TMs/HMs, mail stay in their game.
+- Gifts (`gifts.rs`): Pokémon Box R&S's gift eggs (Swablu 0, Zigzagoon 100, Skitty 500, Pichu 1499
+  of the trainer's own Gen 3 Pokémon in the Box, peak kept), OT AZUSA, into the Box.
+- Events (`events.rs`): Eon/Aurora/Mystic tickets and Old Sea Map, gated by game and language as
+  G1R lists; key item + the ferry's flag + the Wonder Card "received" flag (pret flags.h numbers).
+  G1R fetches real Wonder Cards from its own relay server; ours writes what the ferry checks.
+- Migration (`mod.rs` work_migrate/restore): convert inside the Box, optional Nature by adding
+  experience, old forms kept by the Pokémon's bytes (`archives`), restorable. Moves that don't exist
+  are replaced by the target game's level-up moves (`mon::recommended_moves`), as G1R recommends.
+- Showcase (`native/ios/PokemonShowcase.swift`): stages with 10 backgrounds and 4 patterns, Box
+  Pokémon dragged into place and sized, sprites from PokeAPI's sprite repo on GitHub (G1R also
+  loads sprites online). Not done: G1R's props (scenery art) and stage music.
+- Files was already in Arrange. Box file layout 2 holds the locker, gift progress and archives.
+
 ## Not done yet (owner's 5 A: later)
-G1R's Gifts, Events, Items, Showcase and Migration (asked the owner what each should do),
 renaming boxes, Gen 3 Unown/Spinda Pokédex personality fields. Tested only on save files
 built by the tests from the documented layouts; not yet on the owner's real saves.

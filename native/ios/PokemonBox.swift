@@ -133,9 +133,17 @@ struct PokemonBoxSheet: View {
         case list = "List"
         case dashboard = "Dashboard"
         case arrange = "Arrange"
+        case items = "Items"
+        case gifts = "Gifts"
+        case events = "Events"
+        case showcase = "Showcase"
 
         var icon: String {
             switch self {
+            case .items: return "bag"
+            case .gifts: return "gift"
+            case .events: return "ticket"
+            case .showcase: return "sparkles"
             case .boxes: return "shippingbox"
             case .team: return "person.3"
             case .list: return "list.bullet"
@@ -146,6 +154,15 @@ struct PokemonBoxSheet: View {
     }
 
     @State private var tool = Tool.boxes
+    @State private var locker: [PokeItem] = []
+    @State private var bag: [PokeItem] = []
+    @State private var bagProblem = ""
+    @State private var gift: PokeGift?
+    @State private var giftProblem = ""
+    @State private var tickets: [PokeEvent] = []
+    @State private var ticketProblem = ""
+    /// The forms Migration kept of the chosen Box Pokémon.
+    @State private var archived: [PokeMon] = []
     @State private var team: [PokeMon] = []
     @State private var teamProblem = ""
     @State private var everyone: [Found] = []
@@ -190,7 +207,9 @@ struct PokemonBoxSheet: View {
                         .onChange(of: mode) { _ in chosen = [] }
                     }
 
-                    if games.isEmpty && tool != .list && tool != .dashboard && tool != .arrange {
+                    if tool == .showcase {
+                        PokemonShowcasePane(storage: storage)
+                    } else if games.isEmpty && tool != .list && tool != .dashboard && tool != .arrange {
                         SettingsNote("No Pokémon games from Red to LeafGreen are in your library "
                                      + "(English or European cartridges).")
                     } else if tool == .team {
@@ -205,6 +224,17 @@ struct PokemonBoxSheet: View {
                     } else if tool == .arrange {
                         arrangePane
                         detailCard
+                    } else if tool == .items {
+                        gamePane(side: 0, showBoxes: false)
+                        itemsPane
+                        storagePane
+                        detailCard
+                    } else if tool == .gifts {
+                        gamePane(side: 0, showBoxes: false)
+                        giftsPane
+                    } else if tool == .events {
+                        gamePane(side: 0, showBoxes: false)
+                        eventsPane
                     } else {
                         gamePane(side: 0)
                         if mode == .move {
@@ -250,7 +280,7 @@ struct PokemonBoxSheet: View {
         .alert(item: $pending) { p in
             Alert(title: Text(p.plan.title),
                   message: Text(p.plan.changes.joined(separator: "\n")),
-                  primaryButton: .default(Text(mode == .trade ? "Trade" : "Move it")) { run(p) },
+                  primaryButton: .default(Text(tool != .boxes ? "Yes" : mode == .trade ? "Trade" : "Move it")) { run(p) },
                   secondaryButton: .cancel())
         }
     }
@@ -282,6 +312,20 @@ struct PokemonBoxSheet: View {
         if t == .list || t == .dashboard {
             gatherEveryone()
         }
+        loadToolData()
+    }
+
+    /// The bag, locker, gift and ticket state of the first game, for the Items, Gifts and Events tools.
+    private func loadToolData() {
+        locker = (try? pokeboxReadLocker(dir: PokemonGames.folder)) ?? []
+        guard let entry = game[0] else { return }
+        let save = PokemonGames.savePath(for: entry)
+        do { bag = try pokeboxReadBag(romPath: entry.path, savePath: save); bagProblem = "" }
+        catch { bag = []; bagProblem = "\(error)" }
+        do { gift = try pokeboxGiftProgress(dir: PokemonGames.folder, romPath: entry.path, savePath: save); giftProblem = "" }
+        catch { gift = nil; giftProblem = "\(error)" }
+        do { tickets = try pokeboxEvents(romPath: entry.path, savePath: save); ticketProblem = "" }
+        catch { tickets = []; ticketProblem = "\(error)" }
     }
 
     private func loadTeam() {
@@ -366,7 +410,7 @@ struct PokemonBoxSheet: View {
                         gameBox[side] = -1
                         chosen = []
                         loadGame(side)
-                        if side == 0 { loadTeam() }
+                        if side == 0 { loadTeam(); loadToolData() }
                     }
                 }
             } label: {
@@ -488,6 +532,10 @@ struct PokemonBoxSheet: View {
     // MARK: Choosing and moving
 
     private func choose(_ place: BoxPlace) {
+        archived = []
+        if case .storage(let b, let sl) = place {
+            archived = (try? pokeboxArchived(dir: PokemonGames.folder, fromBox: UInt32(b), slot: UInt32(sl))) ?? []
+        }
         if let i = chosen.firstIndex(of: place) {
             chosen.remove(at: i)
             return
@@ -604,6 +652,8 @@ struct PokemonBoxSheet: View {
         loadGame(1)
         loadStorage()
         loadTeam()
+        loadToolData()
+        archived = []
         if tool == .list || tool == .dashboard { gatherEveryone() }
     }
 
@@ -821,6 +871,184 @@ struct PokemonBoxSheet: View {
         loadStorage()
     }
 
+    // MARK: Items, Gifts, Events
+
+    private var gameTitle: String { game[0].map(PokemonGames.title) ?? "the game" }
+
+    @ViewBuilder
+    private var itemsPane: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SettingsLabel("Bag")
+            if bag.isEmpty {
+                SettingsNote(bagProblem.isEmpty ? "Nothing in this bag can go in the locker." : bagProblem)
+            }
+            ForEach(Array(bag.enumerated()), id: \.offset) { _, it in
+                itemRow(it, detail: it.pocket, verb: "Put") {
+                    if let entry = game[0] {
+                        ask(.deposit(romPath: entry.path, savePath: PokemonGames.savePath(for: entry), item: it.item, count: 1), games: [entry])
+                    }
+                } all: {
+                    if let entry = game[0] {
+                        ask(.deposit(romPath: entry.path, savePath: PokemonGames.savePath(for: entry), item: it.item, count: UInt16(min(it.count, 99))), games: [entry])
+                    }
+                }
+            }
+            SettingsLabel("Locker")
+            if locker.isEmpty {
+                SettingsNote("The locker is empty. Put items in from a game's bag above.")
+            }
+            ForEach(Array(locker.enumerated()), id: \.offset) { _, it in
+                itemRow(it, detail: "", verb: "Take") {
+                    if let entry = game[0] {
+                        ask(.withdraw(romPath: entry.path, savePath: PokemonGames.savePath(for: entry), item: it.item, count: 1), games: [entry])
+                    }
+                } all: {
+                    if let entry = game[0] {
+                        ask(.withdraw(romPath: entry.path, savePath: PokemonGames.savePath(for: entry), item: it.item, count: UInt16(min(it.count, 99))), games: [entry])
+                    }
+                }
+            }
+            SettingsNote("Items go from \(gameTitle)'s bag into the locker and out into any game's bag. Key items, "
+                         + "TMs and HMs, and mail stay in their game. Tap a Box Pokémon below to give it an item "
+                         + "to hold or (Ruby to LeafGreen) another ball.")
+        }
+        .padding(12)
+        .modifier(LookBlockCard(radius: 12))
+    }
+
+    private func itemRow(_ it: PokeItem, detail: String, verb: String, one: @escaping () -> Void,
+                         all: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("\(it.name) ×\(it.count)")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(ShellPalette.text)
+                if !detail.isEmpty {
+                    Text(detail).font(.system(size: 11)).foregroundStyle(ShellPalette.secondaryText)
+                }
+            }
+            Spacer()
+            Button("\(verb) 1", action: one).buttonStyle(.bordered)
+            if it.count > 1 {
+                Button("\(verb) \(min(it.count, 99))", action: all).buttonStyle(.bordered)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var giftsPane: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SettingsLabel("Gift eggs")
+            if let g = gift {
+                SettingsNote("Pokémon Box Ruby & Sapphire gave a trainer an egg for keeping their own Ruby-to-"
+                             + "Emerald Pokémon in the Box: at 0, 100, 500 and 1499 of them. This trainer has "
+                             + "\(g.now) in the Box now (most ever \(g.peak)) and has had \(g.claimed) of the 4 eggs.")
+                if g.nextSpecies.isEmpty {
+                    SettingsNote("All four eggs are had.")
+                } else if g.ready {
+                    SettingsButton(title: "Get the \(g.nextSpecies) egg", role: .normal) {
+                        if let entry = game[0] {
+                            ask(.claimGift(romPath: entry.path, savePath: PokemonGames.savePath(for: entry), toBox: UInt32(storageBox)), games: [])
+                        }
+                    }
+                    SettingsNote("It goes into the Box, box \(storageBox + 1); from there, into \(gameTitle) to hatch.")
+                } else {
+                    SettingsNote("The \(g.nextSpecies) egg comes at \(g.nextNeed) of this trainer's Pokémon in the Box.")
+                }
+            } else {
+                SettingsNote(giftProblem.isEmpty ? "Pick a Ruby, Sapphire, Emerald, FireRed or LeafGreen game." : giftProblem)
+            }
+        }
+        .padding(12)
+        .modifier(LookBlockCard(radius: 12))
+    }
+
+    @ViewBuilder
+    private var eventsPane: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SettingsLabel("Event tickets")
+            let rows = tickets.filter { !$0.id.isEmpty }
+            if rows.isEmpty {
+                SettingsNote(ticketProblem.isEmpty ? "No event tickets went to this game in its language." : ticketProblem)
+            }
+            ForEach(rows, id: \.id) { t in
+                HStack {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(t.name).font(.system(size: 14, weight: .semibold)).foregroundStyle(ShellPalette.text)
+                        Text(t.place).font(.system(size: 11)).foregroundStyle(ShellPalette.secondaryText)
+                    }
+                    Spacer()
+                    if t.have {
+                        Text("Has it").font(.system(size: 12)).foregroundStyle(ShellPalette.secondaryText)
+                    } else {
+                        Button("Get it") {
+                            if let entry = game[0] {
+                                ask(.receiveEvent(romPath: entry.path, savePath: PokemonGames.savePath(for: entry), id: t.id), games: [entry])
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+            if let how = tickets.last(where: { $0.id.isEmpty }) {
+                SettingsNote(how.place)
+            }
+        }
+        .padding(12)
+        .modifier(LookBlockCard(radius: 12))
+    }
+
+    /// What can be done with one Box Pokémon: hold an item, change ball, another generation, back.
+    @ViewBuilder
+    private func storageActions(_ mon: PokeMon, box: Int, slot: Int) -> some View {
+        let b = UInt32(box), sl = UInt32(slot)
+        if mon.canHold {
+            HStack(spacing: 8) {
+                Menu {
+                    ForEach(locker, id: \.item) { it in
+                        Button("\(it.name) (\(it.count))") { ask(.giveHeld(fromBox: b, slot: sl, item: it.item), games: []) }
+                    }
+                } label: { pickerLabel(locker.isEmpty ? "Locker empty" : "Give it an item") }
+                .disabled(locker.isEmpty)
+                if !mon.item.isEmpty {
+                    SettingsButton(title: "Take its \(mon.item)", role: .normal) { ask(.takeHeld(fromBox: b, slot: sl), games: []) }
+                }
+            }
+        }
+        if mon.generation == 3 && !mon.egg {
+            let balls = locker.filter(\.isBall)
+            Menu {
+                ForEach(balls, id: \.item) { it in
+                    Button("\(it.name) (\(it.count))") { ask(.swapBall(fromBox: b, slot: sl, ball: it.item), games: []) }
+                }
+            } label: { pickerLabel(balls.isEmpty ? "In a \(mon.ball) (no balls in the locker)" : "In a \(mon.ball): change ball") }
+            .disabled(balls.isEmpty)
+        }
+        if !mon.egg {
+            Menu {
+                if mon.generation != 1 {
+                    Button("Red, Blue and Yellow") { ask(.migrate(fromBox: b, slot: sl, to: "Red", nature: nil), games: []) }
+                }
+                if mon.generation != 2 {
+                    Button("Gold, Silver and Crystal") { ask(.migrate(fromBox: b, slot: sl, to: "Crystal", nature: nil), games: []) }
+                }
+                if mon.generation != 3 {
+                    Menu("Ruby to LeafGreen") {
+                        Button("Its own Nature (from its experience)") { ask(.migrate(fromBox: b, slot: sl, to: "Emerald", nature: nil), games: []) }
+                        ForEach(Array(pokeboxNatures().enumerated()), id: \.offset) { i, n in
+                            Button(n) { ask(.migrate(fromBox: b, slot: sl, to: "Emerald", nature: UInt8(i)), games: []) }
+                        }
+                    }
+                }
+            } label: { pickerLabel("Make it another generation's (Migration)") }
+            ForEach(Array(archived.enumerated()), id: \.offset) { i, old in
+                SettingsButton(title: "Have back its \(old.game) form", role: .normal) {
+                    ask(.restore(fromBox: b, slot: sl, index: UInt32(i)), games: [])
+                }
+            }
+        }
+    }
+
     // MARK: The chosen one
 
     @ViewBuilder
@@ -844,6 +1072,9 @@ struct PokemonBoxSheet: View {
                         SettingsNote("HP \(st[0]) · Attack \(st[1]) · Defense \(st[2]) · Speed \(st[3])"
                                      + (mon.generation == 1 ? " · Special \(st[4])"
                                         : " · Sp. Atk \(st[4]) · Sp. Def \(st[5])"))
+                    }
+                    if case .storage(let b, let sl) = place {
+                        storageActions(mon, box: b, slot: sl)
                     }
                 } else {
                     SettingsNote("Its data is damaged (a Bad Egg). It can only move between games of "
