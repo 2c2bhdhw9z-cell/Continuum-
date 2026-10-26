@@ -77,13 +77,55 @@ BOARDS = [
     {
         "driver": "src/mame/pacman/pacman.cpp",
         "sets": PACMAN_SETS,
-        "layout": {"plain": "Board::Pacman(Variant::Plain)", "pacplus": "Board::Pacman(Variant::PacPlus)",
-                   "mspac": "Board::Pacman(Variant::MsPacman)", "upper": "Board::Pacman(Variant::UpperRom)"},
+        "layout": {"plain": "Board::Pacman(Variant::Plain, MODS_NONE)",
+                   "pacplus": "Board::Pacman(Variant::PacPlus, MODS_NONE)",
+                   "mspac": "Board::Pacman(Variant::MsPacman, MODS_NONE)",
+                   "upper": "Board::Pacman(Variant::UpperRom, MODS_NONE)"},
         "dips": {"pacman": "Dips::Pacman", "mspacman": "Dips::MsPacman", "comecome": "Dips::ComeCome",
                  "newpuc2": "Dips::Newpuc2", "pacuman": "Dips::Pacuman", "pacmansp": "Dips::PacmanSp"},
         "reads": {"maincpu": None, "gfx1": (0, 0x2000), "proms": None, "namco": (0, 0x100)},
     },
 ]
+
+
+# The Pac-Man driver's other machines (second round, tasks/arcade-2.json): (machine, init) in the
+# GAME() lines of MAME's pacman.cpp -> our layout and what the board adds (pacman::Mods). Only sets
+# of the pacman_state and mschamp_state classes not in PACMAN_SETS above, without the flags below,
+# whose regions are the board's, go in; their inputs and switches are generated from MAME's port
+# lists like the Galaxian family's. Left out for now: the machines with other sound chips, CPUs or
+# custom chips (Ali Baba, Dream Shopper, Van-Van Car, the Epos games, the S2650 games, the
+# question-ROM trivia games, Number Crash, Super ABC, Jump Shot, Club Pac-Man, Ms Pac Man Twin and
+# the AY-3-8912 Crush Roller bootleg).
+def mods(**kw):
+    if not kw:
+        return "MODS_NONE"
+    return "Mods { " + ", ".join(f"{k}: {v}" for k, v in kw.items()) + ", ..MODS_NONE }"
+
+
+PACMAN_MACHINES = {
+    ("pacman", "empty_init"): ("Variant::Plain", mods()),
+    ("pacman", "init_eyes"): ("Variant::Plain", mods(program="Scramble::Eyes")),
+    ("piranha", "init_eyes"): ("Variant::UpperRom", mods(program="Scramble::Eyes", vector="VectorWiring::Piranha")),
+    ("nmouse", "init_eyes"): ("Variant::Plain", mods(program="Scramble::Eyes", vector="VectorWiring::Nmouse")),
+    ("woodpek", "empty_init"): ("Variant::UpperRom", mods()),
+    ("woodpek", "init_woodpek"): ("Variant::UpperRom", mods(gfx="GfxWiring::Eyes")),
+    ("woodpek", "init_ponpoko"): ("Variant::UpperRom", mods(gfx="GfxWiring::Ponpoko")),
+    ("woodpek", "init_mspacmbe"): ("Variant::UpperRom", mods(program="Scramble::Mspacmbe")),
+    ("woodpek", "init_pengomc1"): ("Variant::UpperRom", mods(program="Scramble::PageReversed")),
+    ("woodpek", "init_mspackpls"): ("Variant::UpperRom", mods(program="Scramble::Mspackpls")),
+    ("woodpek_rbg", "empty_init"): ("Variant::UpperRom", mods(rbg="true")),
+    ("mspacii", "init_mspacii"): ("Variant::UpperRom", mods(vector="VectorWiring::Mspacii", protection="Protection::Mspacii")),
+    ("crush2", "empty_init"): ("Variant::Plain", mods()),
+    ("crush2", "init_eyes"): ("Variant::Plain", mods(program="Scramble::Eyes")),
+    ("crush4", "empty_init"): ("Variant::Plain", mods(gfx="GfxWiring::Crush4")),
+    ("korosuke", "init_maketrax"): ("Variant::Plain", mods(protection="Protection::Maketrax")),
+    ("korosuke", "init_mbrush"): ("Variant::Plain", mods(protection="Protection::Mbrush")),
+    ("mschamp", "empty_init"): ("Variant::Champion", mods()),
+    ("pengojpm", "empty_init"): ("Variant::Pengo", mods()),
+    ("pengojpm", "init_pengomc1"): ("Variant::Pengo", mods(program="Scramble::PageReversed")),
+}
+PACMAN_CLASSES = ("pacman_state", "mschamp_state")
+PACMAN_REGIONS = {"maincpu", "gfx1", "proms", "namco"}
 
 
 # The Galaxian family: (machine, init) in MAME's GAME() lines -> our board variant. Only sets of the
@@ -381,7 +423,7 @@ def galaxian_sets(src_dir, mame, machines, out, families):
     return count
 
 
-def emit_generated(mame, mach, regions, roms, board, tags_in, out, families):
+def emit_generated(mame, mach, regions, roms, board, tags_in, out, families, unread=frozenset()):
     """Writes one generated set's SetSpec into `out`: its inputs from MAME's port lists (ports
     `tags_in`, in the board's order), its switches from -listxml (sharing a family in `families`
     with sets whose switches are the same), its chips and regions."""
@@ -430,7 +472,7 @@ def emit_generated(mame, mach, regions, roms, board, tags_in, out, families):
         factory[t] = (fm | m, fv | (dv[0] & m))
     fac = ", ".join(f'("{t}", {m:#04x}, {v:#04x})' for t, (m, v) in sorted(factory.items()))
     merge = {r.get("name"): r.get("merge") for r in xroms}
-    used = {r["index"] for r in roms}
+    used = {r["index"] for r in roms} - set(unread)
     out.append("    SetSpec {")
     out.append(f'        name: "{name}",')
     out.append(f'        title: {rs(mach.find("description").text)},')
@@ -464,6 +506,51 @@ def emit_generated(mame, mach, regions, roms, board, tags_in, out, families):
         out.append("            ] },")
     out.append("        ],")
     out.append("    },")
+
+
+def pacman_generated_sets(src_dir, mame, machines, out, families):
+    """Writes the Pac-Man driver's other sets (PACMAN_MACHINES) into `out`, their switches into
+    `families`, the chips the board never reads (the 3M timing PROM) marked not needed."""
+    text = (src_dir / "src/mame/pacman/pacman.cpp").read_text()
+    blocks = {m.group(1): m.group(2) for m in re.finditer(r"ROM_START\(\s*(\w+)\s*\)(.*?)ROM_END", text, re.S)}
+    hand = {n for n, _, _ in PACMAN_SETS}
+    count = 0
+    for name, mach_fn, init, cls, rot, flags, inp in galaxian_games(text):
+        layout = PACMAN_MACHINES.get((mach_fn, init))
+        if layout is None or cls not in PACMAN_CLASSES or name in hand \
+                or any(b in flags for b in GALAXIAN_BAD_FLAGS):
+            continue
+        mach = machines.get(name)
+        if mach is None or name not in blocks:
+            print(f"  skipped {name}: not in this MAME")
+            continue
+        try:
+            regions, roms = parse_block(name, blocks[name])
+        except SystemExit as e:
+            print(f"  skipped {name}: {e}")
+            continue
+        sizes = {r["tag"]: r["size"] for r in regions}
+        gfx_size = 0x4000 if "Crush4" in layout[1] else 0x2000
+        if set(sizes) != PACMAN_REGIONS or sizes["gfx1"] != gfx_size or sizes["maincpu"] < 0x10000 \
+                or sizes["proms"] < 0x120 or sizes["namco"] != 0x200:
+            print(f"  skipped {name}: regions {sorted(sizes.items())} aren't the board's")
+            continue
+        xroms = mach.findall("rom")
+        listed = sorted((r.get("name"), int(r.get("size")), int(r.get("crc"), 16)) for r in xroms if r.get("crc"))
+        parsed = sorted((r["name"], r["size"], r["crc"]) for r in roms)
+        if listed != parsed:
+            fail(f"{name}: its ROM_START block and -listxml disagree:\n{parsed}\n{listed}")
+        # The board reads all of each region but the namco one's second half (the timing PROM).
+        unread = set()
+        for reg in regions:
+            if reg["tag"] == "namco":
+                for op in reg["ops"]:
+                    if op[0] == "load" and op[2] >= 0x100:
+                        unread.add(op[1])
+        emit_generated(mame, mach, regions, roms, f"Board::Pacman({layout[0]}, {layout[1]})",
+                       [":IN0", ":IN1", ":DSW1", ":DSW2"], out, families, unread)
+        count += 1
+    return count
 
 
 def dkong_sets(src_dir, mame, machines, out, families):
@@ -558,7 +645,9 @@ def main():
         "use crate::dkong::Variant as DVariant;",
         "use crate::galaxian::{Konami, Rotation, Variant as GVariant};",
         "use crate::options::{Switch, SwitchFamily};",
-        "use crate::pacman::Variant;",
+        "use crate::pacman::{GfxWiring, Mods, Protection, Scramble, Variant, VectorWiring};",
+        "",
+        "const MODS_NONE: Mods = Mods::NONE;",
         "use crate::sets::{Board, Control, Dips, InputBit, Op, Region, Rom, SetSpec, Status};",
         "",
         "pub static SETS: &[SetSpec] = &[",
@@ -652,6 +741,8 @@ def main():
     families = []
     galaxian = galaxian_sets(src_dir, mame, machines, out, families)
     dkong = dkong_sets(src_dir, mame, machines, out, families)
+    # After the others, so their switch families keep their keys.
+    pacman_more = pacman_generated_sets(src_dir, mame, machines, out, families)
     out.append("];")
     write_families(families, out)
     text = "\n".join(out) + "\n"
@@ -659,7 +750,7 @@ def main():
     text = text.replace("Board::Galaxian(Variant::", "Board::Galaxian(GVariant::")
     dest = Path(__file__).resolve().parent.parent / "src" / "set_list.rs"
     dest.write_text(text)
-    print(f"wrote {dest}: {sum(len(b['sets']) for b in BOARDS)} Pac-Man board sets, {galaxian} Galaxian family sets, "
+    print(f"wrote {dest}: {sum(len(b['sets']) for b in BOARDS)} + {pacman_more} Pac-Man board sets, {galaxian} Galaxian family sets, "
           f"{dkong} Donkey Kong board sets, {len(families)} switch families")
 
 

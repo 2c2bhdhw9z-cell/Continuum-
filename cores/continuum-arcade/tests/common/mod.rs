@@ -11,6 +11,8 @@
 
 #![allow(dead_code)]
 
+pub mod more;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -32,6 +34,7 @@ pub enum Port {
     In0,
     In1,
     Dsw1,
+    Dsw2,
 }
 
 impl Port {
@@ -40,6 +43,7 @@ impl Port {
             Port::In0 => ":IN0",
             Port::In1 => ":IN1",
             Port::Dsw1 => ":DSW1",
+            Port::Dsw2 => ":DSW2",
         }
     }
 }
@@ -195,7 +199,7 @@ fn input_script() -> Vec<(u32, Event)> {
     ev
 }
 
-fn apply(ports: &mut Ports, e: Event) {
+pub fn apply(ports: &mut Ports, e: Event) {
     let port = match e {
         Event::Press(p, _) | Event::Release(p, _) | Event::Dip(p, _, _) => p,
     };
@@ -203,6 +207,7 @@ fn apply(ports: &mut Ports, e: Event) {
         Port::In0 => &mut ports.in0,
         Port::In1 => &mut ports.in1,
         Port::Dsw1 => &mut ports.dsw1,
+        Port::Dsw2 => &mut ports.dsw2,
     };
     match e {
         Event::Press(_, b) => *r &= !b,
@@ -551,17 +556,35 @@ pub fn mame_version(mame: &Path) -> String {
 /// Runs `case` on MAME: the set's files in a fresh folder, a Lua script that snapshots every frame
 /// and applies the inputs, and the sound written at 192 kHz.
 pub fn run_mame(mame: &Path, case: &Case) -> Vec<FrameOut> {
-    let work = crate_dir().join("target/mame-runs").join(case.name);
+    run_mame_files(mame, case.name, case.set, case.frames, &case.events, files(case))
+}
+
+/// Runs a program on MAME's `set`, its files laid out as `files`, for `frames` frames with `events`.
+pub fn run_mame_files(
+    mame: &Path,
+    name: &str,
+    set: &str,
+    frames: u32,
+    events: &[(u32, Event)],
+    files: Vec<(String, Vec<u8>)>,
+) -> Vec<FrameOut> {
+    struct C<'a> {
+        set: &'a str,
+        frames: u32,
+        events: &'a [(u32, Event)],
+    }
+    let case = C { set, frames, events };
+    let work = crate_dir().join("target/mame-runs").join(name);
     let _ = fs::remove_dir_all(&work);
     let roms = work.join("roms").join(case.set);
     fs::create_dir_all(&roms).unwrap();
-    for (name, data) in files(case) {
+    for (name, data) in files {
         fs::write(roms.join(name), data).unwrap();
     }
     // MAME takes in an input change at its next VBLANK: inputs for frame n are set at frame
     // notifier n - 3, a frame before the VBLANK that starts frame n.
     let mut lua = String::from("local scr = manager.machine.screens[':screen']\nlocal io = manager.machine.ioport.ports\nlocal ev = {}\n");
-    for &(f, e) in &case.events {
+    for &(f, e) in case.events {
         assert!(f >= 3, "inputs can only change from frame 3 on");
         let k = f as i64 - 3;
         let (port, mask, act) = match e {

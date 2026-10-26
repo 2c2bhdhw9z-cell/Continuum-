@@ -296,6 +296,7 @@ fn the_controls_and_switches_reach_the_board_as_on_mame() {
                 Port::In0 => in0 = f(in0),
                 Port::In1 => in1 = f(in1),
                 Port::Dsw1 => dsw1 = f(dsw1),
+                Port::Dsw2 => unreachable!("the Pac-Man board's cases don't move DSW2"),
             }
         }
         let low = |r: u8, b: u8| r & b == 0;
