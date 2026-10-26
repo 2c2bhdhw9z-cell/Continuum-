@@ -578,6 +578,47 @@ pub fn read_party(game: Game, save: &[u8]) -> Result<Vec<Stored>, String> {
     Ok(list)
 }
 
+/// Puts a Pokémon (already in this game's generation) at the end of the team, with its stats
+/// worked out and its health full, as the game does when one is taken out of the PC.
+pub fn put_party(game: Game, save: &mut [u8], s: &Stored) -> Result<usize, String> {
+    let team = read_party(game, save)?;
+    let n = team.len();
+    if n >= 6 {
+        return Err("That team is full (six). Take one out of it first.".into());
+    }
+    let tail = super::mon::party_tail(s).ok_or("This one's data is damaged, so it can't join a team.")?;
+    let (at, len, keep) = party_at(game);
+    let mut entry = s.data[..keep].to_vec();
+    entry.extend_from_slice(&tail);
+    entry.resize(len, 0);
+    if game.gen() == 3 {
+        let ids = g3_current(save)?;
+        let base = ids[1] + at + 4 + n * len;
+        save[base..base + len].copy_from_slice(&entry);
+        save[ids[1] + at..ids[1] + at + 4].copy_from_slice(&((n + 1) as u32).to_le_bytes());
+        seal(game, save, Some(&ids));
+        return Ok(n);
+    }
+    if game.gen() == 1 {
+        // Red's box part keeps the current health first: full.
+        let hp = [entry[34], entry[35]];
+        entry[1..3].copy_from_slice(&hp);
+        entry[4] = 0;
+    }
+    let cap = 6;
+    let data = at + cap + 2;
+    let ots = data + cap * len;
+    let names = ots + cap * NAME_LEN;
+    save[at + 1 + n] = if s.egg { 0xFD } else { s.data[0] };
+    save[at + 2 + n] = 0xFF;
+    save[data + n * len..data + (n + 1) * len].copy_from_slice(&entry);
+    save[ots + n * NAME_LEN..ots + (n + 1) * NAME_LEN].copy_from_slice(&s.data[keep..keep + NAME_LEN]);
+    save[names + n * NAME_LEN..names + (n + 1) * NAME_LEN].copy_from_slice(&s.data[keep + NAME_LEN..keep + 2 * NAME_LEN]);
+    save[at] = (n + 1) as u8;
+    seal(game, save, None);
+    Ok(n)
+}
+
 /// Takes the Pokémon in place `slot` of the team; the rest move up. Never the last one: a game
 /// can't be played with an empty team.
 pub fn take_party(game: Game, save: &mut [u8], slot: usize) -> Result<Stored, String> {
@@ -789,6 +830,11 @@ pub mod tests {
             assert_eq!(left.len(), 1);
             assert_eq!(left[0].mon().unwrap().species, 1, "{game:?}: Bulbasaur moved up");
             assert!(take_party(game, &mut s, 0).is_err(), "{game:?}: the last stays");
+            put_party(game, &mut s, &a).unwrap();
+            check(game, &mut s).unwrap_or_else(|e| panic!("{game:?}: {e}"));
+            let team = read_party(game, &s).unwrap();
+            assert_eq!(team.len(), 2);
+            assert_eq!(team[1].mon().unwrap().species, 25, "{game:?}: joined at the end");
         }
     }
 

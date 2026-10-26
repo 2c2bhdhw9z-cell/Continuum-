@@ -307,6 +307,26 @@ fn work_party_to_storage(dir: &Path, rom: &Path, save_path: &Path, slot: usize, 
     Ok(Worked { plan, writes: vec![(g.path, g.bytes), (storage_path(dir), st.to_bytes())] })
 }
 
+fn work_storage_to_party(dir: &Path, rom: &Path, save_path: &Path, b: usize, slot: usize) -> Result<Worked, String> {
+    let mut g = open_game(rom, save_path)?;
+    let mut st = Storage::load(dir)?;
+    let s = st.take(b, slot)?;
+    let name = display_name(&s);
+    let title = format!("{name} joins the team in {}.", g.game.name());
+    let (into, mut changes) = match mon::convert(&s, g.game, g.language) {
+        Ok(x) => x,
+        Err(why) => return Ok(Worked { plan: Plan::refused(title, why), writes: Vec::new() }),
+    };
+    changes.retain(|l| !l.starts_with("Nothing about it changes"));
+    save::put_party(g.game, &mut g.bytes, &into)?;
+    if let Some(m) = into.mon().filter(|m| !m.egg) {
+        save::register(g.game, &mut g.bytes, m.species)?;
+    }
+    changes.push("Its stats are worked out for its level and its health is full, as when it is taken out of a PC.".into());
+    changes.extend(traded_note(&into, &g));
+    Ok(Worked { plan: Plan { allowed: true, title, changes }, writes: vec![(g.path, g.bytes), (storage_path(dir), st.to_bytes())] })
+}
+
 /// Moves a Pokémon to one place in the Box: swapped with whatever is there.
 fn work_storage_place(dir: &Path, b: usize, slot: usize, to_box: usize, to_slot: usize) -> Result<Worked, String> {
     let mut st = Storage::load(dir)?;
@@ -434,6 +454,8 @@ pub enum Change<'a> {
     InStorageTo { b: usize, slot: usize, to_box: usize, to_slot: usize },
     /// A Pokémon from a game's team into the Box.
     PartyToStorage { rom: &'a Path, save: &'a Path, slot: usize, to_box: usize },
+    /// A Pokémon from the Box into a game's team.
+    StorageToParty { rom: &'a Path, save: &'a Path, b: usize, slot: usize },
     /// A Box box put in order.
     Sort { b: usize, by: Order },
     Trade { a: Side<'a>, b: Side<'a> },
@@ -450,6 +472,7 @@ fn work(dir: &Path, c: &Change) -> Result<Worked, String> {
         Change::InStorageTo { b, slot, to_box, to_slot } => work_storage_place(dir, *b, *slot, *to_box, *to_slot),
         Change::PartyToStorage { rom, save, slot, to_box } => work_party_to_storage(dir, rom, save, *slot, *to_box),
         Change::Sort { b, by } => work_sort(dir, *b, *by),
+        Change::StorageToParty { rom, save, b, slot } => work_storage_to_party(dir, rom, save, *b, *slot),
         Change::Trade { a, b } => work_trade(a, b),
     }
 }
@@ -635,6 +658,21 @@ mod tests {
         let st = Storage::load(&p.dir).unwrap();
         assert_eq!(st.boxes[0][2].as_ref().unwrap().mon().unwrap().species, 1, "swapped");
         assert!(st.boxes[0][0].is_some());
+    }
+
+    #[test]
+    fn a_box_pokemon_joins_a_team_in_another_generation() {
+        let p = Place::new("team");
+        let (fr, fr_sav) = p.game(Game::FireRed);
+        let mut st = Storage::empty();
+        st.boxes[1][4] = Some(encode(&charmander(), Game::Red, 2).0);
+        fs::write(p.dir.join(BOX_FILE), st.to_bytes()).unwrap();
+        let pl = apply(&p.dir, &Change::StorageToParty { rom: &fr, save: &fr_sav, b: 1, slot: 4 }).unwrap();
+        assert!(pl.changes.iter().any(|c| c.contains("stats")), "{pl:?}");
+        let mut b = fs::read(&fr_sav).unwrap();
+        save::check(Game::FireRed, &mut b).unwrap();
+        let team = save::read_party(Game::FireRed, &b).unwrap();
+        assert_eq!(team.last().unwrap().mon().unwrap().species, 4);
     }
 
     #[test]

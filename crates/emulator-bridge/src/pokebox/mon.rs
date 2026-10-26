@@ -6,7 +6,7 @@
 //! generations it goes through [`Mon`], what all three have in common, and every difference the
 //! player should know about comes back as a line of plain English for the preview.
 
-use super::data::{EXPERIENCE, ITEMS_GEN2, ITEMS_GEN3, MOVES, SPECIES};
+use super::data::{BASE_STATS, EXPERIENCE, ITEMS_GEN2, ITEMS_GEN3, MOVES, SPECIES};
 use super::text;
 
 /// The games the Pokémon Box knows (English and European cartridges).
@@ -721,11 +721,8 @@ fn encode_gb(m: &Mon, game: Game) -> (Stored, bool) {
     let dv = [m.dvs[0] << 4 | m.dvs[1], m.dvs[2] << 4 | m.dvs[3]];
     if gen == 1 {
         d[0] = sp.gen1_index;
-        let hp_dv = (m.dvs[0] & 1) << 3 | (m.dvs[1] & 1) << 2 | (m.dvs[2] & 1) << 1 | (m.dvs[3] & 1);
-        let se = (f64::from(m.stat_exp[0]).sqrt().ceil() as u32 / 4).min(63);
-        let l = u32::from(m.level);
-        let max_hp = ((u32::from(sp.base_hp) + u32::from(hp_dv)) * 2 + se) * l / 100 + l + 10;
-        put_be16(&mut d, 1, max_hp as u16);
+        // The box part keeps the current health: full.
+        put_be16(&mut d, 1, stats(&Mon { gen: 1, ..m.clone() })[0]);
         d[3] = m.level;
         d[5] = gen1_type(sp.gen1_types[0]);
         d[6] = gen1_type(sp.gen1_types[1]);
@@ -803,6 +800,80 @@ fn encode_gen3(m: &Mon, game: Game, language: u8) -> (Stored, bool) {
     put_le32(&mut p, 40, ivw);
     gen3_seal(&mut d, &p);
     (Stored { game, egg: false, data: d }, a && b)
+}
+
+// --- stats, and a Pokémon as a team keeps it ---------------------------------------------------
+
+/// Its stats as its game works them out: HP, Attack, Defense, Speed, Sp. Atk, Sp. Def (Red to
+/// Yellow's Special is both of the last two).
+pub fn stats(m: &Mon) -> [u16; 6] {
+    let b = BASE_STATS.get(usize::from(m.species)).copied().unwrap_or([0; 7]);
+    let l = u32::from(m.level.max(1));
+    if m.gen == 3 {
+        let n = (m.pid % 25) as usize;
+        let calc = |i: usize, base: u8| (2 * u32::from(base) + u32::from(m.ivs[i]) + u32::from(m.evs[i]) / 4) * l / 100;
+        let hp = if m.species == 292 { 1 } else { calc(0, b[0]) + l + 10 };
+        let mut out = [hp as u16, 0, 0, 0, 0, 0];
+        // Natures raise one of Attack, Defense, Speed, Sp. Atk, Sp. Def by a tenth and lower one.
+        for i in 1..6 {
+            let mut v = calc(i, b[i]) + 5;
+            if n / 5 != n % 5 {
+                if n / 5 == i - 1 {
+                    v = v * 110 / 100;
+                } else if n % 5 == i - 1 {
+                    v = v * 90 / 100;
+                }
+            }
+            out[i] = v as u16;
+        }
+        return out;
+    }
+    let d = m.dvs;
+    let hp_dv = (d[0] & 1) << 3 | (d[1] & 1) << 2 | (d[2] & 1) << 1 | (d[3] & 1);
+    // The games' square root of stat experience stops at 255.
+    let se = |i: usize| (f64::from(m.stat_exp[i]).sqrt().ceil() as u32).min(255) / 4;
+    let calc = |base: u8, dv: u8, i: usize| ((u32::from(base) + u32::from(dv)) * 2 + se(i)) * l / 100;
+    let (spa, spd) = if m.gen == 1 { (b[6], b[6]) } else { (b[4], b[5]) };
+    [
+        (calc(b[0], hp_dv, 0) + l + 10) as u16,
+        (calc(b[1], d[0], 1) + 5) as u16,
+        (calc(b[2], d[1], 2) + 5) as u16,
+        (calc(b[3], d[2], 3) + 5) as u16,
+        (calc(spa, d[3], 4) + 5) as u16,
+        (calc(spd, d[3], 4) + 5) as u16,
+    ]
+}
+
+/// The bytes a team keeps after the box part: level and stats, health full, no status.
+pub fn party_tail(s: &Stored) -> Option<Vec<u8>> {
+    let m = s.mon()?;
+    let st = stats(&m);
+    let be = |v: u16| v.to_be_bytes();
+    Some(match s.game.gen() {
+        1 => {
+            let mut t = vec![m.level];
+            for v in [st[0], st[1], st[2], st[3], st[4]] {
+                t.extend_from_slice(&be(v));
+            }
+            t
+        }
+        2 => {
+            let mut t = vec![0, 0];
+            t.extend_from_slice(&be(if m.egg { 0 } else { st[0] }));
+            for v in st {
+                t.extend_from_slice(&be(v));
+            }
+            t
+        }
+        _ => {
+            let mut t = vec![0, 0, 0, 0, m.level, 0xFF];
+            t.extend_from_slice(&st[0].to_le_bytes());
+            for v in st {
+                t.extend_from_slice(&v.to_le_bytes());
+            }
+            t
+        }
+    })
 }
 
 // --- trade evolutions ----------------------------------------------------------------------------
@@ -922,6 +993,21 @@ mod tests {
         let (red, changes) = convert(&ruby, Game::Red, 2).unwrap();
         assert_eq!(red.mon().unwrap().moves, [84, 0, 0, 0]);
         assert!(changes.iter().any(|c| c.contains("Volt Tackle")));
+    }
+
+    #[test]
+    fn stats_come_out_as_the_games_work_them() {
+        // A level 100 Mewtwo with every DV 15 and full stat experience in Red: 415 HP and 406
+        // Special (the game's square root stops at 255, so full stat experience adds 63).
+        let m = Mon { gen: 1, species: 150, level: 100, dvs: [15; 4], stat_exp: [65535; 5], ..Mon::default() };
+        let s = stats(&m);
+        assert_eq!((s[0], s[4]), (415, 406));
+        // Ruby, level 50 Pikachu, all IVs 31 and no EVs, Hardy (neutral): HP 110, Speed 110.
+        let p = Mon { gen: 3, species: 25, level: 50, ivs: [31; 6], pid: 0, ..Mon::default() };
+        assert_eq!(stats(&p), [110, 75, 50, 110, 70, 60]);
+        // Modest (pid 15): Sp. Atk up a tenth, Attack down.
+        let p = Mon { pid: 15, ..p };
+        assert_eq!((stats(&p)[1], stats(&p)[4]), (67, 77));
     }
 
     #[test]

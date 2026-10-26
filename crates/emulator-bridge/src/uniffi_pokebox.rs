@@ -42,6 +42,8 @@ pub struct PokeMon {
     pub nature: String,
     /// False for a damaged one (a "Bad Egg").
     pub readable: bool,
+    /// HP, Attack, Defense, Speed, Sp. Atk, Sp. Def at its level (empty for an egg or a Bad Egg).
+    pub stats: Vec<u16>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -78,6 +80,7 @@ pub enum PokeChange {
     InStorage { from_box: u32, slot: u32, to_box: u32 },
     InStorageTo { from_box: u32, slot: u32, to_box: u32, to_slot: u32 },
     PartyToStorage { rom_path: String, save_path: String, slot: u32, to_box: u32 },
+    StorageToParty { rom_path: String, save_path: String, from_box: u32, slot: u32 },
     /// `by`: 0 Pokédex number, 1 level, 2 name.
     Sort { box_index: u32, by: u8 },
     Trade {
@@ -110,6 +113,7 @@ fn shown(s: &mon::Stored) -> PokeMon {
             item: if m.item == 0 { String::new() } else { mon::item_name(m.item).to_owned() },
             nature: mon::nature_of(&m).to_owned(),
             readable: true,
+            stats: if m.egg { Vec::new() } else { mon::stats(&m).to_vec() },
         },
         None => PokeMon {
             species: 0,
@@ -127,6 +131,7 @@ fn shown(s: &mon::Stored) -> PokeMon {
             item: String::new(),
             nature: String::new(),
             readable: false,
+            stats: Vec::new(),
         },
     }
 }
@@ -191,6 +196,9 @@ fn with_change<T>(c: &PokeChange, f: impl FnOnce(&Change) -> T) -> T {
         }),
         PokeChange::PartyToStorage { rom_path, save_path, slot, to_box } => f(&Change::PartyToStorage {
             rom: Path::new(rom_path), save: Path::new(save_path), slot: u(*slot), to_box: u(*to_box),
+        }),
+        PokeChange::StorageToParty { rom_path, save_path, from_box, slot } => f(&Change::StorageToParty {
+            rom: Path::new(rom_path), save: Path::new(save_path), b: u(*from_box), slot: u(*slot),
         }),
         PokeChange::Sort { box_index, by } => f(&Change::Sort {
             b: u(*box_index),

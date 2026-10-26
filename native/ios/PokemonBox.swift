@@ -642,8 +642,17 @@ struct PokemonBoxSheet: View {
             }
             .disabled(!chosenIsTeam)
             .opacity(chosenIsTeam ? 1 : 0.5)
-            SettingsNote("Pick a team Pokémon to keep it in the Box. The last one stays: a team can't be empty. "
-                         + "To put one in a team, put it in the game's PC and take it out there.")
+            SettingsButton(title: "↑ Into the team", role: .normal) {
+                guard case .storage(let box, let slot)? = chosen.first, let entry = game[0] else { return }
+                ask(.storageToParty(romPath: entry.path, savePath: PokemonGames.savePath(for: entry),
+                                    fromBox: UInt32(box), slot: UInt32(slot)),
+                    games: [entry])
+            }
+            .disabled(!chosenIsStorage || team.count >= 6)
+            .opacity(chosenIsStorage && team.count < 6 ? 1 : 0.5)
+            SettingsNote("Pick a team Pokémon to keep it in the Box (the last one stays: a team can't be "
+                         + "empty), or a Box Pokémon below to put it in the team, with its stats worked "
+                         + "out and its health full.")
         }
         .padding(12)
         .modifier(LookBlockCard(radius: 12))
@@ -793,6 +802,12 @@ struct PokemonBoxSheet: View {
                                  + (mon.item.isEmpty ? "" : ". Holding \(mon.item)") + ".")
                     if !mon.moves.isEmpty {
                         SettingsNote("Moves: " + mon.moves.joined(separator: ", "))
+                    }
+                    if mon.stats.count == 6 {
+                        let st = mon.stats
+                        SettingsNote("HP \(st[0]) · Attack \(st[1]) · Defense \(st[2]) · Speed \(st[3])"
+                                     + (mon.generation == 1 ? " · Special \(st[4])"
+                                        : " · Sp. Atk \(st[4]) · Sp. Def \(st[5])"))
                     }
                 } else {
                     SettingsNote("Its data is damaged (a Bad Egg). It can only move between games of "

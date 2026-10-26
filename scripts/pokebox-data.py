@@ -8,7 +8,7 @@ item makes which trade evolution, each move's PP in each generation.
 Run: python3 scripts/pokebox-data.py <folder with the csv files>
 The csv files: pokemon_species, pokemon_species_names, pokemon_game_indices, pokemon_stats,
 pokemon_types, pokemon_types_past, moves, move_names, move_changelog, item_game_indices,
-item_names, items, experience, pokemon_evolution.
+item_names, items, experience, pokemon_evolution, pokemon_stats_past.
 """
 import csv
 import os
@@ -39,6 +39,21 @@ for r in rows("pokemon_game_indices"):
     if v == 7:
         gen3_index[p] = g
 base_hp = {int(r["pokemon_id"]): int(r["base_stat"]) for r in rows("pokemon_stats") if r["stat_id"] == "1"}
+current = {}
+for r in rows("pokemon_stats"):
+    current[(int(r["pokemon_id"]), int(r["stat_id"]))] = int(r["base_stat"])
+stats_past = {}
+for r in rows("pokemon_stats_past"):
+    stats_past.setdefault((int(r["pokemon_id"]), int(r["stat_id"])), []).append((int(r["generation_id"]), int(r["base_stat"])))
+
+
+def base_in(p, stat, gen):
+    """A base stat as it was in `gen`: the past value good until the first generation at or
+    after it, else today's."""
+    olds = sorted(g for g in stats_past.get((p, stat), []) if g[0] >= gen)
+    if olds:
+        return olds[0][1]
+    return current.get((p, stat), 0)
 types = {}
 for r in rows("pokemon_types"):
     types.setdefault(int(r["pokemon_id"]), {})[int(r["slot"])] = int(r["type_id"])
@@ -134,6 +149,15 @@ for p in range(1, N + 1):
              f"female_eighths: {int(r['gender_rate'])}, catch_rate: {int(r['capture_rate'])}, "
              f"base_friendship: {int(r['base_happiness'] or 0)}, base_hp: {base_hp[p]}, "
              f"gen1_types: [{t[0]}, {t[1]}], gen1_index: {gen1_index.get(p, 0)}, gen3_index: {gen3_index[p]} }},")
+w.append("];")
+w.append("")
+w.append("/// Base stats as Red to Emerald had them: HP, Attack, Defense, Speed, Sp. Atk, Sp. Def (Gold on),")
+w.append("/// then Red, Blue and Yellow's single Special.")
+w.append(f"pub static BASE_STATS: [[u8; 7]; {N + 1}] = [")
+w.append("    [0; 7],")
+for p in range(1, N + 1):
+    vals = [base_in(p, st, 3) for st in (1, 2, 3, 6, 4, 5)] + [base_in(p, 9, 1) if p <= 151 else 0]
+    w.append("    [" + ", ".join(map(str, vals)) + "],")
 w.append("];")
 w.append("")
 w.append("/// The experience at each level 0-100, for each growth group (index 0 unused).")
