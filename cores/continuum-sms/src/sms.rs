@@ -56,6 +56,7 @@ impl Sms {
         self.bus.vdp.start_line(line);
         let mut spent = self.over;
         while spent < LINE_CYCLES {
+            self.bus.line_cycle = spent;
             self.cpu.set_irq(self.bus.vdp.irq());
             spent += self.cpu.step(&mut self.bus);
         }

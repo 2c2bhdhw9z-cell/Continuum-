@@ -81,8 +81,9 @@ fn pages(rom: Vec<u8>) -> Vec<String> {
     out
 }
 
-/// What cGear passes, pinned so it only ever grows. The rest of the misc and sprite pages is the
-/// H counter and the timing of events inside a line, which cGear does not model yet
+/// What cGear passes, pinned so it only ever grows: 19 of 19, 14 of 16 and 16 of 20. The rest is
+/// when inside a line the line interrupt and the frame flag fire, and the sprite flags' position
+/// and two off-screen cases
 /// (.kiro/notes/tasks/cboy-finish.json S1).
 #[test]
 fn vdptest_results() {
@@ -100,7 +101,8 @@ fn vdptest_results() {
         "VRAM wr set VDPbuffer:", "CRAM wr set VDPbuffer:", "1byte wr sets rd adr:", "1byte wr sets wr adr:",
         "1byte wr keeps wr mode:", "Address wraps at $3FFF:", "VRAM & CRAM share adr:", "Rd VDPCtrl reset latch:",
         "Rd VDPData reset latch:", "Wr VDPData reset latch:", "Unused regs, no effect:",
-        "VCounter values: NTSC", "HCounter keeps value:", "VDP Register mirrors:", "VDP data mirrors:",
+        "VCounter values: NTSC", "HCounter keeps value:", "HC change on TH 0->1:", "HCounter correct:",
+        "VCounter chg time:", "HCounter mirrors:", "Frame IRQ HCount:", "VDP Register mirrors:", "VDP data mirrors:",
         "VDP ctrl mirrors:", "VCounter mirrors:", "Frame IRQ VCount:", "Line IRQ VCount:", "VINT flag keept:",
         "No sprite collision:", "No disp, no spr col:", "9th sprite no col:", "Transp pixl, no col:",
         "Offscreen X, no col:", "Sprite collision:", "Colflag keept in vbl:", "Spr col behind tile:",

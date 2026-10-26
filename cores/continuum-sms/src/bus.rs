@@ -80,6 +80,12 @@ pub struct Bus {
     /// The console is an export one (not Japanese), as port $00 (Game Gear) reports.
     #[serde(default = "yes")]
     pub export: bool,
+    /// CPU cycles into the line at the start of the instruction now running (`Sms::run_line`).
+    #[serde(skip)]
+    pub line_cycle: u32,
+    /// The H counter as port $7F reads it: latched when a TH pin goes from 0 to 1.
+    #[serde(default)]
+    pub hcount: u8,
     /// What test programs have printed to the SDSC debug console.
     #[serde(skip)]
     pub console: String,
@@ -87,6 +93,11 @@ pub struct Bus {
     #[serde(skip)]
     pub console_stop: bool,
 }
+
+/// How far into an IN or OUT instruction its port access comes, in CPU cycles: the end of its
+/// I/O cycle (T-state 11 of IN A,(n)). FluBBa's VDP test agrees: "Frame IRQ HCount" passes at
+/// 11 and at no other value from 8 to 11.
+const IO_OFFSET: u32 = 11;
 
 fn yes() -> bool {
     true
@@ -111,6 +122,8 @@ impl Bus {
             pad_dd: 0xFF,
             io_ctrl: 0xFF,
             gg: false,
+            line_cycle: 0,
+            hcount: 0,
             sg: false,
             gg_start: false,
             export: true,
@@ -256,8 +269,16 @@ impl z80::Bus for Bus {
         }
         match p & 0xC1 {
             0x00 | 0x01 => 0xFF,
-            0x40 => self.vdp.v_counter(),
-            0x41 => 0xFF,
+            0x40 => {
+                // The read comes partway through the instruction, and can already be in the
+                // next line.
+                if self.line_cycle + IO_OFFSET >= crate::vdp::LINE_CYCLES {
+                    self.vdp.v_counter_of((self.vdp.line + 1) % self.vdp.lines())
+                } else {
+                    self.vdp.v_counter()
+                }
+            }
+            0x41 => self.hcount,
             0x80 => self.vdp.read_data(),
             0x81 => self.vdp.read_status(),
             0xC0 => self.pad_dc,
@@ -289,7 +310,17 @@ impl z80::Bus for Bus {
         }
         match p & 0xC1 {
             0x00 if !self.sg => self.mem_ctrl = v,
-            0x01 => self.io_ctrl = v,
+            0x01 => {
+                // A TH pin going from 0 to 1 latches the H counter: an output driven high, or one
+                // switched to input, which nothing plugged in pulls high.
+                let th = |c: u8| (c & 0x02 != 0 || c & 0x20 != 0, c & 0x08 != 0 || c & 0x80 != 0);
+                let (a0, b0) = th(self.io_ctrl);
+                let (a1, b1) = th(v);
+                if (!a0 && a1) || (!b0 && b1) {
+                    self.hcount = self.vdp.h_counter(self.line_cycle + IO_OFFSET);
+                }
+                self.io_ctrl = v;
+            }
             0x40 | 0x41 => self.psg.write(v),
             0x80 => self.vdp.write_data(v),
             0x81 => self.vdp.write_control(v),
