@@ -42,7 +42,9 @@ fn screen_text(m: &Sms) -> String {
 
 #[test]
 fn vdptest_screens() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/VDPTest.sms");
+    // VDPTEST_ROM=<file> runs another test program the same way (the SMS Test Suite, say).
+    let path = std::env::var("VDPTEST_ROM").map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/VDPTest.sms"));
     let Ok(rom) = std::fs::read(&path) else {
         eprintln!("SKIPPED: {} not found", path.display());
         return;
