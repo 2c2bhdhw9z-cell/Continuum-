@@ -213,7 +213,8 @@ unsafe fn machine(rom: Vec<u8>, s: &Settings, path: *const c_char) -> Box<Sms> {
     let japan = if s.region_auto { is_japanese(&m.bus.rom, path) } else { s.japan };
     m.bus.export = !japan;
     // Only a Master System ever had the FM chip.
-    m.bus.has_fm = console == Console::Sms && s.fm.unwrap_or(japan);
+    m.bus.has_fm = matches!(console, Console::Sms | Console::Sms1) && s.fm.unwrap_or(japan);
+    m.bus.vdp.sms1 = console == Console::Sms1;
     let pal = if s.refresh_auto { is_european(path) } else { s.pal };
     m.bus.vdp.pal = pal && console != Console::GameGear;
     if let Some(mapper) = s.mapper {
@@ -421,6 +422,7 @@ fn power_cycle(m: &mut Box<Sms>) {
     fresh.bus.export = export;
     fresh.bus.has_fm = m.bus.has_fm;
     fresh.bus.vdp.pal = pal;
+    fresh.bus.vdp.sms1 = m.bus.vdp.sms1;
     fresh.bus.mapper = mapper;
     fresh.bus.cart_ram = cart_ram;
     fresh.rate = m.rate;

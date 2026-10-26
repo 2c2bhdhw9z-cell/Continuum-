@@ -91,6 +91,12 @@ pub struct Vdp {
     /// game has to set itself (black otherwise), as on the real one (SMS Power, "Palette").
     #[serde(skip)]
     pub tms_from_cram: bool,
+    /// The first Master System's picture chip (315-5124), with its differences from the Master
+    /// System II's (SMS Power, "VDP differences"): no 224- or 240-line picture, bit 0 of register
+    /// 2 masking the name table's address bit 10, and only the first four sprites on a line
+    /// stretched sideways when sprites are zoomed.
+    #[serde(default)]
+    pub sms1: bool,
     /// The border a TV shows round the picture, in the colour of register 7 (a setting): 0 none,
     /// 1 above and below, 2 all round.
     #[serde(skip)]
@@ -131,6 +137,7 @@ impl Default for Vdp {
             gg_full: false,
             sms_tms_colours: false,
             tms_from_cram: false,
+            sms1: false,
             borders: 0,
             border_rows: Vec::new(),
             tms: false,
@@ -199,7 +206,7 @@ impl Vdp {
 
     /// The picture's height: 192 lines, or 224 or 240 in the Master System II's taller modes.
     pub fn height(&self) -> u16 {
-        if self.tms {
+        if self.tms || self.sms1 {
             return 192;
         }
         let m = (self.regs[0] & 0x06) | (self.regs[1] & 0x18);
@@ -414,7 +421,10 @@ impl Vdp {
             let vs = if self.regs[0] & 0x80 != 0 && col >= 24 { 0 } else { self.vscroll };
             let sx = (x as u16).wrapping_sub(u16::from(hs)) as u8;
             let sy = (u16::from(line) + u16::from(vs)) % rows;
-            let entry_at = names + (usize::from(sy / 8) * 32 + usize::from(sx / 8)) * 2;
+            let mut entry_at = names + (usize::from(sy / 8) * 32 + usize::from(sx / 8)) * 2;
+            if self.sms1 && self.regs[2] & 1 == 0 {
+                entry_at &= !0x400;
+            }
             let entry = u16::from(self.vram[entry_at & 0x3FFF]) | u16::from(self.vram[(entry_at + 1) & 0x3FFF]) << 8;
             let tile = usize::from(entry & 0x1FF);
             let mut ty = usize::from(sy % 8);
@@ -454,6 +464,8 @@ impl Vdp {
                 }
             }
             found += 1;
+            // The first model stretches only the first four sideways (all of them down).
+            let wide = if self.sms1 && found > 4 { 1 } else { zoom };
             let x0 = i32::from(self.vram[sat + 0x80 + n * 2]) - if self.regs[0] & 0x08 != 0 { 8 } else { 0 };
             let mut tile = usize::from(self.vram[sat + 0x81 + n * 2]) | usize::from(self.regs[6] & 0x04) << 6;
             if size == 16 {
@@ -461,12 +473,12 @@ impl Vdp {
             }
             let ty = (dy / zoom) as usize;
             let tile = tile + ty / 8;
-            for px in 0..8 * zoom {
+            for px in 0..8 * wide {
                 let x = x0 + px;
                 if !(0..WIDTH as i32).contains(&x) {
                     continue;
                 }
-                let c = self.tile_pixel(tile, ty % 8, (px / zoom) as usize);
+                let c = self.tile_pixel(tile, ty % 8, (px / wide) as usize);
                 if c == 0 {
                     continue;
                 }
@@ -788,6 +800,27 @@ mod tests {
             v.start_line(l);
         }
         assert_eq!(v.shown(&mut out), (256, 294), "50 Hz: 54 above, 48 below");
+    }
+
+    #[test]
+    fn the_first_model_has_no_tall_picture_and_masks_the_name_table() {
+        let mut v = Vdp::default();
+        v.regs[0] = 0x06;
+        v.regs[1] = 0x50; // the 224-line mode
+        assert_eq!(v.height(), 224);
+        v.sms1 = true;
+        assert_eq!(v.height(), 192, "the 315-5124 has none");
+        // Name table at $3800 with bit 0 of register 2 clear: address bit 10 is held at 0, so
+        // rows 16-23 read rows 0-7's entries.
+        let mut v = dotted();
+        v.sms1 = true;
+        v.regs[2] = 0x0E;
+        v.vram[0x3800 + 16 * 64] = 0x05; // a blank tile in row 16's first entry
+        v.start_line(128);
+        assert_eq!(px(&v, 0, 128), 0xFF0000, "row 0's tile");
+        v.regs[2] = 0x0F;
+        v.start_line(128);
+        assert_eq!(px(&v, 0, 128), 0, "with bit 0 set, row 16 is its own");
     }
 
     #[test]

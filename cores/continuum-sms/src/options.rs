@@ -79,7 +79,8 @@ const EQ: Values = &[(c"150", c"150%"), (c"125", c"125%"), (c"100", c"100%"), (c
 const SPECS: &[Spec] = &[
     (c"system", c"cgear_console", c"Console",
      c"Auto picks it from the game's file and header; changes apply at the next start.",
-     &[(c"auto", c"Auto"), (c"sms", c"Master System"), (c"gg", c"Game Gear"), (c"sg", c"SG-1000")], c"auto"),
+     &[(c"auto", c"Auto"), (c"sms", c"Master System II"), (c"sms1", c"Master System (first model) / Mark III"),
+       (c"gg", c"Game Gear"), (c"sg", c"SG-1000")], c"auto"),
     (c"system", c"cgear_region", c"Region",
      c"Some games change their text or music on a Japanese console; changes apply at the next start.",
      &[(c"auto", c"Auto"), (c"export", c"Export (America, Europe)"), (c"japan", c"Japan")], c"auto"),
@@ -179,6 +180,8 @@ const SPECS: &[Spec] = &[
 pub enum Console {
     Auto,
     Sms,
+    /// The first Master System (and the Mark III): its picture chip, the 315-5124.
+    Sms1,
     GameGear,
     Sg1000,
 }
@@ -256,6 +259,7 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
     let pct = |k: &CStr| get(k).and_then(|v| v.parse::<u8>().ok()).unwrap_or(100).min(100);
     s.console = match get(c"cgear_console").as_deref() {
         Some("sms") => Console::Sms,
+        Some("sms1") => Console::Sms1,
         Some("gg") => Console::GameGear,
         Some("sg") => Console::Sg1000,
         _ => Console::Auto,
