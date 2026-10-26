@@ -105,7 +105,7 @@ const SAMPLE_RATE: f64 = 48_000.0;
 const STATE_MAGIC: &[u8; 4] = b"CARC";
 /// The layout of the boards' states. It's in `library_version`, so the app refuses a state saved
 /// by a build with another layout; bump both together.
-const STATE_FORMAT: u8 = 1;
+const STATE_FORMAT: u8 = 2;
 
 struct Core {
     set: &'static SetSpec,
@@ -328,7 +328,7 @@ unsafe fn write_system_info(info: *mut RetroSystemInfo) {
     *info = RetroSystemInfo {
         library_name: c"cArcade".as_ptr(),
         // Carries the save-state format (STATE_FORMAT).
-        library_version: c"0.1.0 (state format 1)".as_ptr(),
+        library_version: c"0.2.0 (state format 2)".as_ptr(),
         valid_extensions: c"zip".as_ptr(),
         need_fullpath: false,
         block_extract: true,

@@ -50,6 +50,100 @@ pub enum Variant {
     /// Ms. Pac-Man: the Pac-Man ROMs plus a daughterboard with three more ROMs (u5, u6, u7),
     /// whose wiring scrambles them, and which patches 40 small pieces of the Pac-Man program.
     MsPacman,
+    /// Pengo bootlegs rebuilt on a Pac-Man board: the program at 0000h-0FFFh and 4000h-7FFFh, the
+    /// board's RAM and ports moved up to 8000h-90FFh (each at one address, no mirrors), and more
+    /// RAM at F000h-FFFFh.
+    Pengo,
+    /// Ms. Pac-Man Champion Edition (Zola-Puc): one 64 KB ROM holding two games, 32 KB each, the
+    /// switch at DSW2 bit 3 picking which one shows (0000h-3FFFh and 8000h-BFFFh) when the board
+    /// is switched on or reset; its menu reads the switches through a latch on I/O port 0.
+    Champion,
+}
+
+/// What a set's board adds to the plain one: the Pac-Man driver's other machines and the ways
+/// their makers scrambled the ROMs (MAME's pacman.cpp machine configs and inits).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Mods {
+    /// How the program ROMs are wired, undone as they load.
+    pub program: Scramble,
+    /// How the graphics ROMs are wired, undone as they load.
+    pub gfx: GfxWiring,
+    /// What the board does to the interrupt vector the game writes to port 0.
+    pub vector: VectorWiring,
+    /// A protection chip answering reads of the switch ports.
+    pub protection: Protection,
+    /// The palette PROM's green and blue outputs swapped (two Ms. Pac-Man bootlegs).
+    pub rbg: bool,
+}
+
+impl Mods {
+    pub const NONE: Mods = Mods {
+        program: Scramble::None,
+        gfx: GfxWiring::Plain,
+        vector: VectorWiring::Plain,
+        protection: Protection::None,
+        rbg: false,
+    };
+}
+
+impl Default for Mods {
+    fn default() -> Self {
+        Mods::NONE
+    }
+}
+
+/// The program ROMs' wiring.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Scramble {
+    None,
+    /// Eyes, Mr. TNT, Piranha and their boards: data lines D3 and D5 swapped (MAME's init_eyes),
+    /// and the graphics wired as `GfxWiring::Eyes`.
+    Eyes,
+    /// An encrypted Ms. Pac-Man bootleg: a 74298 on the ROM at 6F swaps address lines A0 and A1
+    /// wherever A3 is low (1000h-1FFFh).
+    Mspacmbe,
+    /// Marti Colls' bootlegs: every 256-byte page of the program stored back to front.
+    PageReversed,
+    /// Miss Packman Plus: data lines D3 and D4 swapped (0000h-9FFFh).
+    Mspackpls,
+}
+
+/// The graphics ROMs' wiring.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GfxWiring {
+    Plain,
+    /// Data lines D4 and D6 and address lines A0 and A2 swapped (Eyes' and Woodpecker's boards).
+    Eyes,
+    /// Ponpoko: each tile's two 8-byte halves, and each sprite's four, in the other order.
+    Ponpoko,
+    /// Crush Roller set 5: 16 KB, each pixel's high bit in the second half and its low bit in the
+    /// low nibble of the first.
+    Crush4,
+}
+
+/// How the board passes on the interrupt vector the game writes to port 0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VectorWiring {
+    Plain,
+    /// Piranha's sync bus controller turns FAh into 78h.
+    Piranha,
+    /// Naughty Mouse's: BFh into 3Ch and C6h into 40h.
+    Nmouse,
+    /// Ms. Pac-Man II's: FBh into FEh, at any port.
+    Mspacii,
+}
+
+/// A protection chip on the board.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Protection {
+    None,
+    /// Make Trax and Crush Roller's chip at 6P: it counts the game's writes to 5004h and answers
+    /// reads of 5080h-50FFh from a table.
+    Maketrax,
+    /// Magic Brush's: fixed answers at some addresses of 5080h-50FFh.
+    Mbrush,
+    /// Ms. Pac-Man II's: reads of 504Dh-506Fh return IN1 with bit 4 set at every other address.
+    Mspacii,
 }
 
 /// What the set list hands the board: its ROM regions, laid out as on the board.
@@ -66,6 +160,8 @@ pub struct Roms {
     pub lookup: Vec<u8>,
     /// 1M, the sound PROM: eight 32-step waveforms (low nibble used).
     pub wave: Vec<u8>,
+    /// What the set's board adds to the plain one.
+    pub mods: Mods,
 }
 
 /// The board's inputs, as the ports read them (active low, as wired).
@@ -96,8 +192,10 @@ impl Default for Ports {
 
 /// Everything ROM-derived, rebuilt on load and never saved.
 struct Rom {
-    /// The Z80's view of the program, 64 KB; `None` where a Ms. Pac-Man decode image isn't used.
+    /// The Z80's view of the program, 64 KB.
     image: Vec<u8>,
+    /// Ms. Pac-Man Champion Edition's second game, the view when DSW2 bit 3 is on.
+    alt: Option<Vec<u8>>,
     /// Ms. Pac-Man's daughterboard view (decoded aux ROMs and the patched Pac-Man program).
     decoded: Option<Vec<u8>>,
     /// Tile pixels, 256 tiles × 8 rows × 8 columns, in the raster's orientation.
@@ -133,6 +231,22 @@ struct Hw {
     watchdog: u8,
     /// Ms. Pac-Man's decode latch: the daughterboard's program (true) or plain Pac-Man (false).
     decode: bool,
+    mods: Mods,
+    /// Make Trax's protection chip: its count of the game's writes, the table entry it answers
+    /// with, and whether a write of 0 has switched it off.
+    prot_counter: u8,
+    prot_offset: u8,
+    prot_off: bool,
+    /// Champion Edition: which of the ROM's two games shows, and its switch latch (whether port
+    /// 0 reads the latch, and what was written to it).
+    bank: u8,
+    mux: bool,
+    mux_data: u8,
+    /// The board was just switched on: Champion Edition reads its game switch as the first frame
+    /// starts (the switches are set by then).
+    powered_on: bool,
+    /// Pengo bootlegs' extra RAM at F000h-FFFFh.
+    high_ram: Vec<u8>,
     wsg: Wsg,
     ports: Ports,
     /// CPU cycles since power-on.
@@ -278,6 +392,47 @@ fn pacplus_decode(addr: usize, v: u8) -> u8 {
     pick_bits(u32::from(v), &bits) as u8 ^ xor
 }
 
+/// The graphics ROMs as the plain board's layout has them (5E's 4 KB of tiles, then 5F's 4 KB of
+/// sprites), whatever a board's wiring did to them. `eyes` is Eyes' board, whose graphics are
+/// wired the same way as Woodpecker's.
+fn unwire_gfx(wiring: GfxWiring, eyes: bool, gfx: &[u8]) -> Vec<u8> {
+    let mut g = gfx.to_vec();
+    g.resize(0x2000.max(g.len()), 0);
+    let wiring = if eyes { GfxWiring::Eyes } else { wiring };
+    match wiring {
+        GfxWiring::Plain => {}
+        GfxWiring::Eyes => {
+            // In each 8 bytes, address lines A0 and A2 are crossed, and data lines D4 and D6.
+            for group in g.chunks_exact_mut(8) {
+                let was: Vec<u8> = group.to_vec();
+                for (j, b) in group.iter_mut().enumerate() {
+                    let from = (j & !5) | (j >> 2 & 1) | (j & 1) << 2;
+                    *b = pick_bits(u32::from(was[from]), &[7, 4, 5, 6, 3, 2, 1, 0]) as u8;
+                }
+            }
+        }
+        GfxWiring::Ponpoko => {
+            // Tiles: the two 8-byte halves swapped. Sprites: each 32 bytes' four 8-byte pieces
+            // stored one along (the last one first).
+            let (tiles, sprites) = g[..0x2000].split_at_mut(0x1000);
+            for t in tiles.chunks_exact_mut(16) {
+                t.rotate_left(8);
+            }
+            for s in sprites.chunks_exact_mut(32) {
+                s.rotate_right(8);
+            }
+        }
+        GfxWiring::Crush4 => {
+            // A pixel's high bit is in the second 8 KB (high nibbles), its low bit in the first
+            // (low nibbles): the plain layout holds them in one byte.
+            let joined: Vec<u8> = (0..0x2000).map(|i| (g[0x2000 + i] & 0xF0) | (g[i] & 0x0F)).collect();
+            g = joined;
+        }
+    }
+    g.truncate(0x2000);
+    g
+}
+
 /// One of the three red or green levels, or two blue: the palette PROM's outputs drive the guns
 /// through 1 kΩ, 470 Ω and 220 Ω resistors (blue: 470 Ω and 220 Ω), so each bit weighs in
 /// proportion to its resistor's conductance; all bits on is full brightness.
@@ -310,18 +465,65 @@ impl Rom {
         need("the colour lookup PROM", &roms.lookup, 256)?;
         need("the sound PROM", &roms.wave, 256)?;
 
-        let p = &roms.program;
-        let mut image = vec![0u8; 0x10000];
-        image[..0x4000].copy_from_slice(&p[..0x4000]);
-        if variant == Variant::PacPlus {
-            for (a, b) in image[..0x4000].iter_mut().enumerate() {
-                *b = pacplus_decode(a, *b);
+        let mods = roms.mods;
+        let mut unscrambled = roms.program.clone();
+        unscrambled.resize(0x10000, 0);
+        match mods.program {
+            Scramble::None => {}
+            Scramble::Eyes => {
+                for b in &mut unscrambled[..0xC000] {
+                    *b = pick_bits(u32::from(*b), &[7, 6, 3, 4, 5, 2, 1, 0]) as u8;
+                }
+            }
+            Scramble::Mspacmbe => {
+                for i in (0x1000..0x2000).step_by(4) {
+                    if i & 8 == 0 {
+                        unscrambled.swap(i + 1, i + 2);
+                    }
+                }
+            }
+            Scramble::PageReversed => {
+                for page in unscrambled[..0xC000].chunks_exact_mut(0x100) {
+                    page.reverse();
+                }
+            }
+            Scramble::Mspackpls => {
+                for b in &mut unscrambled[..0xA000] {
+                    *b = pick_bits(u32::from(*b), &[7, 6, 5, 3, 4, 2, 1, 0]) as u8;
+                }
             }
         }
-        if variant == Variant::UpperRom {
-            image[0x8000..0xC000].copy_from_slice(&p[0x8000..0xC000]);
-        } else {
-            image.copy_within(0..0x4000, 0x8000);
+        let p = &unscrambled;
+        let mut image = vec![0u8; 0x10000];
+        let mut alt = None;
+        match variant {
+            Variant::Pengo => {
+                image[..0x1000].copy_from_slice(&p[..0x1000]);
+                image[0x4000..0x8000].copy_from_slice(&p[0x4000..0x8000]);
+            }
+            Variant::Champion => {
+                let bank = |b: usize| {
+                    let mut v = vec![0u8; 0x10000];
+                    v[..0x4000].copy_from_slice(&p[b * 0x8000..b * 0x8000 + 0x4000]);
+                    v[0x8000..0xC000].copy_from_slice(&p[b * 0x8000 + 0x4000..b * 0x8000 + 0x8000]);
+                    v
+                };
+                image = bank(0);
+                alt = Some(bank(1));
+            }
+            _ => {
+                image[..0x4000].copy_from_slice(&p[..0x4000]);
+                if variant == Variant::PacPlus {
+                    for (a, b) in image[..0x4000].iter_mut().enumerate() {
+                        *b = pacplus_decode(a, *b);
+                    }
+                }
+                if variant == Variant::UpperRom {
+                    image[0x8000..0xC000].copy_from_slice(&p[0x8000..0xC000]);
+                } else {
+                    image.copy_within(0..0x4000, 0x8000);
+                }
+            }
         }
 
         let decoded = (variant == Variant::MsPacman).then(|| {
@@ -355,7 +557,7 @@ impl Rom {
         // nibble: bit 1 of four pixels, low nibble: bit 0), each tile in two 8-byte halves and
         // each sprite in four. Pixels here are in the raster's orientation (x along the scan).
         let px = |byte: u8, p: usize| ((byte >> (7 - p)) & 1) << 1 | ((byte >> (3 - p)) & 1);
-        let g = &roms.gfx;
+        let g = &unwire_gfx(mods.gfx, mods.program == Scramble::Eyes, &roms.gfx);
         let mut tiles = vec![0u8; 256 * 64];
         for code in 0..256 {
             for y in 0..8 {
@@ -384,8 +586,11 @@ impl Rom {
         let mut rgb = [0u32; 32];
         for (c, &v) in rgb.iter_mut().zip(&roms.palette) {
             let r = gun(v & 7, &[1000.0, 470.0, 220.0]);
-            let g = gun(v >> 3 & 7, &[1000.0, 470.0, 220.0]);
-            let b = gun(v >> 6 & 3, &[470.0, 220.0]);
+            let mid = gun(v >> 3 & 7, &[1000.0, 470.0, 220.0]);
+            let top = gun(v >> 6 & 3, &[470.0, 220.0]);
+            // The PROM's middle three bits drive green, the top two blue, except on the boards
+            // wired the other way round.
+            let (g, b) = if mods.rbg { (top, mid) } else { (mid, top) };
             *c = r << 16 | g << 8 | b;
         }
         let mut wave = [0u8; 256];
@@ -394,6 +599,7 @@ impl Rom {
         }
         Ok(Rom {
             image,
+            alt,
             decoded,
             tiles,
             sprites,
@@ -425,8 +631,109 @@ impl View<'_> {
     }
 }
 
+/// Where an address of the Pengo bootlegs' map lands: the plain board's address of the same RAM
+/// or port (`Moved`), their own RAM (`High`, an index into `Hw::high_ram`), ROM, or nothing.
+enum PengoAt {
+    Rom,
+    Moved(u16),
+    High(usize),
+    Nothing,
+}
+
+/// The Pengo bootlegs' map (MAME's pengojpm_map): no mirrors, every port at one address.
+fn pengo_at(addr: u16, write: bool) -> PengoAt {
+    match addr {
+        0x0000..=0x0FFF | 0x4000..=0x7FFF => PengoAt::Rom,
+        0x8000..=0x87FF | 0x8C00..=0x8FFF => PengoAt::Moved(addr - 0x4000),
+        0x8800..=0x8BFF => PengoAt::High(0x1000 + usize::from(addr - 0x8800)),
+        0xF000..=0xFFFF => PengoAt::High(usize::from(addr - 0xF000)),
+        0x9000 | 0x9040 | 0x9080 | 0x90C0 if !write => PengoAt::Moved(addr - 0x4000),
+        0x9000..=0x9007 | 0x9040..=0x906F | 0x90C0 if write => PengoAt::Moved(addr - 0x4000),
+        _ => PengoAt::Nothing,
+    }
+}
+
+/// Make Trax's protection chip answering a read of 5080h-50BFh (`port3` false) or 50C0h-50FFh,
+/// `offset` into it: from its table while it runs, or a few fixed answers once the game has
+/// switched it off (MAME's maketrax_special_port2_r and _port3_r).
+fn maketrax_read(hw: &Hw, port3: bool, offset: u16) -> u8 {
+    const PORT2: [u8; 30] = [
+        0x00, 0xc0, 0x00, 0x40, 0xc0, 0x40, 0x00, 0xc0, 0x00, 0x40, 0x00, 0xc0, 0x00, 0x40, 0xc0,
+        0x40, 0x00, 0xc0, 0x00, 0x40, 0x00, 0xc0, 0x00, 0x40, 0xc0, 0x40, 0x00, 0xc0, 0x00, 0x40,
+    ];
+    const PORT3: [u8; 30] = [
+        0x1f, 0x3f, 0x2f, 0x2f, 0x0f, 0x0f, 0x0f, 0x3f, 0x0f, 0x0f, 0x1c, 0x3c, 0x2c, 0x2c, 0x0c,
+        0x0c, 0x0c, 0x3c, 0x0c, 0x0c, 0x11, 0x31, 0x21, 0x21, 0x01, 0x01, 0x01, 0x31, 0x01, 0x01,
+    ];
+    let running = !hw.prot_off;
+    let at = usize::from(hw.prot_offset);
+    if port3 {
+        if running {
+            return PORT3[at];
+        }
+        return match offset {
+            0x00 => 0x1f,
+            0x09 => 0x30,
+            0x0c => 0x00,
+            _ => 0x20,
+        };
+    }
+    let dsw = hw.ports.dsw1 & 0x3f;
+    if running {
+        return PORT2[at] | dsw;
+    }
+    match offset {
+        0x01 | 0x04 => dsw | 0x40,
+        0x05 | 0x0e | 0x10 => dsw | 0xc0,
+        _ => dsw,
+    }
+}
+
+/// Magic Brush's protection answering a read of 5080h-50FFh, `offset` into it.
+fn mbrush_read(hw: &Hw, offset: u16) -> u8 {
+    let dsw = hw.ports.dsw1 & 0x3f;
+    match offset {
+        0x00 | 0x04 | 0x07 | 0x0e | 0x0f => 0xc0 | dsw,
+        0x40 | 0x41 | 0x47 | 0x49 | 0x4d | 0x5d => 0x00,
+        0x42 | 0x43 | 0x46 | 0x4c | 0x50 => 0x02,
+        0x7f => 0x10,
+        _ => dsw,
+    }
+}
+
 /// A read with no side effects: what the Z80 sees at `addr` (after any trap has switched).
 fn read_board(hw: &Hw, rom: &Rom, addr: u16) -> u8 {
+    let addr = if hw.variant == Variant::Pengo {
+        match pengo_at(addr, false) {
+            PengoAt::Rom => return rom.image[usize::from(addr)],
+            PengoAt::High(i) => return hw.high_ram[i],
+            // Nothing answers: the bus reads 00h, as MAME's unmapped reads do.
+            PengoAt::Nothing => return 0x00,
+            PengoAt::Moved(a) => a,
+        }
+    } else {
+        addr
+    };
+    match hw.mods.protection {
+        Protection::Maketrax if (0x5080..=0x50FF).contains(&addr) => {
+            return maketrax_read(hw, addr >= 0x50C0, addr & 0x3F);
+        }
+        Protection::Mbrush if (0x5080..=0x50FF).contains(&addr) => {
+            return mbrush_read(hw, addr - 0x5080);
+        }
+        Protection::Mspacii if (0x504D..=0x506F).contains(&addr) => {
+            return (hw.ports.in1 & 0xEF) | ((addr - 0x504D) as u8 & 1) << 4;
+        }
+        _ => {}
+    }
+    if hw.variant == Variant::Champion && addr & 0x4000 == 0 {
+        let image = if hw.bank != 0 { rom.alt.as_ref().unwrap_or(&rom.image) } else { &rom.image };
+        return image[usize::from(addr)];
+    }
+    if hw.variant == Variant::Champion && addr & 0x50C0 == 0x50C0 {
+        // 50C0h: nothing answers on this board (MAME's nopr).
+        return 0x00;
+    }
     if addr & 0x4000 == 0 {
         // ROM: 0000h-3FFFh and 8000h-BFFFh.
         return match (&rom.decoded, hw.decode) {
@@ -479,15 +786,32 @@ impl Bus for View<'_> {
         }
     }
 
-    fn input(&mut self, _port: u16) -> u8 {
-        // No I/O port is read on this board; MAME's unmapped I/O reads 00h.
+    fn input(&mut self, port: u16) -> u8 {
+        // Champion Edition's port 0: its switch latch, or DSW2's three low bits.
+        if self.hw.variant == Variant::Champion && port & 0xFF == 0 {
+            return if self.hw.mux { self.hw.mux_data } else { self.hw.ports.dsw2 & 0x07 };
+        }
+        // No other I/O port is read on these boards; MAME's unmapped I/O reads 00h.
         0x00
     }
 
     fn output(&mut self, port: u16, val: u8) {
-        // Port 0 latches the interrupt vector (A0-A7 decoded, as MAME maps it).
-        if port & 0xFF == 0 {
-            self.hw.vector = val;
+        let port = port & 0xFF;
+        // Port 0 latches the interrupt vector (A0-A7 decoded, as MAME maps it), through the
+        // board's own wiring; Ms. Pac-Man II's answers at every port.
+        let vector_port = port == 0 || self.hw.mods.vector == VectorWiring::Mspacii;
+        if vector_port {
+            self.hw.vector = match (self.hw.mods.vector, val) {
+                (VectorWiring::Piranha, 0xFA) => 0x78,
+                (VectorWiring::Nmouse, 0xBF) => 0x3C,
+                (VectorWiring::Nmouse, 0xC6) => 0x40,
+                (VectorWiring::Mspacii, 0xFB) => 0xFE,
+                _ => val,
+            };
+        }
+        if self.hw.variant == Variant::Champion && (port == 0x10 || port == 0x11) {
+            self.hw.mux = port & 1 != 0;
+            self.hw.mux_data = val;
         }
     }
 
@@ -499,6 +823,43 @@ impl Bus for View<'_> {
 impl View<'_> {
     /// A write's effect on the board.
     fn store(&mut self, addr: u16, val: u8) {
+        let addr = if self.hw.variant == Variant::Pengo {
+            match pengo_at(addr, true) {
+                PengoAt::Moved(a) => a,
+                PengoAt::High(i) => {
+                    self.hw.high_ram[i] = val;
+                    return;
+                }
+                PengoAt::Rom | PengoAt::Nothing => return,
+            }
+        } else {
+            addr
+        };
+        if self.hw.mods.protection == Protection::Maketrax && addr == 0x5004 {
+            // The protection chip takes this address instead of the latch: 0 switches it off and
+            // restarts it, 1 counts, and every 60 counts it moves on through its table.
+            let hw = &mut *self.hw;
+            match val {
+                0 => {
+                    hw.prot_counter = 0;
+                    hw.prot_offset = 0;
+                    hw.prot_off = true;
+                }
+                1 => {
+                    hw.prot_off = false;
+                    hw.prot_counter += 1;
+                    if hw.prot_counter == 0x3C {
+                        hw.prot_counter = 0;
+                        hw.prot_offset += 1;
+                        if hw.prot_offset == 0x1E {
+                            hw.prot_offset = 0;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
         if addr & 0x4000 == 0 {
             self.trap(addr);
             return;
@@ -532,7 +893,7 @@ impl View<'_> {
 }
 
 impl Hw {
-    fn new(variant: Variant) -> Hw {
+    fn new(variant: Variant, mods: Mods) -> Hw {
         Hw {
             variant,
             vram: vec![0; 0x400],
@@ -544,6 +905,15 @@ impl Hw {
             irq: false,
             watchdog: 16,
             decode: true,
+            mods,
+            prot_counter: 0,
+            prot_offset: 0,
+            prot_off: false,
+            bank: 0,
+            mux: false,
+            mux_data: 0,
+            powered_on: true,
+            high_ram: if variant == Variant::Pengo { vec![0; 0x1400] } else { Vec::new() },
             wsg: Wsg::new(),
             ports: Ports::default(),
             now: 0,
@@ -564,6 +934,17 @@ impl Hw {
     /// work RAM (the sprites' codes are at its end), the sprite positions, and the latch (for
     /// its flip bit).
     fn cell(&mut self, addr: u16) -> Option<&mut u8> {
+        let addr = if self.variant == Variant::Pengo {
+            match pengo_at(addr, true) {
+                PengoAt::Moved(a) => a,
+                _ => return None,
+            }
+        } else {
+            addr
+        };
+        if self.mods.protection == Protection::Maketrax && addr == 0x5004 {
+            return None;
+        }
         if addr & 0x4000 == 0 {
             return None;
         }
@@ -587,7 +968,7 @@ impl Pacman {
         let rom = Rom::new(variant, roms)?;
         Ok(Pacman {
             cpu: Z80::new(),
-            hw: Hw::new(variant),
+            hw: Hw::new(variant, roms.mods),
             rom,
             video: vec![0; WIDTH * HEIGHT],
             native: vec![0; NATIVE_W * NATIVE_H],
@@ -653,12 +1034,26 @@ impl Pacman {
         self.hw.irq = false;
         self.hw.watchdog = 16;
         self.hw.wsg.enabled = false;
+        self.machine_reset();
+    }
+
+    /// What the board's own reset does besides the Z80's: Make Trax's protection chip starts
+    /// again, and Champion Edition reads which game to show from DSW2 bit 3.
+    fn machine_reset(&mut self) {
+        self.hw.prot_counter = 0;
+        self.hw.prot_offset = 0;
+        self.hw.prot_off = false;
+        self.hw.bank = self.hw.ports.dsw2 >> 3 & 1;
     }
 
     /// Runs one frame, VBLANK to VBLANK: the interrupt and the watchdog at its start, the picture
     /// as it stands at its end (the next VBLANK, where the beam has drawn the whole screen).
     pub fn run_frame(&mut self) {
         self.audio.clear();
+        if self.hw.powered_on {
+            self.hw.powered_on = false;
+            self.machine_reset();
+        }
         if self.hw.vblank_due {
             self.vblank();
         }
@@ -904,6 +1299,7 @@ mod tests {
             palette: vec![0; 32],
             lookup: vec![0; 256],
             wave: vec![0; 256],
+            mods: Mods::NONE,
         }
     }
 

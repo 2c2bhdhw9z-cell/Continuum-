@@ -18,7 +18,8 @@ use crate::zip::Zip;
 /// Which board a set runs on, and how its program ROMs sit on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Board {
-    Pacman(Variant),
+    /// The Pac-Man driver's boards: the program's layout, and what the board adds to the plain one.
+    Pacman(Variant, pacman::Mods),
     /// The Galaxian family: the board variant, which way its monitor is turned, and the bits of
     /// IN2 that read the protection chip (Scramble's and The End's), as MAME's port lists say.
     Galaxian(galaxian::Variant, galaxian::Rotation, u8),
@@ -154,7 +155,7 @@ pub fn find(name: &str) -> Option<&'static SetSpec> {
 fn headline(board: Board) -> &'static str {
     use galaxian::{Konami, Variant as G};
     match board {
-        Board::Pacman(_) => "Pac-Man, Ms. Pac-Man",
+        Board::Pacman(..) => "Pac-Man, Ms. Pac-Man",
         Board::Galaxian(G::Galaxian | G::MoonCresta { .. }, ..) => "Galaxian",
         Board::Galaxian(G::Konami(Konami::Frogger), ..) => "Frogger",
         Board::Galaxian(G::Konami(Konami::Turtles), ..) => "Amidar",
@@ -513,10 +514,14 @@ impl Found {
         };
         pacman::Roms {
             program: get("maincpu", 0, 0x10000),
-            gfx: get("gfx1", 0, 0x2000),
+            gfx: get("gfx1", 0, self.region(regions, "gfx1").len().max(0x2000)),
             palette: get("proms", 0, 0x20),
             lookup: get("proms", 0x20, 0x100),
             wave: get("namco", 0, 0x100),
+            mods: match self.spec.board {
+                Board::Pacman(_, mods) => mods,
+                _ => pacman::Mods::NONE,
+            },
         }
     }
 }
@@ -560,7 +565,7 @@ mod tests {
             // The board's regions are all there.
             let tags: Vec<&str> = s.regions.iter().map(|r| r.tag).collect();
             let needs: &[&str] = match s.board {
-                Board::Pacman(_) => &["maincpu", "gfx1", "proms", "namco"],
+                Board::Pacman(..) => &["maincpu", "gfx1", "proms", "namco"],
                 Board::Galaxian(galaxian::Variant::Konami(_), ..) => &["maincpu", "gfx1", "proms", "audiocpu"],
                 Board::Galaxian(..) => &["maincpu", "gfx1", "proms"],
                 Board::Dkong(_) => &["maincpu", "soundcpu", "gfx1", "gfx2", "proms"],

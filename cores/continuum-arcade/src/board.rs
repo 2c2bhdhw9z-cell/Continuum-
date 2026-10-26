@@ -93,7 +93,7 @@ impl FourWay {
 /// What a recognised set's chips make: everything needed to switch the board on, again and again
 /// (the app's Restart is the power switch).
 pub enum Image {
-    Pacman(Variant, pacman::Roms),
+    Pacman(Variant, pacman::Roms, &'static SetSpec),
     Galaxian(galaxian::Variant, galaxian::Rotation, galaxian::Roms, &'static SetSpec),
     Dkong(dkong::Variant, dkong::Roms, &'static SetSpec),
 }
@@ -106,7 +106,7 @@ impl Image {
     pub fn from_found(found: &Found) -> Result<Image, String> {
         let regions = found.regions()?;
         Ok(match found.spec.board {
-            Board::Pacman(v) => Image::Pacman(v, found.pacman_roms(&regions)),
+            Board::Pacman(v, _) => Image::Pacman(v, found.pacman_roms(&regions), found.spec),
             Board::Galaxian(v, r, protection) => {
                 Image::Galaxian(v, r, found.galaxian_roms(&regions, protection), found.spec)
             }
@@ -117,7 +117,7 @@ impl Image {
     /// The board, switched on.
     pub fn power_on(&self) -> Result<Box<dyn Machine>, String> {
         match self {
-            Image::Pacman(v, roms) => Ok(Box::new(PacmanBoard(Pacman::new(*v, roms)?))),
+            Image::Pacman(v, roms, set) => Ok(Box::new(PacmanBoard { board: Pacman::new(*v, roms)?, set })),
             Image::Galaxian(v, r, roms, set) => Ok(Box::new(GalaxianBoard {
                 board: Galaxian::new(*v, *r, roms)?,
                 set,
@@ -277,11 +277,20 @@ impl Machine for DkongBoard {
     }
 }
 
-/// The Pac-Man board in its cabinet: the controls go to its input ports, active low as wired.
-struct PacmanBoard(Pacman);
+/// The Pac-Man board in its cabinet: the controls go to its input ports, active low as wired, or
+/// for a set whose inputs are generated from MAME's port lists, where that list puts them.
+struct PacmanBoard {
+    board: Pacman,
+    set: &'static SetSpec,
+}
 
-impl Machine for PacmanBoard {
-    fn run_frame(&mut self, controls: &Controls, switches: &Switches) {
+impl PacmanBoard {
+    /// The ports for these controls and switches.
+    pub fn ports(set: &SetSpec, controls: &Controls, switches: &Switches) -> Ports {
+        if !set.inputs.is_empty() {
+            let p = generated_ports(set, controls, switches);
+            return Ports { in0: p[0], in1: p[1], dsw1: p[2], dsw2: p[3] };
+        }
         let [p1, p2] = controls.players;
         let bit = |on: bool, b: u8| if on { b } else { 0 };
         // IN0: player 1's stick, coin 1 and coin 2 (player 2's coin slot).
@@ -292,16 +301,22 @@ impl Machine for PacmanBoard {
         let in1 = switches.ports[1]
             & !(bit(p2.up, 0x01) | bit(p2.left, 0x02) | bit(p2.right, 0x04) | bit(p2.down, 0x08))
             & !(bit(p1.start, 0x20) | bit(p2.start, 0x40));
-        self.0.set_ports(Ports { in0, in1, dsw1: switches.ports[2], dsw2: switches.ports[3] });
-        self.0.run_frame();
+        Ports { in0, in1, dsw1: switches.ports[2], dsw2: switches.ports[3] }
+    }
+}
+
+impl Machine for PacmanBoard {
+    fn run_frame(&mut self, controls: &Controls, switches: &Switches) {
+        self.board.set_ports(Self::ports(self.set, controls, switches));
+        self.board.run_frame();
     }
 
     fn picture(&self) -> (&[u32], usize, usize) {
-        (self.0.video(), pacman::WIDTH, pacman::HEIGHT)
+        (self.board.video(), pacman::WIDTH, pacman::HEIGHT)
     }
 
     fn sound(&self) -> &[i16] {
-        self.0.audio()
+        self.board.audio()
     }
 
     fn frames_per_second(&self) -> f64 {
@@ -309,15 +324,15 @@ impl Machine for PacmanBoard {
     }
 
     fn four_way(&self) -> bool {
-        true
+        self.set.inputs.is_empty() || self.set.four_way
     }
 
     fn save_state(&self) -> Vec<u8> {
-        self.0.save_state()
+        self.board.save_state()
     }
 
     fn load_state(&mut self, data: &[u8]) -> Result<(), String> {
-        self.0.load_state(data)
+        self.board.load_state(data)
     }
 }
 

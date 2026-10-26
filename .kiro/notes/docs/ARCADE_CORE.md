@@ -697,7 +697,7 @@ and the driver's other machines (Crush Roller, Ms. Pac-Man Champion Edition, Pon
 - The picture is XRGB8888, upright, 224×288, at a 3:4 aspect, 60.606 fps; the sound is 48 kHz,
   the board's mono on both channels.
 - **Save states:** `CARC`, the format (1), the set's name, then the board's bincode state. The
-  format is in `library_version` ("0.1.0 (state format 1)"), as cBoy does, so the app refuses a
+  format is in `library_version` ("0.2.0 (state format 2)"; format 2 from the second round, when the Pac-Man board gained its other machines), as cBoy does, so the app refuses a
   state from another layout; a state of another set is refused too. There are no battery saves:
   these boards have no battery memory.
 - **Restart** switches the cabinet off and on again: the game starts as fresh.

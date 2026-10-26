@@ -15,7 +15,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use continuum_arcade::pacman::{self, Pacman, Ports, Roms, Variant};
+use continuum_arcade::pacman::{self, Mods, Pacman, Ports, Roms, Variant};
 
 pub fn crate_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -61,6 +61,8 @@ pub struct Case {
     /// MAME's set the files are laid out for.
     pub set: &'static str,
     pub variant: Variant,
+    /// What the set's board adds to the plain one.
+    pub mods: Mods,
     pub frames: u32,
     /// (frame, event): applied before that frame runs.
     pub events: Vec<(u32, Event)>,
@@ -72,6 +74,7 @@ pub fn cases() -> Vec<Case> {
             name: "video",
             set: "pacman",
             variant: Variant::Plain,
+            mods: Mods::NONE,
             frames: 120,
             events: vec![],
         },
@@ -79,6 +82,7 @@ pub fn cases() -> Vec<Case> {
             name: "sprites",
             set: "pacman",
             variant: Variant::Plain,
+            mods: Mods::NONE,
             frames: 300,
             events: vec![],
         },
@@ -86,6 +90,7 @@ pub fn cases() -> Vec<Case> {
             name: "sound",
             set: "pacman",
             variant: Variant::Plain,
+            mods: Mods::NONE,
             frames: 240,
             events: vec![],
         },
@@ -93,6 +98,7 @@ pub fn cases() -> Vec<Case> {
             name: "irq",
             set: "pacman",
             variant: Variant::Plain,
+            mods: Mods::NONE,
             frames: 200,
             events: vec![],
         },
@@ -100,6 +106,7 @@ pub fn cases() -> Vec<Case> {
             name: "watchdog",
             set: "pacman",
             variant: Variant::Plain,
+            mods: Mods::NONE,
             frames: 260,
             events: vec![],
         },
@@ -107,6 +114,7 @@ pub fn cases() -> Vec<Case> {
             name: "mspacman",
             set: "mspacman",
             variant: Variant::MsPacman,
+            mods: Mods::NONE,
             frames: 30,
             events: vec![],
         },
@@ -114,6 +122,7 @@ pub fn cases() -> Vec<Case> {
             name: "pacplus",
             set: "pacplus",
             variant: Variant::PacPlus,
+            mods: Mods::NONE,
             frames: 80,
             events: vec![],
         },
@@ -121,6 +130,7 @@ pub fn cases() -> Vec<Case> {
             name: "upper",
             set: "mspacmab",
             variant: Variant::UpperRom,
+            mods: Mods::NONE,
             frames: 20,
             events: vec![],
         },
@@ -129,6 +139,7 @@ pub fn cases() -> Vec<Case> {
         name: "inputs",
         set: "pacman",
         variant: Variant::Plain,
+        mods: Mods::NONE,
         frames: 150,
         events: input_script(),
     });
@@ -413,6 +424,7 @@ pub fn roms(case: &Case) -> Roms {
         palette: get(pal),
         lookup: get(look),
         wave: get("82s126.1m"),
+        mods: case.mods,
     }
 }
 
