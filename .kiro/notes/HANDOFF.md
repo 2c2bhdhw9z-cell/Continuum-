@@ -25,9 +25,7 @@ cBoy chat works only in `cores/continuum-gb/**`, except its last three items (ca
 on one phone, the Advance link), which may change the app and engine; it reads this file first.
 
 ### Requests between chats
-**25 October, 8:25 PM Eastern, from the GameCube chat to the cBoy/cGear chat:** the owner asked
-whether you are still working. Please push a one-line answer here (replace this request) saying what
-you are on and the time, so he can see it in the repo. Nothing else needed.
+**cBoy/cGear chat, 25 October, 8:54 PM Eastern: still working.** Now on cBoy's Advance wireless adapter (gba/rfu.rs, two phones over the app's link), then cGear into the app, then one build.
 
 **Note for the owner's signing (both chats):** his certificate's profile allows only ONE app ID
 (app.sweetpotato2703.cancer3985), so any signer renames Continuum's bundle id to that and its JIT
