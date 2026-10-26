@@ -31,11 +31,20 @@ impl Entry {
     }
 }
 
-/// A zip held in memory.
+/// A zip (or a 7z) held in memory.
 pub struct Zip {
     data: Vec<u8>,
     entries: Vec<Entry>,
+    /// A 7z's directory, and its folders as they are unpacked (a folder holds many files, and is
+    /// unpacked once).
+    sevenz: Option<(crate::sevenz::Listing, FolderCache)>,
 }
+
+/// A 7z's folders, each once it has been unpacked.
+type FolderCache = std::sync::Mutex<Vec<Option<std::sync::Arc<Vec<u8>>>>>;
+
+/// An entry's method when it is a file in a 7z: `header` is its folder, `packed` where in it.
+const SEVENZ: u16 = 0xF7F7;
 
 // Every offset and size below comes from the file itself, so a damaged or hostile zip can hold
 // any value there (ZIP64's are 64 bits): every sum of them is checked, and one that overflows is
@@ -67,6 +76,9 @@ const LOCAL_HEADER: u32 = 0x0403_4B50;
 impl Zip {
     /// Reads the directory. Fails on anything that isn't a zip, with a reason for the log.
     pub fn parse(data: Vec<u8>) -> Result<Zip, String> {
+        if crate::sevenz::is_7z(&data) {
+            return Zip::parse_7z(data);
+        }
         let d = &data;
         // The end record is the last thing in the file, followed only by a comment of up to 64 KB.
         let lowest = d.len().saturating_sub(22 + 0xFFFF);
@@ -144,7 +156,76 @@ impl Zip {
             }
             at = extra_end + note_len;
         }
-        Ok(Zip { data, entries })
+        Ok(Zip { data, entries, sevenz: None })
+    }
+
+    /// Reads a 7z's directory. A file the archive gives no CRC for (7-Zip always gives one) is
+    /// unpacked here to work it out, since sets are recognised by their chips' CRCs.
+    fn parse_7z(data: Vec<u8>) -> Result<Zip, String> {
+        let listing = crate::sevenz::list(&data)?;
+        let mut cache: Vec<Option<std::sync::Arc<Vec<u8>>>> = Vec::new();
+        let mut entries = Vec::new();
+        for f in &listing.files {
+            let (folder, crc) = match (f.folder, f.crc) {
+                (None, _) => (u64::MAX, 0),
+                (Some(i), Some(c)) => (i as u64, c),
+                (Some(i), None) => {
+                    if cache.len() <= i {
+                        cache.resize(i + 1, None);
+                    }
+                    if cache[i].is_none() {
+                        cache[i] = Some(std::sync::Arc::new(listing.unpack_folder(&data, i)?));
+                    }
+                    let bytes = cache[i].as_ref().expect("just unpacked");
+                    let at = usize::try_from(f.offset).map_err(|_| "a damaged 7z")?;
+                    let len = usize::try_from(f.size).map_err(|_| "a damaged 7z")?;
+                    let part = at.checked_add(len).and_then(|e| bytes.get(at..e)).ok_or("a damaged 7z")?;
+                    (i as u64, crc32(part))
+                }
+            };
+            entries.push(Entry {
+                name: f.name.clone(),
+                size: f.size,
+                crc,
+                method: SEVENZ,
+                packed: f.offset,
+                header: folder,
+                encrypted: false,
+            });
+        }
+        Ok(Zip { data, entries, sevenz: Some((listing, std::sync::Mutex::new(cache))) })
+    }
+
+    /// Unpacks a 7z's entry: its folder (once), then its part of it.
+    fn read_7z(&self, e: &Entry) -> Result<Vec<u8>, String> {
+        let Some((listing, cache)) = &self.sevenz else {
+            return Err("no such file".into());
+        };
+        if e.header == u64::MAX {
+            return Ok(Vec::new());
+        }
+        let i = usize::try_from(e.header).map_err(|_| "a damaged 7z")?;
+        let folder = {
+            let mut c = cache.lock().unwrap_or_else(|p| p.into_inner());
+            if c.len() <= i {
+                c.resize(i + 1, None);
+            }
+            if c[i].is_none() {
+                c[i] = Some(std::sync::Arc::new(listing.unpack_folder(&self.data, i).map_err(|why| format!("{}: {why}", e.name))?));
+            }
+            c[i].clone().expect("just unpacked")
+        };
+        let at = usize::try_from(e.packed).map_err(|_| "a damaged 7z")?;
+        let len = usize::try_from(e.size).map_err(|_| "a damaged 7z")?;
+        let out = at
+            .checked_add(len)
+            .and_then(|end| folder.get(at..end))
+            .ok_or_else(|| format!("{} is cut off", e.name))?
+            .to_vec();
+        if crc32(&out) != e.crc {
+            return Err(format!("{} is damaged (its CRC doesn't match)", e.name));
+        }
+        Ok(out)
     }
 
     pub fn entries(&self) -> &[Entry] {
@@ -154,6 +235,9 @@ impl Zip {
     /// Unpacks entry `i`, and checks its CRC32 against the directory's.
     pub fn read(&self, i: usize) -> Result<Vec<u8>, String> {
         let e = self.entries.get(i).ok_or("no such file in the zip")?;
+        if e.method == SEVENZ {
+            return self.read_7z(e);
+        }
         if e.encrypted {
             return Err(format!("{} is encrypted", e.name));
         }

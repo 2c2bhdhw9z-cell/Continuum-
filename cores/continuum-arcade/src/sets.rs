@@ -235,23 +235,28 @@ pub struct Found {
     archives: Vec<Archive>,
 }
 
-/// Looks up the zip of a set next to the game: `<name>.zip` in the same folder, any letter case.
+/// Looks up the archive of a set next to the game: `<name>.zip` or `<name>.7z` in the same folder,
+/// any letter case, the game's own kind first.
 pub fn sibling(path: &Path, name: &str) -> Option<PathBuf> {
     let dir = path.parent()?;
-    let want = format!("{name}.zip");
-    let exact = dir.join(&want);
-    if exact.is_file() {
-        return Some(exact);
+    let own_7z = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("7z"));
+    let kinds = if own_7z { ["7z", "zip"] } else { ["zip", "7z"] };
+    for kind in kinds {
+        let want = format!("{name}.{kind}");
+        let exact = dir.join(&want);
+        if exact.is_file() {
+            return Some(exact);
+        }
+        let found = std::fs::read_dir(dir)
+            .ok()?
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.eq_ignore_ascii_case(&want)));
+        if found.is_some() {
+            return found;
+        }
     }
-    std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .find(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.eq_ignore_ascii_case(&want))
-        })
+    None
 }
 
 /// Where each needed chip of `spec` is, by CRC32 and size: in the game's zip first, then in its

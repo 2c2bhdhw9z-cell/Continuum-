@@ -329,7 +329,7 @@ unsafe fn write_system_info(info: *mut RetroSystemInfo) {
         library_name: c"cArcade".as_ptr(),
         // Carries the save-state format (STATE_FORMAT).
         library_version: c"0.2.0 (state format 2)".as_ptr(),
-        valid_extensions: c"zip".as_ptr(),
+        valid_extensions: c"zip|7z".as_ptr(),
         need_fullpath: false,
         block_extract: true,
     };
@@ -441,7 +441,7 @@ pub extern "C" fn retro_set_controller_port_device(_port: u32, _device: u32) {
 fn sibling_archive(game: &Path, name: &str) -> Option<Archive> {
     let path = sets::sibling(game, name)?;
     let zip = Zip::parse(std::fs::read(&path).ok()?).ok()?;
-    log_line(&format!("found {name}.zip next to the game"));
+    log_line(&format!("found {} next to the game", path.display()));
     Some(Archive { zip, stem: name.to_string() })
 }
 
@@ -453,15 +453,23 @@ fn open(bytes: Vec<u8>, path: &str) -> Result<(&'static SetSpec, Image, Box<dyn 
         .and_then(|s| s.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
+    // A 7z set: the lines the player reads name its kind of file.
+    let kind = |line: String| {
+        if game.extension().is_some_and(|e| e.eq_ignore_ascii_case("7z")) {
+            line.replace(".zip", ".7z").replace("arcade zip", "arcade 7z")
+        } else {
+            line
+        }
+    };
     let zip = Zip::parse(bytes).map_err(|why| {
         log_line(&format!("{path}: {why}"));
-        Refusal::NotAZip.line()
+        kind(Refusal::NotAZip.line())
     })?;
     let names: Vec<String> = zip.entries().iter().map(|e| e.name.clone()).collect();
     let found = sets::identify(Archive { zip, stem: stem.clone() }, &|name| sibling_archive(game, name))
         .map_err(|refusal| {
-            log_line(&format!("{stem}.zip ({} files: {}) isn't playable: {refusal:?}", names.len(), names.join(", ")));
-            refusal.line()
+            log_line(&format!("{stem} ({} files: {}) isn't playable: {refusal:?}", names.len(), names.join(", ")));
+            kind(refusal.line())
         })?;
     let spec = found.spec;
     if !found.differing.is_empty() {
@@ -472,7 +480,7 @@ fn open(bytes: Vec<u8>, path: &str) -> Result<(&'static SetSpec, Image, Box<dyn 
             found.differing.join(", ")
         ));
     }
-    let piece = || Refusal::MissingPiece { title: spec.short_title().into(), set: spec.name.into() }.line();
+    let piece = || kind(Refusal::MissingPiece { title: spec.short_title().into(), set: spec.name.into() }.line());
     let image = Image::from_found(&found).map_err(|why| {
         log_line(&format!("{}: {why}", spec.name));
         piece()

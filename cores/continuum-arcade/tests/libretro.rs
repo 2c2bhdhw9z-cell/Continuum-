@@ -424,6 +424,53 @@ fn a_game_it_cant_play_is_one_plain_sentence() {
     assert_eq!(retro_serialize_size(), 0);
 }
 
+/// A set packed as a 7z plays exactly as its zip does. The archive is made by the real 7-Zip when
+/// it's here ($CARCADE_7ZZ or scratch's 7zz), else the committed one (tests/fixtures/7z/pacman.7z,
+/// made the same way from the video program's files) is used.
+#[test]
+fn a_7z_set_plays_as_its_zip_does() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let case = case("video");
+    let fixture = crate_dir().join("tests/fixtures/7z/pacman.7z");
+    let sz = std::env::var("CARCADE_7ZZ")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("/projects/sandbox/.scratch/7zip/7zz"));
+    let dir = work_dir("sevenz");
+    let archive = dir.join("pacman.7z");
+    if sz.is_file() {
+        let src = dir.join("files");
+        std::fs::create_dir_all(&src).unwrap();
+        for (n, d) in files(&case) {
+            std::fs::write(src.join(n), d).unwrap();
+        }
+        let _ = std::fs::remove_file(&fixture);
+        let st = std::process::Command::new(&sz)
+            .current_dir(&src)
+            .args(["a", "-bd", "-y", "-m0=lzma2", "-mx=9"])
+            .arg(&fixture)
+            .arg(".")
+            .output()
+            .unwrap();
+        assert!(st.status.success());
+    }
+    std::fs::copy(&fixture, &archive).unwrap();
+    frontend();
+    assert!(load(&archive), "pacman.7z: {}", last_log_line());
+    let want = read_reference(&case);
+    let got = run(case.frames);
+    for (i, (_, _, frame)) in got.iter().enumerate() {
+        assert_eq!(video_hash(frame), want[i].0, "pacman.7z: frame {} differs from MAME's", i + 1);
+    }
+    retro_unload_game();
+    // A 7z that isn't one: the sentence names the kind of file the player has.
+    let broken = dir.join("broken.7z");
+    let mut d = std::fs::read(&fixture).unwrap();
+    d.truncate(40);
+    std::fs::write(&broken, d).unwrap();
+    assert!(!load(&broken));
+    assert!(last_log_line().contains("arcade 7z"), "{}", last_log_line());
+}
+
 #[test]
 fn the_switches_are_settings_and_only_the_games_own_show() {
     let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
@@ -478,7 +525,7 @@ fn the_switches_are_settings_and_only_the_games_own_show() {
     };
     let text = |p: *const c_char| unsafe { CStr::from_ptr(p) }.to_str().unwrap().to_string();
     assert_eq!(text(sys.library_name), "cArcade");
-    assert_eq!(text(sys.valid_extensions), "zip");
+    assert_eq!(text(sys.valid_extensions), "zip|7z");
     assert!(!sys.need_fullpath);
     retro_unload_game();
 }
