@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Builds the local reference MAME for cArcade's board comparisons (never shipped, never committed):
 # MAME 0.289 from its release tarball, a subtarget holding only the Pac-Man family, the Galaxian
-# family (Konami's Scramble/Frogger/Amidar included) and Donkey Kong / Donkey Kong Jr.
+# family (Konami's Scramble/Frogger/Amidar included), Donkey Kong / Donkey Kong Jr., and for cArcade's
+# second round (tasks/arcade-2.json) Galaga, Xevious, Dig Dug, Bosconian, 1942, Time Pilot, Pooyan,
+# Bomb Jack, CPS-1 and the Neo Geo. Run setup-mame-deps.sh first in a fresh sandbox.
 # Headless: SDL2 built here with only its dummy/offscreen video and dummy/disk audio drivers, no X11,
 # no OpenGL, a stub libEGL (bgfx loads EGL at run time; NO_X11 only needs it at link time).
 # Usage: build-mame.sh [jobs]   (default 2; retry with 1 if a compile is killed)
@@ -14,7 +16,7 @@ export PATH="$DEPS/bin:$PATH"
 export PKG_CONFIG_PATH="$DEPS/lib64/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 make -j"$JOBS" \
   SUBTARGET=arcaderef \
-  SOURCES=src/mame/pacman,src/mame/galaxian,src/mame/nintendo/dkong.cpp \
+  SOURCES=src/mame/pacman,src/mame/galaxian,src/mame/nintendo/dkong.cpp,src/mame/namco/galaga.cpp,src/mame/namco/xevious.cpp,src/mame/namco/digdug.cpp,src/mame/namco/bosco.cpp,src/mame/capcom/1942.cpp,src/mame/konami/timeplt.cpp,src/mame/konami/pooyan.cpp,src/mame/tecmo/bombjack.cpp,src/mame/capcom/cps1.cpp,src/mame/neogeo/neogeo.cpp \
   IGNORE_GIT=1 TOOLS=0 TESTS=0 NOWERROR=1 ${REGEN:+REGENIE=1} \
   NO_X11=1 NO_OPENGL=1 NO_USE_XINPUT=1 NO_USE_MIDI=1 NO_USE_PORTAUDIO=1 \
   NO_USE_PULSEAUDIO=1 NO_USE_PIPEWIRE=1 USE_QTDEBUG=0 USE_TAPTUN=0 USE_PCAP=0 \
