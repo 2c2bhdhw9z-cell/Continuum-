@@ -16,7 +16,7 @@ export PATH="$DEPS/bin:$PATH"
 export PKG_CONFIG_PATH="$DEPS/lib64/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 make -j"$JOBS" \
   SUBTARGET=arcaderef \
-  SOURCES=src/mame/pacman,src/mame/galaxian,src/mame/nintendo/dkong.cpp,src/mame/namco/galaga.cpp,src/mame/namco/xevious.cpp,src/mame/namco/digdug.cpp,src/mame/namco/bosco.cpp,src/mame/capcom/1942.cpp,src/mame/konami/timeplt.cpp,src/mame/konami/pooyan.cpp,src/mame/tecmo/bombjack.cpp,src/mame/capcom/cps1.cpp,src/mame/neogeo/neogeo.cpp \
+  SOURCES=src/mame/pacman,src/mame/galaxian,src/mame/nintendo/dkong.cpp,src/mame/namco/galaga.cpp,src/mame/namco/xevious.cpp,src/mame/namco/digdug.cpp,src/mame/namco/bosco.cpp,src/mame/capcom/1942.cpp,src/mame/konami/timeplt.cpp,src/mame/konami/pooyan.cpp,src/mame/tecmo/bombjack.cpp,src/mame/capcom/cps1.cpp,src/mame/snk/neogeo.cpp \
   IGNORE_GIT=1 TOOLS=0 TESTS=0 NOWERROR=1 ${REGEN:+REGENIE=1} \
   NO_X11=1 NO_OPENGL=1 NO_USE_XINPUT=1 NO_USE_MIDI=1 NO_USE_PORTAUDIO=1 \
   NO_USE_PULSEAUDIO=1 NO_USE_PIPEWIRE=1 USE_QTDEBUG=0 USE_TAPTUN=0 USE_PCAP=0 \
