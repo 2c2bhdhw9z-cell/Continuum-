@@ -95,7 +95,9 @@ the app's identifier and get-task-allow, clean on rcodesign and on Signer's own 
 Also fixed: an .ipa handed over as a link read as "not a zip file". Signer's 80 engine tests pass.
 Open: his PUBG sign crashes at "Listing ShadowTrackerExtra.app contents" (the resource list). Not
 reproduced here: a stand-in app of 45,600 files and 1.5 GB signed fine at 198 MB peak memory; a
-120,000-file, 4 GB one (with Chinese/emoji names, .lproj folders and a symlink) is being tried.
+120,000-file, 4 GB one (Chinese and emoji names, .lproj folders, a symlink) also signed fine here:
+207 s, 478 MB peak memory. So it is the phone, not the app's size or its file names. Next step if he
+wants it: a breadcrumb file in Signer so a crash says which file and phase it died on (offered).
 
 6:45 PM: he asked whether cBoy made it into 233: only partly (up to c667a2e: Advance timing, the sound chip,
 settings). The cBoy chat's build 234 (fb4af3b, 6:20 PM) has ALL of 233 (the same GameCube core, 1,726,176
