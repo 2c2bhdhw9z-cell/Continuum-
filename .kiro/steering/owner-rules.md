@@ -31,6 +31,15 @@ These come straight from the owner. They are not suggestions.
 - When handing over a build, write the full test steps out in that same reply. Never say "the
   tests from my last message"; the owner will not scroll back for them.
 
+## Never edit native/ios/build-engine.sh for one core
+- The saved emulator cache's key (ios.yml, "Fingerprint the core toolchain") includes the hash of
+  the WHOLE of `native/ios/build-engine.sh`. Any edit to it, even one line for one core, throws the
+  cache away and rebuilds all 38+ emulators (about 50 minutes on a macOS runner). Build 235 did
+  exactly that (25 October 2026): adding cGear put two lines in it. The owner: "That's not supposed
+  to be able to happen anymore." Adding a core goes in scripts/build-core.sh (fingerprinted per
+  core) and project.yml / ContinuumApp.swift only. If build-engine.sh really must change, say so
+  first: it costs a full rebuild.
+
 ## The .ipa
 - The .ipa is the only thing the owner cares about. Whenever a build happens, hand over the
   direct download link to the .ipa without being asked. Finding it is the assistant's job.
