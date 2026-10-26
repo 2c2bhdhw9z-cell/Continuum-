@@ -18,6 +18,7 @@ pub mod z80;
 pub mod bus;
 pub mod fm;
 pub mod libretro;
+pub mod link;
 pub mod options;
 pub mod peripherals;
 pub mod psg;

@@ -73,6 +73,10 @@ impl Sms {
             self.bus.line_cycle = spent * 100 / k;
             self.cpu.set_irq(self.bus.vdp.irq());
             spent += self.cpu.step(&mut self.bus);
+            if self.bus.ext.nmi {
+                self.bus.ext.nmi = false;
+                self.cpu.nmi();
+            }
         }
         self.over = spent - budget;
         self.bus.clock += u64::from(LINE_CYCLES);
@@ -126,10 +130,25 @@ impl Sms {
     pub fn run_frame(&mut self) {
         // The eye this frame is for: games set the glasses in the blank before they draw it.
         self.frame_left_eye = self.bus.glasses_left;
+        let clock = self.bus.clock;
+        crate::link::alone(&mut self.bus.ext, clock);
         for line in 0..self.bus.vdp.lines() {
             self.run_line(line);
         }
         self.frames += 1;
+    }
+
+    /// A frame of two Game Gears joined by the Gear-to-Gear cable, a line of each in turn, the
+    /// cable brought up to date between lines (link.rs).
+    pub fn run_frame_linked(&mut self, other: &mut Sms) {
+        for line in 0..self.bus.vdp.lines() {
+            self.run_line(line);
+            other.run_line(line);
+            let (ta, tb) = (self.bus.clock, other.bus.clock);
+            crate::link::exchange(&mut self.bus.ext, ta, &mut other.bus.ext, tb);
+        }
+        self.frames += 1;
+        other.frames += 1;
     }
 }
 
@@ -225,6 +244,42 @@ mod tests {
         let mut dark = phaser_game(0x00);
         dark.run_frame();
         assert_eq!(dark.bus.ram[0], 0xEE, "a dark picture: nothing seen");
+    }
+
+    #[test]
+    fn two_game_gears_send_a_byte_down_the_cable() {
+        // Serial on at 4800 bps, NMI on receipt. The one whose cartridge has 1 at $7000 sends $A5;
+        // both then wait for a byte (port $05 bit 1) and keep it at $C000. The NMI just returns.
+        let code: &[u8] = &[
+            0xF3, 0x31, 0xF0, 0xDF, // DI / LD SP,$DFF0
+            0x3E, 0x38, 0xD3, 0x05, // serial on, NMI on receipt
+            0x3A, 0x00, 0x70, 0xB7, 0x28, 0x04, // LD A,($7000) / OR A / JR Z,+4
+            0x3E, 0xA5, 0xD3, 0x03, // send $A5
+            0xDB, 0x05, 0x32, 0x01, 0xC0, 0xCB, 0x4F, 0x28, 0xF7, // wait for a byte
+            0xDB, 0x04, 0x32, 0x00, 0xC0, 0x18, 0xFE, // keep it, stop
+        ];
+        let make = |sender: bool| {
+            let mut rom = vec![0u8; 0x8000];
+            rom[..code.len()].copy_from_slice(code);
+            rom[0x66] = 0xED;
+            rom[0x67] = 0x45; // RETN
+            rom[0x7000] = u8::from(sender);
+            let mut m = Sms::new(rom);
+            m.bus.set_game_gear();
+            m.bus.ram[0] = 0xEE;
+            m
+        };
+        let (mut a, mut b) = (make(true), make(false));
+        for _ in 0..3 {
+            a.run_frame_linked(&mut b);
+        }
+        assert_eq!(b.bus.ram[0], 0xA5, "the byte arrived");
+        assert_eq!(a.bus.ram[0], 0xEE, "and nothing came back");
+        let mut alone = make(true);
+        for _ in 0..3 {
+            alone.run_frame();
+        }
+        assert_eq!(alone.bus.ram[1] & 0x04, 0x04, "on its own, the status says nobody is there");
     }
 
     #[test]

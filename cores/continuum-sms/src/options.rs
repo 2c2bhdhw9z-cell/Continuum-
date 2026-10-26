@@ -55,7 +55,8 @@ const CATEGORIES: &[(&CStr, &CStr, &CStr)] = &[
     (c"system", c"System", c"Which console, its region and how the cartridge is wired."),
     (c"video", c"Picture", c"Sprites, the left column and the Game Gear's screen."),
     (c"audio", c"Sound", c"Volume and channel mix."),
-    (c"input", c"Controls", c"The pad."),
+    (c"input", c"Controls", c"The pad, and the gun, paddle and trackball."),
+    (c"link", c"Link", c"Two Game Gears joined by the cable."),
 ];
 
 const OFF_ON: Values = &[(c"off", c"Off"), (c"on", c"On")];
@@ -155,6 +156,20 @@ const SPECS: &[Spec] = &[
     (c"input", c"cgear_phaser_y", c"Light Phaser aim, up and down", c"", OFFSETS, c"0"),
     (c"input", c"cgear_device_speed", c"Paddle and trackball speed",
      c"How fast the stick turns the paddle, rolls the trackball or moves the gun.", SPEEDS, c"5"),
+    (c"link", c"cgear_gg_link", c"Two Game Gears on this phone",
+     c"Two consoles play this Game Gear game, joined by the Gear-to-Gear cable; changes apply at the next start.",
+     OFF_ON, c"off"),
+    (c"link", c"cgear_gg_link_layout", c"Two Game Gears: where the screens go",
+     c"Changes apply at the next start.", &[(c"side", c"Side by side"), (c"stacked", c"One above the other")], c"side"),
+    (c"link", c"cgear_gg_link_show", c"Two Game Gears: screens shown",
+     c"Between both screens and one, changes apply at the next start.",
+     &[(c"both", c"Both"), (c"1", c"The first console's only"), (c"2", c"The second console's only")], c"both"),
+    (c"link", c"cgear_gg_link_swap", c"Two Game Gears: swap the screens", c"Puts the second console's screen first.", OFF_ON, c"off"),
+    (c"link", c"cgear_gg_link_audio", c"Two Game Gears: sound", c"Which console you hear.",
+     &[(c"1", c"The first console"), (c"2", c"The second console"), (c"both", c"Both together")], c"1"),
+    (c"link", c"cgear_gg_link_controls", c"Two Game Gears: your controls play",
+     c"The on-screen buttons and the first controller play this console; a second controller plays the other.",
+     &[(c"1", c"The first console"), (c"2", c"The second console")], c"1"),
     (c"input", c"cgear_opposing", c"Allow opposite directions",
      c"Up with Down, Left with Right; the pad itself can't, and some games glitch with it.",
      OFF_ON, c"off"),
@@ -204,6 +219,15 @@ pub struct Settings {
     /// Moves the Light Phaser's aim, pixels.
     pub phaser_offset: (i32, i32),
     pub device_speed: u8,
+    /// Two Game Gears on one phone (link.rs): on, side by side, which screens (0 both, 1 the
+    /// first, 2 the second), swapped, which is heard (0 the first, 1 the second, 2 both), and
+    /// whether the player's controls play the second.
+    pub gg_link: bool,
+    pub gg_link_side: bool,
+    pub gg_link_show: u8,
+    pub gg_link_swap: bool,
+    pub gg_link_audio: u8,
+    pub gg_link_controls_second: bool,
     /// The equaliser: bass, middle and treble, percent.
     pub eq: [u8; 3],
     /// The TV border: 0 none, 1 above and below, 2 all round.
@@ -219,7 +243,7 @@ impl Default for Settings {
     fn default() -> Settings {
         Settings {
             console: Console::Auto, japan: false, region_auto: true, refresh_auto: false, pal: false, mapper: None, sprite_limit: true, hide_left: false,
-            gg_ghosting: 0, gg_full: false, fm_chan_vol: [100; 9], lowpass: 0, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100, cpu_percent: 100, tms_colours_sms: None, borders: 0, glasses_eye: None, eq: [100; 3], ports: [crate::peripherals::Device::Pad; 2], crosshair: true, crosshair_square: false, crosshair_colour: 0xFFFFFF, phaser_offset: (0, 0), device_speed: 5,
+            gg_ghosting: 0, gg_full: false, fm_chan_vol: [100; 9], lowpass: 0, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100, cpu_percent: 100, tms_colours_sms: None, borders: 0, glasses_eye: None, eq: [100; 3], ports: [crate::peripherals::Device::Pad; 2], crosshair: true, crosshair_square: false, crosshair_colour: 0xFFFFFF, phaser_offset: (0, 0), device_speed: 5, gg_link: false, gg_link_side: true, gg_link_show: 0, gg_link_swap: false, gg_link_audio: 0, gg_link_controls_second: false,
         }
     }
 }
@@ -310,6 +334,20 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
     let offset = |k: &CStr| get(k).and_then(|v| v.parse::<i32>().ok()).unwrap_or(0).clamp(-10, 10);
     s.phaser_offset = (offset(c"cgear_phaser_x"), offset(c"cgear_phaser_y"));
     s.device_speed = get(c"cgear_device_speed").and_then(|v| v.parse::<u8>().ok()).unwrap_or(5).clamp(1, 10);
+    s.gg_link = on(c"cgear_gg_link", false);
+    s.gg_link_side = get(c"cgear_gg_link_layout").is_none_or(|v| v != "stacked");
+    s.gg_link_show = match get(c"cgear_gg_link_show").as_deref() {
+        Some("1") => 1,
+        Some("2") => 2,
+        _ => 0,
+    };
+    s.gg_link_swap = on(c"cgear_gg_link_swap", false);
+    s.gg_link_audio = match get(c"cgear_gg_link_audio").as_deref() {
+        Some("2") => 1,
+        Some("both") => 2,
+        _ => 0,
+    };
+    s.gg_link_controls_second = get(c"cgear_gg_link_controls").is_some_and(|v| v == "2");
     let band = |k: &CStr| get(k).and_then(|v| v.parse::<u8>().ok()).unwrap_or(100).min(150);
     s.eq = [band(c"cgear_eq_low"), band(c"cgear_eq_mid"), band(c"cgear_eq_high")];
     s.borders = match get(c"cgear_borders").as_deref() {

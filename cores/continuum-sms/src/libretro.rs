@@ -66,6 +66,11 @@ const MEMORY_SAVE_RAM: u32 = 0;
 const MEMORY_SYSTEM_RAM: u32 = 2;
 const MEMORY_VIDEO_RAM: u32 = 3;
 const RATE: u32 = 48_000;
+const ENV_GET_SAVE_DIRECTORY: u32 = 31;
+/// How often the second Game Gear's save is written when its game has changed it: every two
+/// seconds, so at most that much is lost if the phone stops the app.
+const SECOND_SAVE_FRAMES: u32 = 120;
+const DUAL_MAGIC: &[u8; 8] = b"CGEARDU1";
 
 struct Callbacks {
     env: Option<EnvFn>,
@@ -92,6 +97,50 @@ struct Core {
     eq: [[f32; 2]; 2],
     /// The size of the last picture handed over (`m.shown`).
     shown_size: (usize, usize),
+    /// The second of two Game Gears on one phone (link.rs). The app knows nothing about it, so it
+    /// keeps its own picture, sound and save here.
+    second: Option<Box<Second>>,
+}
+
+struct Second {
+    m: Box<Sms>,
+    picture: Vec<u32>,
+    /// Where its cartridge save lives (beside the app's saves, named after the game), and what
+    /// is in that file, so it is only written when the game changed it.
+    save: Option<std::path::PathBuf>,
+    written: Vec<u8>,
+    frames: u32,
+}
+
+impl Second {
+    fn write_save(&mut self) {
+        let Some(path) = self.save.as_ref() else { return };
+        if !self.m.bus.cart_ram_used || self.m.bus.cart_ram == self.written {
+            return;
+        }
+        if std::fs::write(path, &self.m.bus.cart_ram).is_ok() {
+            self.written.clone_from(&self.m.bus.cart_ram);
+        }
+    }
+}
+
+impl Drop for Second {
+    fn drop(&mut self) {
+        self.write_save();
+    }
+}
+
+/// The second Game Gear's save file: the game's own name, in the app's save folder.
+unsafe fn second_save_path(env: EnvFn, game_path: *const c_char) -> Option<std::path::PathBuf> {
+    let mut dir: *const c_char = std::ptr::null();
+    if !env(ENV_GET_SAVE_DIRECTORY, &mut dir as *mut *const c_char as *mut c_void) || dir.is_null() {
+        return None;
+    }
+    let dir = std::path::PathBuf::from(std::ffi::CStr::from_ptr(dir).to_string_lossy().into_owned());
+    let stem = (!game_path.is_null())
+        .then(|| std::path::PathBuf::from(std::ffi::CStr::from_ptr(game_path).to_string_lossy().into_owned()))
+        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()));
+    Some(dir.join(format!("{} (second Game Gear).sav", stem.unwrap_or_else(|| "game".into()))))
 }
 
 impl std::ops::Deref for Core {
@@ -125,6 +174,24 @@ impl Core {
         self.m.bus.vdp.tms_from_cram = s.tms_colours_sms.is_none() && self.m.bus.gg;
         self.m.bus.vdp.gg_full = self.at_start.gg_full;
         self.m.bus.vdp.borders = self.at_start.borders;
+        if let Some(two) = self.second.as_mut() {
+            let b = &mut two.m.bus;
+            b.vdp.sprite_limit = s.sprite_limit;
+            b.psg.chan_vol = s.chan_vol;
+            b.psg.volume = s.volume;
+            b.vdp.tms_from_cram = s.tms_colours_sms.is_none();
+            two.m.cpu_percent = s.cpu_percent;
+        }
+    }
+
+    /// The picture size the app was told: two Game Gears side by side or stacked when both show.
+    fn dual_size(&self) -> Option<(u32, u32)> {
+        let _ = self.second.as_ref()?;
+        Some(match (self.at_start.gg_link_show, self.at_start.gg_link_side) {
+            (0, true) => (320, 144),
+            (0, false) => (160, 288),
+            _ => (160, 144),
+        })
     }
 }
 
@@ -180,6 +247,14 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
     if info.is_null() {
         return;
     }
+    let dual = CORE.lock().ok().and_then(|c| c.as_ref().and_then(Core::dual_size));
+    if let Some((w, h)) = dual {
+        *info = RetroSystemAvInfo {
+            geometry: RetroGameGeometry { base_width: w, base_height: h, max_width: 320, max_height: 294, aspect_ratio: w as f32 / h as f32 },
+            timing: RetroSystemTiming { fps: 3_579_545.0 / (228.0 * 262.0), sample_rate: f64::from(RATE) },
+        };
+        return;
+    }
     let (pal, gg, cut, borders) = CORE
         .lock()
         .ok()
@@ -203,7 +278,7 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
         (256, 192, 4.0 / 3.0)
     };
     *info = RetroSystemAvInfo {
-        geometry: RetroGameGeometry { base_width: w, base_height: h, max_width: 256 + 13 + 15, max_height: 294, aspect_ratio: aspect },
+        geometry: RetroGameGeometry { base_width: w, base_height: h, max_width: 320, max_height: 294, aspect_ratio: aspect },
         timing: RetroSystemTiming {
             fps: if pal { 3_546_895.0 / (228.0 * 313.0) } else { 3_579_545.0 / (228.0 * 262.0) },
             sample_rate: f64::from(RATE),
@@ -273,8 +348,26 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
         }
     }
     let s = env.map(|e| crate::options::read(e)).unwrap_or_default();
+    let copy = s.gg_link.then(|| rom.clone());
     let m = machine(rom, &s, (*game).path);
-    let mut core = Core { m, s: s.clone(), at_start: s, prev: Vec::new(), lp: [0.0; 2], shown_size: (0, 0), eq: [[0.0; 2]; 2] };
+    // Two Game Gears: the same cartridge again, its own save in its own file. Game Gear games
+    // only, and not with the whole picture shown.
+    let second = match copy {
+        Some(rom) if m.bus.gg && !s.gg_full => {
+            let mut two = machine(rom, &s, (*game).path);
+            let save = env.and_then(|e| second_save_path(e, (*game).path));
+            let mut written = Vec::new();
+            if let Some(bytes) = save.as_ref().and_then(|p| std::fs::read(p).ok()) {
+                let n = bytes.len().min(two.bus.cart_ram.len());
+                two.bus.cart_ram[..n].copy_from_slice(&bytes[..n]);
+                two.bus.cart_ram_used = true;
+                written.clone_from(&two.bus.cart_ram);
+            }
+            Some(Box::new(Second { m: two, picture: Vec::new(), save, written, frames: 0 }))
+        }
+        _ => None,
+    };
+    let mut core = Core { m, s: s.clone(), at_start: s, prev: Vec::new(), lp: [0.0; 2], shown_size: (0, 0), eq: [[0.0; 2]; 2], second };
     core.apply();
     if let Ok(mut c) = CORE.lock() {
         *c = Some(core);
@@ -304,25 +397,34 @@ pub extern "C" fn retro_get_region() -> u32 {
 pub extern "C" fn retro_reset() {
     if let Ok(mut c) = CORE.lock() {
         if let Some(m) = c.as_mut() {
-            let rom = std::mem::take(&mut m.bus.rom);
-            let cart_ram = std::mem::take(&mut m.bus.cart_ram);
-            let (gg, sg, export, pal, mapper) = (m.bus.gg, m.bus.sg, m.bus.export, m.bus.vdp.pal, m.bus.mapper);
-            let mut fresh = Sms::new(rom);
-            if gg {
-                fresh.bus.set_game_gear();
-            } else if sg {
-                fresh.bus.set_sg1000();
+            power_cycle(&mut m.m);
+            if let Some(two) = m.second.as_mut() {
+                power_cycle(&mut two.m);
             }
-            fresh.bus.export = export;
-            fresh.bus.has_fm = m.bus.has_fm;
-            fresh.bus.vdp.pal = pal;
-            fresh.bus.mapper = mapper;
-            fresh.bus.cart_ram = cart_ram;
-            fresh.rate = m.rate;
-            *m.m = fresh;
             m.apply();
         }
     }
+}
+
+/// The console switched off and on again: everything fresh but the cartridge, its save and how
+/// the console was set up.
+fn power_cycle(m: &mut Box<Sms>) {
+    let rom = std::mem::take(&mut m.bus.rom);
+    let cart_ram = std::mem::take(&mut m.bus.cart_ram);
+    let (gg, sg, export, pal, mapper) = (m.bus.gg, m.bus.sg, m.bus.export, m.bus.vdp.pal, m.bus.mapper);
+    let mut fresh = Sms::new(rom);
+    if gg {
+        fresh.bus.set_game_gear();
+    } else if sg {
+        fresh.bus.set_sg1000();
+    }
+    fresh.bus.export = export;
+    fresh.bus.has_fm = m.bus.has_fm;
+    fresh.bus.vdp.pal = pal;
+    fresh.bus.mapper = mapper;
+    fresh.bus.cart_ram = cart_ram;
+    fresh.rate = m.rate;
+    **m = fresh;
 }
 
 /// The game's file name ends in one of `ends` (lower case).
@@ -450,6 +552,48 @@ fn draw_crosshairs(m: &Core, px: &mut [u32], w: usize, h: usize) {
 /// The pads as the console's ports read them, from the two players' buttons: $DC holds the
 /// first pad and the second's Up and Down, $DD the second's other buttons. A held button reads 0.
 /// Start on either pad is the console's Pause button.
+/// Two Game Gears' pictures as one (side by side or stacked, or only one, the second first when
+/// swapped). Returns the size.
+fn compose_pair(m: &mut Core, shown: &mut Vec<u32>, w: usize, h: usize) -> (usize, usize) {
+    let Some(two) = m.second.as_mut() else { return (w, h) };
+    let (show, side, swap) = (m.at_start.gg_link_show, m.at_start.gg_link_side, m.s.gg_link_swap);
+    let (w2, h2) = two.m.bus.vdp.shown(&mut two.picture);
+    if (w2, h2) != (w, h) {
+        return (w, h);
+    }
+    if show != 0 {
+        if show == 2 {
+            shown.clone_from(&two.picture);
+        }
+        return (w, h);
+    }
+    let first = std::mem::take(shown);
+    let (one, other) = if swap { (&two.picture, &first) } else { (&first, &two.picture) };
+    if side {
+        for y in 0..h {
+            shown.extend_from_slice(&one[y * w..(y + 1) * w]);
+            shown.extend_from_slice(&other[y * w..(y + 1) * w]);
+        }
+        (w * 2, h)
+    } else {
+        shown.extend_from_slice(one);
+        shown.extend_from_slice(other);
+        (w, h * 2)
+    }
+}
+
+/// One player's pad: its six buttons as a port reads them (0 held), and Start.
+unsafe fn pad_of(input: InputFn, port: u32, opposing: bool) -> (u8, bool) {
+    let on = |i: u32| input(port, DEVICE_JOYPAD, 0, i) != 0;
+    let held = |id: u32| match id {
+        4 | 5 if !opposing && on(4) && on(5) => false,
+        6 | 7 if !opposing && on(6) && on(7) => false,
+        _ => on(id),
+    };
+    let bits = [held(4), held(5), held(6), held(7), held(0) || held(1), held(8)];
+    (bits.iter().enumerate().fold(0x3F, |v, (i, on)| if *on { v & !(1 << i) } else { v }), held(3))
+}
+
 unsafe fn read_pads(input: InputFn, opposing: bool) -> (u8, u8, bool) {
     let held = |port: u32, id: u32| {
         let on = |i: u32| input(port, DEVICE_JOYPAD, 0, i) != 0;
@@ -489,7 +633,17 @@ pub unsafe extern "C" fn retro_run() {
             m.apply();
         }
     }
-    if let Some(input) = input {
+    if let (Some(input), true) = (input, m.second.is_some()) {
+        // Two Game Gears: each player's pad plays one console.
+        let (mine, theirs) = (pad_of(input, 0, m.s.opposing), pad_of(input, 1, m.s.opposing));
+        let (first, other) = if m.s.gg_link_controls_second { (theirs, mine) } else { (mine, theirs) };
+        m.bus.pad_dc = 0xC0 | first.0;
+        m.bus.gg_start = first.1;
+        if let Some(two) = m.second.as_mut() {
+            two.m.bus.pad_dc = 0xC0 | other.0;
+            two.m.bus.gg_start = other.1;
+        }
+    } else if let Some(input) = input {
         let (dc, dd, pause) = read_pads(input, m.s.opposing);
         m.bus.pad_dc = dc;
         m.bus.pad_dd = dd;
@@ -503,7 +657,15 @@ pub unsafe extern "C" fn retro_run() {
     if let Some(input) = input {
         read_devices(m, input);
     }
-    m.run_frame();
+    if let Some(two) = m.second.as_mut() {
+        m.m.run_frame_linked(&mut two.m);
+        two.frames += 1;
+        if two.frames % SECOND_SAVE_FRAMES == 0 {
+            two.write_save();
+        }
+    } else {
+        m.run_frame();
+    }
     // A 3-D glasses game with one eye chosen: the other eye's frames show the last one again.
     let other_eye = m.bus.glasses_used && m.s.glasses_eye.is_some_and(|left| left != m.frame_left_eye) && !m.shown.is_empty();
     if let (Some(video), true) = (video, other_eye) {
@@ -517,6 +679,7 @@ pub unsafe extern "C" fn retro_run() {
             w -= 8;
         }
         draw_crosshairs(m, &mut shown, w, h);
+        let (w, h) = compose_pair(m, &mut shown, w, h);
         if m.s.gg_ghosting > 0 && m.bus.gg {
             if m.prev.len() == shown.len() {
                 let keep = u32::from(m.s.gg_ghosting);
@@ -532,6 +695,20 @@ pub unsafe extern "C" fn retro_run() {
         m.shown_size = (w, h);
     }
     let mut samples = std::mem::take(&mut m.samples);
+    if let Some(two) = m.second.as_mut() {
+        // The two run line for line, so they make the same amount of sound.
+        let other = std::mem::take(&mut two.m.samples);
+        let n = samples.len().min(other.len());
+        match m.s.gg_link_audio {
+            1 => samples[..n].copy_from_slice(&other[..n]),
+            2 => {
+                for (a, b) in samples.iter_mut().zip(&other[..n]) {
+                    *a = ((i32::from(*a) + i32::from(*b)) / 2) as i16;
+                }
+            }
+            _ => {}
+        }
+    }
     if m.s.mono {
         for pair in samples.chunks_mut(2) {
             let v = ((i32::from(pair[0]) + i32::from(pair[1])) / 2) as i16;
@@ -568,14 +745,14 @@ pub unsafe extern "C" fn retro_run() {
 
 #[no_mangle]
 pub extern "C" fn retro_serialize_size() -> usize {
-    CORE.lock().ok().and_then(|c| c.as_ref().map(|m| m.save_state().len() + 1024)).unwrap_or(0)
+    CORE.lock().ok().and_then(|c| c.as_ref().map(|m| state_of(m).len() + 1024)).unwrap_or(0)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn retro_serialize(data: *mut c_void, size: usize) -> bool {
     let Ok(slot) = CORE.lock() else { return false };
     let Some(m) = slot.as_ref() else { return false };
-    let state = m.save_state();
+    let state = state_of(m);
     if data.is_null() || state.len() > size {
         return false;
     }
@@ -593,10 +770,34 @@ pub unsafe extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> 
     let bytes = std::slice::from_raw_parts(data as *const u8, size);
     let Ok(mut slot) = CORE.lock() else { return false };
     let Some(m) = slot.as_mut() else { return false };
+    // Two Game Gears' state is both, the first one's length in front. A single state loads into
+    // the first of two, and the first of a pair's into a single one.
+    let ok = match bytes.strip_prefix(DUAL_MAGIC.as_slice()) {
+        Some(rest) if rest.len() >= 4 => {
+            let n = u32::from_le_bytes([rest[0], rest[1], rest[2], rest[3]]) as usize;
+            let (first, other) = rest[4..].split_at(n.min(rest.len() - 4));
+            let ok = m.m.load_state(first).is_ok();
+            if let Some(two) = m.second.as_mut() {
+                let _ = two.m.load_state(other);
+            }
+            ok
+        }
+        _ => m.m.load_state(bytes).is_ok(),
+    };
     // The volumes are settings, not part of a state: put them back over the loaded machine.
-    let ok = m.load_state(bytes).is_ok();
     m.apply();
     ok
+}
+
+/// A save state: the machine's, or both Game Gears'.
+fn state_of(m: &Core) -> Vec<u8> {
+    let first = m.m.save_state();
+    let Some(two) = m.second.as_ref() else { return first };
+    let mut out = DUAL_MAGIC.to_vec();
+    out.extend_from_slice(&(first.len() as u32).to_le_bytes());
+    out.extend_from_slice(&first);
+    out.extend_from_slice(&two.m.save_state());
+    out
 }
 
 #[no_mangle]

@@ -153,6 +153,20 @@ fn settings_reach_the_game() {
 }
 
 #[test]
+fn two_game_gears_show_side_by_side_or_stacked_and_save_both() {
+    let _t = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    let (w, h, _, samples) = run_with(&[("cgear_console", "gg"), ("cgear_gg_link", "on")], 5);
+    assert_eq!((w, h), (320, 144));
+    assert!(samples > 0);
+    let (w, h, _, _) = run_with(&[("cgear_console", "gg"), ("cgear_gg_link", "on"), ("cgear_gg_link_layout", "stacked")], 5);
+    assert_eq!((w, h), (160, 288));
+    let (w, h, _, _) = run_with(&[("cgear_console", "gg"), ("cgear_gg_link", "on"), ("cgear_gg_link_show", "2")], 5);
+    assert_eq!((w, h), (160, 144));
+    let (w, h, _, _) = run_with(&[("cgear_gg_link", "on")], 5);
+    assert_eq!((w, h), (256, 192), "a Master System game stays one console");
+}
+
+#[test]
 fn a_3d_glasses_game_shows_one_eye_when_asked() {
     let _t = TURN.lock().unwrap_or_else(|e| e.into_inner());
     let colours = |opts: &[(&'static str, &str)]| -> Vec<u32> {

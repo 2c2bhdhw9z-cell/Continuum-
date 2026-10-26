@@ -104,6 +104,9 @@ pub struct Bus {
     /// CPU cycles since power-on at the start of the line now running, for the devices' timing.
     #[serde(default)]
     pub clock: u64,
+    /// The Game Gear's link port (link.rs).
+    #[serde(default)]
+    pub ext: crate::link::Ext,
     /// Port $3F, the pads' output pins (for the region check and the light phaser).
     pub io_ctrl: u8,
     /// A Game Gear: its own ports $00-$06 (the Start button, the region, the link port, stereo).
@@ -170,6 +173,7 @@ impl Bus {
             glasses_used: false,
             ports: [Port::default(), Port::default()],
             clock: 0,
+            ext: crate::link::Ext::default(),
             pad_dc: 0xFF,
             pad_dd: 0xFF,
             io_ctrl: 0xFF,
@@ -187,7 +191,7 @@ impl Bus {
     /// Port $DD: the second pad's buttons, then the two TH pins. An export console reads back
     /// what port $3F drives on a TH pin set to output, which is how games tell it from a
     /// Japanese one, whose pins read as their input level (SMS Power, "Region detection").
-    fn now(&self) -> u64 {
+    pub fn now(&self) -> u64 {
         self.clock + u64::from(self.line_cycle + IO_OFFSET)
     }
 
@@ -405,9 +409,10 @@ impl z80::Bus for Bus {
         if self.gg && p < 7 {
             return match p {
                 0 => u8::from(!self.gg_start) << 7 | u8::from(self.export) << 6,
-                1 => 0x7F,
-                2 => 0xFF,
-                5 => 0x00,
+                1..=5 => {
+                    let now = self.now();
+                    self.ext.read(p, now)
+                }
                 6 => self.psg.stereo,
                 _ => 0xFF,
             };
@@ -473,6 +478,9 @@ impl z80::Bus for Bus {
         if self.gg && p < 7 {
             if p == 6 {
                 self.psg.stereo = v;
+            } else if (1..=5).contains(&p) {
+                let now = self.now();
+                self.ext.write(p, v, now);
             }
             return;
         }

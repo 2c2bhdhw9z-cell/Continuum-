@@ -66,11 +66,11 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gearsystem | `gearsystem_lightgun_crosshair_offset_y` | Light Gun Crosshair Offset Y | done | `cgear_phaser_y` | -10,-9,-8,-7,-6,-5,-4,-3,-2,-1,... |
 | gearsystem | `gearsystem_paddle_sensitivity` | Paddle Sensitivity | done | `cgear_device_speed` | 1,2,3,4,5,6,7,8,9,10,... |
 | gearsystem | `gearsystem_sports_pad_sensitivity` | Sports Pad Sensitivity | done | `cgear_device_speed` | 1,2,3,4,5,6,7,8,9,10,... |
-| gearsystem | `gearsystem_link_enable` | Game Link Cable Enable (restart) | planned | two Game Gears on one phone (like cBoy dual.rs), and the cable to a second phone | Enabled,Disabled |
-| gearsystem | `gearsystem_link_placement` | Dual Screen Placement | planned |  | Horizontal,Vertical |
-| gearsystem | `gearsystem_link_switch` | Dual Screen Switch | planned |  | Enabled,Disabled |
-| gearsystem | `gearsystem_link_screen` | Dual Screen Selection | planned |  | Both Screens,Screen 1,Screen 2 |
-| gearsystem | `gearsystem_link_audio` | Dual Screen Audio | planned |  | Screen 1,Screen 2,Mix |
+| gearsystem | `gearsystem_link_enable` | Game Link Cable Enable (restart) | done | `cgear_gg_link` (two Game Gears on one phone; not yet two phones) | Enabled,Disabled |
+| gearsystem | `gearsystem_link_placement` | Dual Screen Placement | done | `cgear_gg_link_layout` | Horizontal,Vertical |
+| gearsystem | `gearsystem_link_switch` | Dual Screen Switch | done | `cgear_gg_link_swap` | Enabled,Disabled |
+| gearsystem | `gearsystem_link_screen` | Dual Screen Selection | done | `cgear_gg_link_show` | Both Screens,Screen 1,Screen 2 |
+| gearsystem | `gearsystem_link_audio` | Dual Screen Audio | done | `cgear_gg_link_audio` | Screen 1,Screen 2,Mix |
 | gpgx | `genesis_plus_gx_system_hw` | System Hardware | planned |  | auto,sg-1000,sg-1000 II,sg-1000 II + ram ext.,mark-III,master system,master system II,game gear,mega drive / genesis |
 | gpgx | `genesis_plus_gx_region_detect` | System Region | done | `cgear_region` + `cgear_refresh` | auto,ntsc-u,pal,ntsc-j |
 | gpgx | `genesis_plus_gx_vdp_mode` | Force VDP Mode | done | `cgear_refresh` | auto,60hz,50hz |
