@@ -111,6 +111,8 @@ impl Core {
         self.m.bus.fm.volume = s.fm_volume;
         self.m.bus.fm.chan_vol = s.fm_chan_vol;
         self.m.cpu_percent = s.cpu_percent;
+        self.m.bus.vdp.sms_tms_colours = s.tms_colours_sms.unwrap_or(!self.m.bus.sg);
+        self.m.bus.vdp.tms_from_cram = s.tms_colours_sms.is_none() && self.m.bus.gg;
         self.m.bus.vdp.gg_full = self.at_start.gg_full;
     }
 }

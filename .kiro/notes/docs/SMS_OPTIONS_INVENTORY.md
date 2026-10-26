@@ -136,7 +136,7 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | picodrive | `picodrive_region` | System Region | planned |  | Auto,Japan NTSC,Japan PAL,US,Europe |
 | picodrive | `picodrive_smstype` | Master System Type | planned | includes the SC-3000 (needs a keyboard) | Auto,Game Gear,Master System,SG-1000,SC-3000 |
 | picodrive | `picodrive_smsmapper` | Master System ROM Mapping | planned |  | Auto,Sega,Codemasters,Korea,Korea MSX,Korea X-in-1,Korea 4-Pak,Korea Janggun,Korea Nemesis,Taiwan 8K RAM |
-| picodrive | `picodrive_smstms` | Master System Palette in TMS modes | planned |  | SMS,SG-1000 |
+| picodrive | `picodrive_smstms` | Master System Palette in TMS modes | done | `cgear_tms_colours` (Auto = the real console: Master System fixed colours, SG-1000 TMS colours, Game Gear colour memory) | SMS,SG-1000 |
 | picodrive | `picodrive_ramcart` | Sega CD RAM Cart | n/a | Mega Drive or Mega-CD only | disabled,enabled |
 | picodrive | `picodrive_aspect` | Core-Provided Aspect Ratio | app | the app has its own picture shape setting | PAR,4/3,CRT |
 | picodrive | `picodrive_ggghost` | LCD Ghosting Filter | done | `cgear_gg_ghosting` (Off/Weak/Normal) | off,weak,normal |

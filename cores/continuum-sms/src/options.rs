@@ -80,6 +80,9 @@ const SPECS: &[Spec] = &[
     (c"video", c"cgear_hide_left", c"Hide the left column",
      c"Many Master System games leave an empty strip at the left; changes apply at the next start.",
      OFF_ON, c"off"),
+    (c"video", c"cgear_tms_colours", c"Colours in SG-1000 modes",
+     c"A Master System shows SG-1000 games in its own darker colours; Auto matches the console being played.",
+     &[(c"auto", c"Auto"), (c"sms", c"Master System's"), (c"sg", c"SG-1000's")], c"auto"),
     (c"video", c"cgear_gg_ghosting", c"Game Gear screen ghosting",
      c"Blends each picture with the last, as the Game Gear's slow screen did.",
      &[(c"off", c"Off"), (c"weak", c"Weak"), (c"on", c"Normal")], c"off"),
@@ -147,6 +150,8 @@ pub struct Settings {
     pub chan_vol: [u8; 4],
     pub mono: bool,
     pub opposing: bool,
+    /// The TMS9918 modes' colours: None for Auto (the console's own), or the Master System's.
+    pub tms_colours_sms: Option<bool>,
     /// The CPU's speed, percent.
     pub cpu_percent: u32,
     /// The FM chip: None for Auto (a Japanese Master System), or forced off or on.
@@ -158,7 +163,7 @@ impl Default for Settings {
     fn default() -> Settings {
         Settings {
             console: Console::Auto, japan: false, pal: false, mapper: None, sprite_limit: true, hide_left: false,
-            gg_ghosting: 0, gg_full: false, fm_chan_vol: [100; 9], lowpass: 0, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100, cpu_percent: 100,
+            gg_ghosting: 0, gg_full: false, fm_chan_vol: [100; 9], lowpass: 0, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100, cpu_percent: 100, tms_colours_sms: None,
         }
     }
 }
@@ -209,6 +214,11 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
         _ => None,
     };
     s.fm_volume = pct(c"cgear_fm_volume");
+    s.tms_colours_sms = match get(c"cgear_tms_colours").as_deref() {
+        Some("sms") => Some(true),
+        Some("sg") => Some(false),
+        _ => None,
+    };
     s.cpu_percent = get(c"cgear_cpu_speed").and_then(|v| v.parse::<u32>().ok()).unwrap_or(100).clamp(100, 300);
     s
 }

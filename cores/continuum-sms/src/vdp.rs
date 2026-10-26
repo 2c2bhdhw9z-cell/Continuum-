@@ -47,6 +47,11 @@ pub const TMS_RGB: [u32; 16] = [
     0xFC5554, 0xFF7978, 0xD4C154, 0xE6CE80, 0x21B03B, 0xC95BBA, 0xCCCCCC, 0xFFFFFF,
 ];
 
+/// What a Master System's own picture chip shows for the sixteen TMS9918 colours, as entries of
+/// its six-bit palette (two bits each of blue, green, red): it has no TMS colour table of its own
+/// and uses these fixed ones, so SG-1000 games look different on it (SMS Power, "Palette").
+const SMS_TMS: [u8; 16] = [0x00, 0x00, 0x08, 0x0C, 0x10, 0x30, 0x01, 0x3C, 0x02, 0x03, 0x05, 0x0F, 0x04, 0x33, 0x15, 0x3F];
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Vdp {
     pub vram: Vec<u8>,
@@ -78,6 +83,14 @@ pub struct Vdp {
     /// An SG-1000's TMS9918: none of the Master System's mode 4, taller modes or line interrupt.
     #[serde(default)]
     pub tms: bool,
+    /// The TMS9918 modes show the Master System chip's fixed colours rather than the TMS9918's
+    /// own (a setting; Auto has them on a Master System, as the real one).
+    #[serde(skip)]
+    pub sms_tms_colours: bool,
+    /// A Game Gear in the TMS9918 modes: each colour number is a colour memory entry, which the
+    /// game has to set itself (black otherwise), as on the real one (SMS Power, "Palette").
+    #[serde(skip)]
+    pub tms_from_cram: bool,
     /// Draw only as many sprites a line as the console can (a setting; not saved).
     #[serde(skip, default = "yes")]
     pub sprite_limit: bool,
@@ -109,6 +122,8 @@ impl Default for Vdp {
             pal: false,
             gg: false,
             gg_full: false,
+            sms_tms_colours: false,
+            tms_from_cram: false,
             tms: false,
             sprite_limit: true,
             cram_latch: 0,
@@ -455,7 +470,16 @@ impl Vdp {
         }
         let mut row = [0u32; WIDTH];
         for x in 0..WIDTH {
-            row[x] = TMS_RGB[usize::from(idx[x] & 15)];
+            let i = usize::from(idx[x] & 15);
+            row[x] = if self.tms_from_cram {
+                self.colour(i)
+            } else if self.sms_tms_colours {
+                let level = |v: u8| u32::from(v & 3) * 85;
+                let c = SMS_TMS[i];
+                level(c) << 16 | level(c >> 2) << 8 | level(c >> 4)
+            } else {
+                TMS_RGB[i]
+            };
         }
         self.put_row(line, &row);
     }
@@ -656,6 +680,18 @@ mod tests {
         v.vram[8] = 0x80;
         v.start_line(0);
         assert_eq!((px(&v, 7, 0), px(&v, 8, 0), px(&v, 9, 0)), (0x5455ED, 0xFFFFFF, 0x5455ED));
+    }
+
+    #[test]
+    fn a_master_system_shows_the_tms_colours_in_its_own_palette() {
+        let mut v = Vdp { tms: true, ..Vdp::default() };
+        v.regs[1] = 0x40; // graphics I, screen on, nothing drawn: the backdrop
+        v.regs[7] = 0x04; // dark blue
+        v.start_line(0);
+        assert_eq!(px(&v, 0, 0), 0x5455ED, "the TMS9918's own dark blue");
+        v.sms_tms_colours = true;
+        v.start_line(0);
+        assert_eq!(px(&v, 0, 0), 0x000055, "the Master System's: palette entry $10, blue at level 1 of 3");
     }
 
     #[test]
