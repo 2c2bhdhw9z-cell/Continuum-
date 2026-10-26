@@ -22,6 +22,15 @@ if [ ! -f "$DEPS/lib64/libSDL2.so" ]; then
     -DSDL_DUMMYAUDIO=ON -DSDL_TEST=OFF -DSDL_STATIC=OFF
   cmake --build sdl-build -j4 && cmake --install sdl-build
 fi
+# SDL2_ttf: MAME's SDL font module includes it (the system's freetype is enough).
+[ -d SDL2_ttf-2.22.0 ] || { curl -sSL -o SDL2_ttf.tar.gz \
+  https://github.com/libsdl-org/SDL_ttf/releases/download/release-2.22.0/SDL2_ttf-2.22.0.tar.gz && tar xzf SDL2_ttf.tar.gz; }
+if [ ! -f "$DEPS/lib64/libSDL2_ttf.so" ]; then
+  cmake -S SDL2_ttf-2.22.0 -B ttf-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$DEPS" \
+    -DCMAKE_INSTALL_LIBDIR=lib64 -DCMAKE_PREFIX_PATH="$DEPS" -DSDL2TTF_VENDORED=OFF -DSDL2TTF_HARFBUZZ=OFF \
+    -DSDL2TTF_SAMPLES=OFF
+  cmake --build ttf-build -j4 && cmake --install ttf-build
+fi
 # The stub EGL: the few symbols bgfx's EGL path names, all failing, so bgfx never uses it.
 if [ ! -f "$DEPS/lib64/libEGL.so" ]; then
   cat > egl-stub.c <<'EOF'

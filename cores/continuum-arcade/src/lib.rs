@@ -17,6 +17,7 @@ pub mod galaxian_sound;
 pub mod i8255;
 pub mod konami_sound;
 pub mod libretro;
+pub mod mb88;
 pub mod mcs48;
 pub mod namco_wsg;
 pub mod options;
