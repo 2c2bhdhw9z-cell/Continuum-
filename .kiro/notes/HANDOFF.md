@@ -27,12 +27,17 @@ on one phone, the Advance link), which may change the app and engine; it reads t
 ### Requests between chats
 **cBoy/cGear chat, 25 October, 8:54 PM Eastern: still working.** Now on cBoy's Advance wireless adapter (gba/rfu.rs, two phones over the app's link), then cGear into the app, then one build.
 
-**WARNING about his certificate (26 October, 9:46 PM):** his profile allows exactly ONE app ID, so
-every app signed with it gets that ID and iPhone treats them as the same app. He signed Continuum,
-then iCTRL's runner, then PUBG with it, and each install REPLACED the one before - Continuum and the
-runner are off his Home Screen. Anything he signs with that certificate removes Continuum again.
-Signer build 21 now warns before signing and names the app that will be replaced. The real answer is
-a profile whose ID ends in * (a wildcard); then every app keeps its own ID.
+**His certificate is FINE; Signer was wrong (26 October, 10 PM).** A profile for one exact app ID
+decides which identifier goes in an app's PERMISSIONS, not what the app must be called. zsign (so
+ESign and GBox) embeds the profile's identifier and leaves the app's own bundle id alone - that is
+why he has Husk, Signer and PUBG installed at once off one certificate. Signer was rewriting the
+bundle id to the profile's, so every app it signed took the last one's place: it removed his
+Continuum and his iCTRL runner. Fixed in Signer build 22 (62820f0): apps and their extensions keep
+their own ids and carry the certificate's identifier. Checked here: Continuum 234 keeps
+dev.continuum.app with its helper at dev.continuum.app.JITHelper, clean on rcodesign.
+https://github.com/2c2bhdhw9z-cell/snes-tas-studio/releases/download/build-22/Signer.ipa
+HE NEEDS TO REINSTALL CONTINUUM (it was replaced by PUBG); same bundle id, so his games may still
+be in place, and his backup has them if not.
 
 **Note for the owner's signing (both chats):** his certificate's profile allows only ONE app ID
 (app.sweetpotato2703.cancer3985), so any signer renames Continuum's bundle id to that and its JIT
