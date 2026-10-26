@@ -975,6 +975,10 @@ struct GameCardExtras: View {
     @State private var language: GameLanguage?
     /// A patch is being applied, away from the main thread, which a big ROM can take a moment.
     @State private var patching = false
+    /// The game the second of two Game Boys plays with this one ("" the same game), and the
+    /// other Game Boy games it can be, read when the card opens.
+    @State private var secondGame = ""
+    @State private var pairable: [LibraryEntry] = []
 
     /// What the language menu shows: the emulator, its language setting, and this game's choice
     /// ("" when it follows the emulator).
@@ -1059,6 +1063,8 @@ struct GameCardExtras: View {
 
             languagePicker
 
+            secondGameBoyPicker
+
             if !line.isEmpty {
                 SettingsNote(line)
             }
@@ -1072,6 +1078,7 @@ struct GameCardExtras: View {
         // PlayStation's in Settings), because the language belongs to the emulator.
         .task(id: "\(entry.id)#\(host.ps1CoreChoice.coreId)#\(host.coreChoiceVersion)") {
             loadLanguage()
+            loadSecondGame()
         }
     }
 
@@ -1142,6 +1149,88 @@ struct GameCardExtras: View {
                 }
             }
         }
+    }
+
+    // MARK: Two Game Boys
+
+    /// cBoy, this game's emulator.
+    private static let cBoy = CoreCatalog.continuumGb.coreId
+
+    /// Game Boy and Color games only, and only when this game opens on cBoy: two Game Boys on one
+    /// phone is cBoy's. The second one plays the same game, or another of the player's, with that
+    /// game's own save, so two games can trade (Pokémon Red with Blue).
+    @ViewBuilder
+    private var secondGameBoyPicker: some View {
+        if !pairable.isEmpty {
+            SettingsLabel("Second Game Boy plays")
+            Menu {
+                Button("The same game (its own save)") { setSecondGame(nil) }
+                ForEach(pairable, id: \.id) { other in
+                    Button(GameMetadata.displayTitle(for: other)) { setSecondGame(other) }
+                }
+            } label: {
+                HStack {
+                    Text(secondGameTitle)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(ShellPalette.text)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(ShellPalette.secondaryText)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(ShellPalette.surfaceStrong, in: RoundedRectangle(cornerRadius: 10))
+            }
+            SettingsNote("Picking a game turns on Two Game Boys for this game. Both saves are copied "
+                         + "aside first, so a trade cut off halfway loses nothing.")
+        }
+    }
+
+    private var secondGameTitle: String {
+        guard !secondGame.isEmpty else { return "The same game (its own save)" }
+        if let other = pairable.first(where: { $0.path == secondGame }) {
+            return GameMetadata.displayTitle(for: other)
+        }
+        return (secondGame as NSString).lastPathComponent
+    }
+
+    private func loadSecondGame() {
+        guard let system = CoreCatalog.system(for: entry), system == .gb || system == .gbc,
+              CoreCatalog.core(forPath: entry.path, ps1CoreId: host.ps1CoreChoice.coreId)?.coreId == Self.cBoy else {
+            pairable = []
+            return
+        }
+        pairable = host.library.filter { other in
+            other.id != entry.id
+                && [GameSystem.gb, .gbc].contains(CoreCatalog.system(for: other) ?? .nes)
+        }
+        secondGame = host.engine.gameOptionValue(coreId: Self.cBoy, game: entry.name,
+                                                 key: "cboy_dual_second_rom") ?? ""
+    }
+
+    private func setSecondGame(_ other: LibraryEntry?) {
+        do {
+            let set = { (key: String, value: String?) in
+                try host.engine.setGameOptionValue(coreId: Self.cBoy, game: entry.name, key: key, value: value)
+            }
+            if let other {
+                try set("cboy_dual", "on")
+                try set("cboy_dual_second_rom", other.path)
+                try set("cboy_dual_second_save", SaveStateDisk.batteryURL(gameId: SaveStates.gameId(for: other))?.path)
+                try set("cboy_dual_first_save", SaveStateDisk.batteryURL(gameId: SaveStates.gameId(for: entry))?.path)
+                line = "Set. Next time this game starts, the second Game Boy plays "
+                    + "\(GameMetadata.displayTitle(for: other)) with its own save. Close that game first."
+            } else {
+                try set("cboy_dual_second_rom", nil)
+                try set("cboy_dual_second_save", nil)
+                try set("cboy_dual_first_save", nil)
+                line = "Set. The second Game Boy plays this game again."
+            }
+        } catch {
+            line = "\(error)"
+        }
+        loadSecondGame()
     }
 
     // MARK: Language
