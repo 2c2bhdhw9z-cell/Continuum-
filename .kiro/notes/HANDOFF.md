@@ -91,17 +91,18 @@ identifier (what zsign, so ESign and GBox, does; his ESign installs kept built-i
 Checked here on Continuum 234: the helper survives as app.sweetpotato2703.cancer3985.JITHelper with
 the app's identifier and get-task-allow, clean on rcodesign and on Signer's own installer check.
 Also fixed: an .ipa handed over as a link read as "not a zip file". Signer's 80 engine tests pass.
-Open: his PUBG sign closes itself at "Listing ShadowTrackerExtra.app contents" (the resource list).
-Not reproduced here: stand-in apps of 45,600 files/1.5 GB and 120,000 files/4 GB (Chinese and emoji
-names, .lproj folders, a symlink) both signed fine, 198 and 478 MB peak memory. So it is the phone.
-He asked for a trace, in Settings, toggleable: SIGNER BUILD 19 has it (Settings, Troubleshooting,
-"Keep a trace while signing", on by default, and a "Last run" screen that shows, copies or shares
-it; the run before is kept, so retrying does not wipe a crash). Every line is flushed as written;
-per-file lines at most 5 a second and at least one per 2,000 files (4 GB app: 241 lines, 28 KB, no
-time cost). It records the phases, file count and free space, each part signed, every large file,
-writing the file list, and packing. Build 19 also carries the extension fix and the link fix:
-https://github.com/2c2bhdhw9z-cell/snes-tas-studio/releases/download/build-19/Signer.ipa
-Waiting on him: the trace from a failed PUBG sign.
+PUBG CRASH FOUND AND FIXED (his two traces, 9:20 and 9:21 PM, Signer build 19): both runs died at
+exactly the same place, the thirteenth of fourteen large files, about 3 GB of file data read. Cause:
+every loop that read a file a block at a time had no autorelease pool, so iOS kept every block read
+until the whole job ended; a 3.7 GB game cost about 3 GB of memory on top of the app and iOS killed
+it. Linux has no autorelease pools, which is why signing 4 GB stand-in apps here never showed it.
+Fixed in his repo (ddb4565): a `withPool` helper around all seven read loops (hashing large files,
+unpacking and packing, signing a big binary and its page hashes, importing). The trace now carries
+the app's memory on every line, so his next run proves it either way. SIGNER BUILD 20:
+https://github.com/2c2bhdhw9z-cell/snes-tas-studio/releases/download/build-20/Signer.ipa
+Also seen in his traces: each killed run leaves its unpacked copy (about 4 GB) in the phone's temp
+folder - his free space fell 40.5 to 36.6 GB between the two runs. Clearing stale temp folders at
+start-up was offered, not built.
 
 6:45 PM: he asked whether cBoy made it into 233: only partly (up to c667a2e: Advance timing, the sound chip,
 settings). The cBoy chat's build 234 (fb4af3b, 6:20 PM) has ALL of 233 (the same GameCube core, 1,726,176
