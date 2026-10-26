@@ -1,0 +1,35 @@
+{
+  "complete": false,
+  "title": "cArcade, second round (owner, 26 October 2026: '1. E. 2. C. 3. A.')",
+  "owner_answers": {
+    "1": "E: all of it, in this order, without stopping: A (more games on the three boards we have, and .7z files), B (Galaga, Dig Dug, Xevious), C (1942, Time Pilot, Pooyan, Bomb Jack), D (the 68000, then Capcom's CPS-1, then the Neo Geo).",
+    "2": "C: the owner hasn't played any arcade game in Continuum yet. So nothing is reported broken; don't put arcade tests back as 'retest'.",
+    "3": "A: ONE build when the whole job (A to D) is done. Every push until then carries [skip ci]. Do not start a build in between, even if D takes several sessions."
+  },
+  "rules": [
+    "Same rules as tasks/arcade.json (read its hard_rules): our own Rust, GPL-3.0-only, read MAME and hardware docs for behaviour, never copy code; NEVER fetch or commit a commercial ROM, test with our own programs (assembled in scratch) and test suites; a board or set is offered only once proven against MAME 0.289 on our programs; pin the comparisons as tests that run without MAME (tests/references/<board>).",
+    "Push straight to master after every green piece, [skip ci], stage files by name, git pull --rebase first.",
+    "Green before every push: cargo test --release in cores/continuum-arcade (CI doesn't run it). When touching the app wiring: the engine checks in HANDOFF.md and the arcade_frontend test.",
+    "Never touch cores/continuum-gc/** or .github/workflows/**. Never edit native/ios/build-engine.sh.",
+    "The reference MAME: build ONCE in /projects/sandbox/.scratch/mame with .kiro/notes/wip/tools/build-mame.sh, whose SOURCES now hold every driver this round needs, so it is never rebuilt mid-round."
+  ],
+  "items": [
+    {"id": "A1", "done": false, "title": "Pac-Man driver: the sets left out", "detail": "Eyes, Mr. TNT (address and data line swaps), Piranha's encrypted sets, the encrypted Ms. Pac-Man bootlegs, the two blue/green-swapped sets, Crush Roller, Ponpoko, Ms. Pac-Man Champion Edition (banked ROM) and whatever else in pacman.cpp runs on hardware we model or nearly. Each proven with our own programs against MAME."},
+    {"id": "A2", "done": false, "title": "Galaxian driver: Jump Bug, Pisces, King & Balloon and the other near-boards", "detail": "Jump Bug (graphics banks, an AY-3-8910 we already have), Pisces (extended graphics bank), King & Balloon (its speech board), and others in galaxian.cpp that are small steps from the boards we have."},
+    {"id": "A3", "done": false, "title": "Donkey Kong driver: Radar Scope, Braze's kits, dkingjr, maguila, jrking", "detail": "Radar Scope (its grid and stars, its own sound), Braze's kits (the decrypting chip), the inverted colour PROM sets, jrking's 16 KB sprites."},
+    {"id": "A4", "done": false, "title": ".7z files as well as .zip", "detail": "Our own 7z reader: the container, LZMA and LZMA2 (and whatever filters arcade 7z sets use), checked against 7z files made in scratch by a real 7-Zip. App: arcade import accepts .7z, the core's valid_extensions."},
+    {"id": "B1", "done": false, "title": "Fujitsu MB88 4-bit processor (Namco's 50xx/51xx/53xx/54xx)", "detail": "Proved instruction for instruction against MAME's trace."},
+    {"id": "B2", "done": false, "title": "Galaga", "detail": "Three Z80s, the 06xx, 51xx, 54xx, the 05xx starfield, Namco's sound chip (we have it), video. Proven against MAME, set list, switches, app."},
+    {"id": "B3", "done": false, "title": "Dig Dug", "detail": "Galaga's board family with Dig Dug's video and the 53xx."},
+    {"id": "B4", "done": false, "title": "Xevious", "detail": "Its video (two scrolling layers), the 50xx and 54xx."},
+    {"id": "C1", "done": false, "title": "Time Pilot and Pooyan", "detail": "Konami's timeplt sound board (close to Scramble's) and their video."},
+    {"id": "C2", "done": false, "title": "1942", "detail": "Two Z80s, two AY-3-8910s, Capcom's video."},
+    {"id": "C3", "done": false, "title": "Bomb Jack", "detail": "Z80s, three AY-3-8910s, Tehkan's video."},
+    {"id": "D1", "done": false, "title": "Motorola 68000, proven", "detail": "Every instruction, exceptions, cycle counts; SingleStepTests' 68000 suite (fetched into scratch, never committed), every case passing."},
+    {"id": "D2", "done": false, "title": "Yamaha YM2151 and OKI MSM6295", "detail": "CPS-1's sound chips, proven against MAME sample for sample on our programs."},
+    {"id": "D3", "done": false, "title": "Capcom CPS-1", "detail": "The board (CPS-A/CPS-B, three scroll layers, sprites, per-game settings), set list, switches, app."},
+    {"id": "D4", "done": false, "title": "Yamaha YM2610", "detail": "The Neo Geo's sound chip (FM, ADPCM-A, ADPCM-B, the SSG part from our AY)."},
+    {"id": "D5", "done": false, "title": "Neo Geo", "detail": "The board, the player's own neogeo.zip BIOS, sprites, memory card, the encrypted later games."},
+    {"id": "Z", "done": false, "title": "Write-up and the one build", "detail": "ARCADE_CORE.md, STATUS.md, TESTING.md; then the one build, check the .ipa, hand over the link and phone steps."}
+  ]
+}
