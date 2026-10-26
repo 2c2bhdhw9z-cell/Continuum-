@@ -386,7 +386,7 @@ struct PokemonBoxSheet: View {
         }
     }
 
-    private func mon(at place: BoxPlace) -> PokeMon? {
+    private func pokemon(at place: BoxPlace) -> PokeMon? {
         switch place {
         case .game(let side, let box, let slot):
             guard let read = pc[side], read.boxes.indices.contains(box),
@@ -492,7 +492,7 @@ struct PokemonBoxSheet: View {
 
     @ViewBuilder
     private var detailCard: some View {
-        if let place = chosen.last, let mon = mon(at: place) {
+        if let place = chosen.last, let mon = pokemon(at: place) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("\(mon.name)\(mon.gender.isEmpty ? "" : " \(mon.gender)")\(mon.shiny ? " ★" : "")")
                     .font(.system(size: 16, weight: .bold))
