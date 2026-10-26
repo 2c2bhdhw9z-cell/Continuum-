@@ -27,6 +27,13 @@ on one phone, the Advance link), which may change the app and engine; it reads t
 ### Requests between chats
 **cBoy/cGear chat, 25 October, 8:54 PM Eastern: still working.** Now on cBoy's Advance wireless adapter (gba/rfu.rs, two phones over the app's link), then cGear into the app, then one build.
 
+**WARNING about his certificate (26 October, 9:46 PM):** his profile allows exactly ONE app ID, so
+every app signed with it gets that ID and iPhone treats them as the same app. He signed Continuum,
+then iCTRL's runner, then PUBG with it, and each install REPLACED the one before - Continuum and the
+runner are off his Home Screen. Anything he signs with that certificate removes Continuum again.
+Signer build 21 now warns before signing and names the app that will be replaced. The real answer is
+a profile whose ID ends in * (a wildcard); then every app keeps its own ID.
+
 **Note for the owner's signing (both chats):** his certificate's profile allows only ONE app ID
 (app.sweetpotato2703.cancer3985), so any signer renames Continuum's bundle id to that and its JIT
 helper to app.sweetpotato2703.cancer3985.JITHelper. The helper is found by FILE NAME
