@@ -7,6 +7,11 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Build 243 (26 October, 3:30 PM): Pokémon Box tools and files, the rest of cGear
+Commit 5fabfd2. Checked: 0.8.0 build 243, 39 emulators, JIT helper, the Box's Tools (Team, List,
+Dashboard, Arrange, files) in the app, cGear's TV picture, sample rate, Game Gear link and devices in
+its dylib. (241 and 242 were steps on the way, not handed over.)
+
 ## Build 240 (26 October, 2:15 PM): cGear's Light Phaser, paddle, Sports Pad, two Game Gears
 Commit 44f9d1c. Checked: 0.8.0 build 240, 39 emulators, JIT helper, the new cGear settings in its
 dylib, bios.gg in the app's install list. Also in it: Korean MSX/Nemesis/Janggun wirings, Region
