@@ -439,7 +439,7 @@ impl z80::Bus for Bus {
             }
             0x41 => self.hcount,
             0x80 => self.vdp.read_data(),
-            0x81 => self.vdp.read_status(),
+            0x81 => self.vdp.read_status_at(self.line_cycle + IO_OFFSET),
             0xC0 => self.port_dc(),
             _ => self.port_dd(),
         }

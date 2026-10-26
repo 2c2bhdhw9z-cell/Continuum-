@@ -68,6 +68,14 @@ pub struct Vdp {
     pub status: u8,
     /// The line interrupt is pending.
     pub line_irq: bool,
+    /// A sprite collision on this line, which the status register shows from this cycle of the
+    /// line on (when the beam reaches it).
+    #[serde(default)]
+    col_at: Option<u32>,
+    /// Flags of the next line's start already read (and so cleared) by a read that came in the
+    /// last cycles of this line (see `read_status_at`).
+    #[serde(default)]
+    taken_next: u8,
     /// The line counter, reloaded from register 10.
     counter: u8,
     /// The line being drawn, 0 at the top of the picture.
@@ -130,6 +138,8 @@ impl Default for Vdp {
             buffer: 0,
             status: 0,
             line_irq: false,
+            col_at: None,
+            taken_next: 0,
             counter: 0xFF,
             line: 0,
             pal: false,
@@ -296,15 +306,81 @@ impl Vdp {
 
     /// Reading the status port clears it and the interrupts it raised.
     pub fn read_status(&mut self) -> u8 {
+        self.read_status_at(LINE_CYCLES - 1)
+    }
+
+    /// The status register read `t` cycles into the line (`t` may run into the next line: an IN
+    /// that starts at the end of a line reads at the start of the next). Flags appear when the
+    /// beam makes them, as FluBBa's VDP test measures: a collision where the sprites meet, and
+    /// the frame flag and the next line's sprite overflow as the V counter moves on (a read
+    /// whose I/O cycle lands there sees them).
+    pub fn read_status_at(&mut self, t: u32) -> u8 {
+        let mut v = self.status;
+        if let Some(c) = self.col_at {
+            if t >= c {
+                v |= 0x20;
+                self.col_at = None;
+            }
+        }
+        if t >= LINE_CYCLES {
+            let next = self.next_line_flags() & !self.taken_next;
+            v |= next;
+            self.taken_next |= next;
+        }
         self.latch = false;
-        let v = self.status | 0x1F;
         self.status = 0;
         self.line_irq = false;
-        v
+        v | 0x1F
+    }
+
+    /// The flags the start of the next line sets: the frame flag after the picture's last line,
+    /// and the overflow of nine sprites on the next line of the picture.
+    fn next_line_flags(&self) -> u8 {
+        let next = (self.line + 1) % self.lines();
+        let h = self.height();
+        let mut f = 0;
+        if next == h + 1 {
+            f |= 0x80;
+        }
+        if next < h && !self.tms && self.regs[0] & 0x04 != 0 && self.sprites_on(next as u8) > 8 {
+            f |= 0x40;
+        }
+        f
+    }
+
+    /// How many sprites (up to nine) the Master System's mode lists for the line whose V counter
+    /// is `vc`: sprites are looked for on every line of the picture, the screen on or off.
+    fn sprites_on(&self, vc: u8) -> usize {
+        let tall = self.height() > 192;
+        let sat = usize::from(self.regs[5] & 0x7E) << 7;
+        let size: u16 = if self.regs[1] & 0x02 != 0 { 16 } else { 8 };
+        let zoom: u16 = if self.regs[1] & 0x01 != 0 { 2 } else { 1 };
+        let mut n = 0;
+        for i in 0..64 {
+            let y = self.vram[sat + i];
+            if y == 0xD0 && !tall {
+                break;
+            }
+            if u16::from(vc.wrapping_sub(y.wrapping_add(1))) < size * zoom {
+                n += 1;
+                if n > 8 {
+                    break;
+                }
+            }
+        }
+        n
     }
 
     /// The interrupt line to the Z80: a frame interrupt with register 1 bit 5 on, or a line
     /// interrupt with register 0 bit 4 on.
+    /// The interrupt line `cycle` cycles into the line: the line interrupt reaches the Z80 one
+    /// cycle after the line starts (FluBBa's "Line IRQ HCount", which a HALT's four-cycle steps
+    /// make exact: it passes at one cycle and at no other from 0 to 4).
+    pub fn irq_at(&self, cycle: u32) -> bool {
+        (self.status & 0x80 != 0 && self.regs[1] & 0x20 != 0)
+            || (cycle >= 1 && !self.tms && self.line_irq && self.regs[0] & 0x10 != 0)
+    }
+
     pub fn irq(&self) -> bool {
         (self.status & 0x80 != 0 && self.regs[1] & 0x20 != 0) || (!self.tms && self.line_irq && self.regs[0] & 0x10 != 0)
     }
@@ -325,14 +401,28 @@ impl Vdp {
         } else {
             self.counter = self.regs[10];
         }
-        if line == h + 1 {
+        // A collision seen by this line's reads, and the next-line flags a late read did not
+        // already take.
+        if self.col_at.take().is_some() {
+            self.status |= 0x20;
+        }
+        let taken = std::mem::take(&mut self.taken_next);
+        if line == h + 1 && taken & 0x80 == 0 {
             self.status |= 0x80;
+        }
+        if line < h && !self.tms && self.regs[0] & 0x04 != 0 && taken & 0x40 == 0 && self.sprites_on(line as u8) > 8 {
+            self.status |= 0x40;
         }
         if line == 0 {
             self.vscroll = self.regs[9];
         }
         if line < h {
             self.draw_line(line);
+        } else if !self.tms && self.regs[0] & 0x04 != 0 && self.regs[1] & 0x40 != 0 {
+            // The border below and above the picture: sprites are still drawn there, unseen,
+            // and still collide (FluBBa's test: "Offscreen Y, col" on a Master System).
+            let vc = self.v_counter_of(line);
+            self.sprite_line(vc);
         }
         if self.borders > 0 {
             let n = usize::from(self.lines());
@@ -439,29 +529,41 @@ impl Vdp {
             bg[x] = c | if entry & 0x800 != 0 { 16 } else { 0 };
             front[x] = entry & 0x1000 != 0 && c != 0;
         }
-        // Sprites: the first eight on the line, in table order (the first drawn wins).
+        let (spr, taken) = self.sprite_line(line as u8);
+        for x in 0..WIDTH {
+            row[x] = if taken[x] && !front[x] { self.colour(usize::from(spr[x])) } else { self.colour(usize::from(bg[x])) };
+        }
+        // The leftmost eight pixels in the backdrop colour, when register 0 bit 5 asks.
+        if self.regs[0] & 0x20 != 0 {
+            row[..8].fill(backdrop);
+        }
+        self.put_row(line, &row);
+    }
+
+    /// The sprites on the line whose V counter is `vc`: the first eight in table order (all of
+    /// them with the limit off), the first drawn winning a pixel. Returns each pixel's sprite
+    /// colour (16-31) and whether a sprite is there; a collision is noted with the cycle of the
+    /// line at which the beam reaches it, six H counts past the pixel (FluBBa's VDP test).
+    fn sprite_line(&mut self, vc: u8) -> ([u8; WIDTH], [bool; WIDTH]) {
+        let tall = self.height() > 192;
         let sat = usize::from(self.regs[5] & 0x7E) << 7;
         let size = if self.regs[1] & 0x02 != 0 { 16 } else { 8 };
         let zoom = if self.regs[1] & 0x01 != 0 { 2 } else { 1 };
         let mut spr = [0u8; WIDTH];
         let mut taken = [false; WIDTH];
         let mut found = 0;
+        let mut first_hit: Option<usize> = None;
         for n in 0..64 {
             let y = self.vram[sat + n];
             if y == 0xD0 && !tall {
                 break;
             }
-            let top = i32::from(y) + 1;
-            let top = if top > 240 { top - 256 } else { top };
-            let dy = i32::from(line) - top;
-            if dy < 0 || dy >= size * zoom {
+            let dy = i32::from(vc.wrapping_sub(y.wrapping_add(1)));
+            if dy >= size * zoom {
                 continue;
             }
-            if found == 8 {
-                self.status |= 0x40;
-                if self.sprite_limit {
-                    break;
-                }
+            if found == 8 && self.sprite_limit {
+                break;
             }
             found += 1;
             // The first model stretches only the first four sideways (all of them down).
@@ -484,21 +586,24 @@ impl Vdp {
                 }
                 let x = x as usize;
                 if taken[x] {
-                    self.status |= 0x20;
+                    first_hit = Some(first_hit.map_or(x, |f| f.min(x)));
                     continue;
                 }
                 taken[x] = true;
                 spr[x] = 16 + c;
             }
         }
-        for x in 0..WIDTH {
-            row[x] = if taken[x] && !front[x] { self.colour(usize::from(spr[x])) } else { self.colour(usize::from(bg[x])) };
+        if let Some(x) = first_hit {
+            // Seen from the second cycle of H count x / 2 + 6: FluBBa's test has sprites meet at
+            // x 131 and reads $47 twice, the flag clear the first time and set the second.
+            let target = (x / 2 + 6) as u8;
+            let at = (0..LINE_CYCLES).find(|c| {
+                let h = self.h_counter(*c);
+                h >= target && h <= 0x93
+            });
+            self.col_at = Some(at.map_or(0, |c| c + 1));
         }
-        // The leftmost eight pixels in the backdrop colour, when register 0 bit 5 asks.
-        if self.regs[0] & 0x20 != 0 {
-            row[..8].fill(backdrop);
-        }
-        self.put_row(line, &row);
+        (spr, taken)
     }
 
     /// One line of the TMS9918's modes, which the SG-1000 has and the Master System keeps:

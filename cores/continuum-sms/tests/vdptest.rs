@@ -81,10 +81,8 @@ fn pages(rom: Vec<u8>) -> Vec<String> {
     out
 }
 
-/// What cGear passes, pinned so it only ever grows: 19 of 19, 14 of 16 and 16 of 20. The rest is
-/// when inside a line the line interrupt and the frame flag fire, and the sprite flags' position
-/// and two off-screen cases
-/// (.kiro/notes/tasks/cboy-finish.json S1).
+/// What cGear passes, pinned so it only ever grows: every test on all three pages, 19 of 19, 16 of
+/// 16 and 20 of 20 (.kiro/notes/tasks/cboy-finish.json S1).
 #[test]
 fn vdptest_results() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/VDPTest.sms");
@@ -108,6 +106,8 @@ fn vdptest_results() {
         "Offscreen X, no col:", "Sprite collision:", "Colflag keept in vbl:", "Spr col behind tile:",
         "Spr col correct line:", "Spr col many lines:", "No sprite overflow:", "Offscreen Y, no ovr:",
         "Sprite overflow:", "Ovrflag keept in vbl:", "Spr ovr correct line:", "Spr ovr many lines:",
+        "Line IRQ HCount:", "VINT flag HCount:", "Offscreen Y, col:", "Spr col correct HC:", "No disp, spr ovr:",
+        "Spr ovr correct HC:",
     ];
     for name in must {
         let line = all.lines().find(|l| l.contains(name)).unwrap_or_else(|| panic!("{name} not on any page"));

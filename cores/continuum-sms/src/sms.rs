@@ -71,7 +71,7 @@ impl Sms {
         let mut spent = self.over;
         while spent < budget {
             self.bus.line_cycle = spent * 100 / k;
-            self.cpu.set_irq(self.bus.vdp.irq());
+            self.cpu.set_irq(self.bus.vdp.irq_at(self.bus.line_cycle));
             spent += self.cpu.step(&mut self.bus);
             if self.bus.ext.nmi {
                 self.bus.ext.nmi = false;
