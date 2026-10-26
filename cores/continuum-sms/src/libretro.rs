@@ -60,6 +60,8 @@ type InputFn = unsafe extern "C" fn(u32, u32, u32, u32) -> i16;
 const ENV_SET_PIXEL_FORMAT: u32 = 10;
 const PIXEL_FORMAT_XRGB8888: u32 = 1;
 const DEVICE_JOYPAD: u32 = 1;
+const DEVICE_ANALOG: u32 = 5;
+const DEVICE_POINTER: u32 = 6;
 const MEMORY_SAVE_RAM: u32 = 0;
 const MEMORY_SYSTEM_RAM: u32 = 2;
 const MEMORY_VIDEO_RAM: u32 = 3;
@@ -115,6 +117,10 @@ impl Core {
         self.m.bus.fm.volume = s.fm_volume;
         self.m.bus.fm.chan_vol = s.fm_chan_vol;
         self.m.cpu_percent = s.cpu_percent;
+        for (port, device) in self.m.bus.ports.iter_mut().zip(s.ports) {
+            port.device = device;
+            port.speed = s.device_speed;
+        }
         self.m.bus.vdp.sms_tms_colours = s.tms_colours_sms.unwrap_or(!self.m.bus.sg);
         self.m.bus.vdp.tms_from_cram = s.tms_colours_sms.is_none() && self.m.bus.gg;
         self.m.bus.vdp.gg_full = self.at_start.gg_full;
@@ -346,6 +352,73 @@ unsafe fn is_game_gear(rom: &[u8], path: *const c_char) -> bool {
 /// The pads as the console's ports read them, from the two players' buttons: $DC holds the
 /// first pad and the second's Up and Down, $DD the second's other buttons. A held button reads 0.
 /// Start on either pad is the console's Pause button.
+/// Where the console's picture starts in the picture handed to the app (the border, or the left
+/// column cut off).
+fn picture_offset(m: &Core) -> (i32, i32) {
+    if m.bus.gg {
+        return (0, 0);
+    }
+    if m.bus.vdp.borders > 0 {
+        let left = if m.bus.vdp.borders == 2 { crate::vdp::Vdp::SIDE_BORDERS.0 as i32 } else { 0 };
+        return (left, m.bus.vdp.border_lines().0 as i32);
+    }
+    if m.at_start.hide_left { (-8, 0) } else { (0, 0) }
+}
+
+/// The controls for whatever is plugged into the ports besides a pad: the stick, the D-pad, the
+/// buttons, and a finger on the picture for the Light Phaser in port 1.
+unsafe fn read_devices(m: &mut Core, input: InputFn) {
+    let lines = f32::from(m.bus.vdp.height());
+    let (ox, oy) = picture_offset(m);
+    let (w, h) = m.shown_size;
+    let (adx, ady) = m.s.phaser_offset;
+    for p in 0..2u32 {
+        if m.bus.ports[p as usize].device == crate::peripherals::Device::Pad {
+            continue;
+        }
+        let pad = |id: u32| input(p, DEVICE_JOYPAD, 0, id) != 0;
+        let axis = |id: u32| f32::from(input(p, DEVICE_ANALOG, 0, id)) / 32767.0;
+        let touch = if p == 0 && w > 0 && input(0, DEVICE_POINTER, 0, 2) != 0 {
+            let fx = (f32::from(input(0, DEVICE_POINTER, 0, 0)) + 32767.0) / 65534.0;
+            let fy = (f32::from(input(0, DEVICE_POINTER, 0, 1)) + 32767.0) / 65534.0;
+            Some((fx * w as f32 - ox as f32, fy * h as f32 - oy as f32))
+        } else {
+            None
+        };
+        let c = crate::peripherals::Controls {
+            up: pad(4),
+            down: pad(5),
+            left: pad(6),
+            right: pad(7),
+            b1: pad(0) || pad(1),
+            b2: pad(8),
+            stick: (axis(0), axis(1)),
+            touch,
+        };
+        let port = &mut m.bus.ports[p as usize];
+        // The aim adjustment moves where the console sees the gun, not the crosshair.
+        port.aim.0 -= adx as f32;
+        port.aim.1 -= ady as f32;
+        port.frame(&c, lines);
+        port.aim.0 += adx as f32;
+        port.aim.1 += ady as f32;
+    }
+}
+
+fn draw_crosshairs(m: &Core, px: &mut [u32], w: usize, h: usize) {
+    if !m.s.crosshair || m.bus.gg {
+        return;
+    }
+    let (ox, oy) = picture_offset(m);
+    let (adx, ady) = m.s.phaser_offset;
+    for port in &m.bus.ports {
+        if port.device == crate::peripherals::Device::Phaser && port.aim_on {
+            let (x, y) = (port.aim.0 as i32 - adx + ox, port.aim.1 as i32 - ady + oy);
+            crate::peripherals::draw_crosshair(px, w, h, x, y, m.s.crosshair_square, m.s.crosshair_colour);
+        }
+    }
+}
+
 unsafe fn read_pads(input: InputFn, opposing: bool) -> (u8, u8, bool) {
     let held = |port: u32, id: u32| {
         let on = |i: u32| input(port, DEVICE_JOYPAD, 0, i) != 0;
@@ -396,6 +469,9 @@ pub unsafe extern "C" fn retro_run() {
             m.set_pause(pause);
         }
     }
+    if let Some(input) = input {
+        read_devices(m, input);
+    }
     m.run_frame();
     // A 3-D glasses game with one eye chosen: the other eye's frames show the last one again.
     let other_eye = m.bus.glasses_used && m.s.glasses_eye.is_some_and(|left| left != m.frame_left_eye) && !m.shown.is_empty();
@@ -409,6 +485,7 @@ pub unsafe extern "C" fn retro_run() {
             shown = shown.chunks(w).flat_map(|row| row[8..].iter().copied()).collect();
             w -= 8;
         }
+        draw_crosshairs(m, &mut shown, w, h);
         if m.s.gg_ghosting > 0 && m.bus.gg {
             if m.prev.len() == shown.len() {
                 let keep = u32::from(m.s.gg_ghosting);

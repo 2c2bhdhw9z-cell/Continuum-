@@ -19,6 +19,7 @@ pub mod bus;
 pub mod fm;
 pub mod libretro;
 pub mod options;
+pub mod peripherals;
 pub mod psg;
 pub mod sms;
 pub mod vdp;

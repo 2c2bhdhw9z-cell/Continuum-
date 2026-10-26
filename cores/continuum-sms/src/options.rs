@@ -61,6 +61,17 @@ const CATEGORIES: &[(&CStr, &CStr, &CStr)] = &[
 const OFF_ON: Values = &[(c"off", c"Off"), (c"on", c"On")];
 const PCT: Values = &[(c"100", c"100%"), (c"75", c"75%"), (c"50", c"50%"), (c"25", c"25%"), (c"0", c"Off")];
 
+const DEVICES: Values = &[(c"pad", c"Pad"), (c"phaser", c"Light Phaser"), (c"paddle", c"Paddle"), (c"sports", c"Sports Pad")];
+const OFF_ON_DEFAULT_ON: Values = &[(c"on", c"On"), (c"off", c"Off")];
+const OFFSETS: Values = &[
+    (c"-10", c"-10"), (c"-8", c"-8"), (c"-6", c"-6"), (c"-4", c"-4"), (c"-2", c"-2"), (c"0", c"0"),
+    (c"2", c"+2"), (c"4", c"+4"), (c"6", c"+6"), (c"8", c"+8"), (c"10", c"+10"),
+];
+const SPEEDS: Values = &[
+    (c"1", c"1"), (c"2", c"2"), (c"3", c"3"), (c"4", c"4"), (c"5", c"5"), (c"6", c"6"), (c"7", c"7"),
+    (c"8", c"8"), (c"9", c"9"), (c"10", c"10"),
+];
+
 /// An equaliser band's level, percent.
 const EQ: Values = &[(c"150", c"150%"), (c"125", c"125%"), (c"100", c"100%"), (c"75", c"75%"), (c"50", c"50%"), (c"25", c"25%"), (c"0", c"Off")];
 
@@ -128,6 +139,21 @@ const SPECS: &[Spec] = &[
     (c"system", c"cgear_cpu_speed", c"CPU speed",
      c"Faster than the real console takes away slowdown in busy scenes; a few games then run too fast.",
      &[(c"100", c"Real (100%)"), (c"150", c"150%"), (c"200", c"200%"), (c"300", c"300%")], c"100"),
+    (c"input", c"cgear_port1", c"Controller port 1",
+     c"Light Phaser games, the paddle and the Sports Pad trackball; the stick or D-pad works them.",
+     DEVICES, c"pad"),
+    (c"input", c"cgear_port2", c"Controller port 2", c"", DEVICES, c"pad"),
+    (c"input", c"cgear_crosshair", c"Light Phaser crosshair", c"Shows where the gun points.", OFF_ON_DEFAULT_ON, c"on"),
+    (c"input", c"cgear_crosshair_shape", c"Crosshair shape", c"",
+     &[(c"cross", c"Cross"), (c"square", c"Square")], c"cross"),
+    (c"input", c"cgear_crosshair_colour", c"Crosshair colour", c"",
+     &[(c"white", c"White"), (c"black", c"Black"), (c"red", c"Red"), (c"green", c"Green"), (c"blue", c"Blue"),
+       (c"yellow", c"Yellow"), (c"magenta", c"Magenta"), (c"cyan", c"Cyan")], c"white"),
+    (c"input", c"cgear_phaser_x", c"Light Phaser aim, sideways",
+     c"Moves where shots land, if a game hits a little to one side.", OFFSETS, c"0"),
+    (c"input", c"cgear_phaser_y", c"Light Phaser aim, up and down", c"", OFFSETS, c"0"),
+    (c"input", c"cgear_device_speed", c"Paddle and trackball speed",
+     c"How fast the stick turns the paddle, rolls the trackball or moves the gun.", SPEEDS, c"5"),
     (c"input", c"cgear_opposing", c"Allow opposite directions",
      c"Up with Down, Left with Right; the pad itself can't, and some games glitch with it.",
      OFF_ON, c"off"),
@@ -166,6 +192,14 @@ pub struct Settings {
     pub tms_colours_sms: Option<bool>,
     /// 3-D glasses games: None shows both eyes' pictures, Some(true) only the left's.
     pub glasses_eye: Option<bool>,
+    /// What is plugged into each controller port.
+    pub ports: [crate::peripherals::Device; 2],
+    pub crosshair: bool,
+    pub crosshair_square: bool,
+    pub crosshair_colour: u32,
+    /// Moves the Light Phaser's aim, pixels.
+    pub phaser_offset: (i32, i32),
+    pub device_speed: u8,
     /// The equaliser: bass, middle and treble, percent.
     pub eq: [u8; 3],
     /// The TV border: 0 none, 1 above and below, 2 all round.
@@ -181,7 +215,7 @@ impl Default for Settings {
     fn default() -> Settings {
         Settings {
             console: Console::Auto, japan: false, pal: false, mapper: None, sprite_limit: true, hide_left: false,
-            gg_ghosting: 0, gg_full: false, fm_chan_vol: [100; 9], lowpass: 0, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100, cpu_percent: 100, tms_colours_sms: None, borders: 0, glasses_eye: None, eq: [100; 3],
+            gg_ghosting: 0, gg_full: false, fm_chan_vol: [100; 9], lowpass: 0, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100, cpu_percent: 100, tms_colours_sms: None, borders: 0, glasses_eye: None, eq: [100; 3], ports: [crate::peripherals::Device::Pad; 2], crosshair: true, crosshair_square: false, crosshair_colour: 0xFFFFFF, phaser_offset: (0, 0), device_speed: 5,
         }
     }
 }
@@ -242,6 +276,31 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
         Some("right") => Some(false),
         _ => None,
     };
+    let device = |k: &CStr| {
+        use crate::peripherals::Device;
+        match get(k).as_deref() {
+            Some("phaser") => Device::Phaser,
+            Some("paddle") => Device::Paddle,
+            Some("sports") => Device::SportsPad,
+            _ => Device::Pad,
+        }
+    };
+    s.ports = [device(c"cgear_port1"), device(c"cgear_port2")];
+    s.crosshair = on(c"cgear_crosshair", true);
+    s.crosshair_square = get(c"cgear_crosshair_shape").is_some_and(|v| v == "square");
+    s.crosshair_colour = match get(c"cgear_crosshair_colour").as_deref() {
+        Some("black") => 0x000000,
+        Some("red") => 0xFF0000,
+        Some("green") => 0x00FF00,
+        Some("blue") => 0x0000FF,
+        Some("yellow") => 0xFFFF00,
+        Some("magenta") => 0xFF00FF,
+        Some("cyan") => 0x00FFFF,
+        _ => 0xFFFFFF,
+    };
+    let offset = |k: &CStr| get(k).and_then(|v| v.parse::<i32>().ok()).unwrap_or(0).clamp(-10, 10);
+    s.phaser_offset = (offset(c"cgear_phaser_x"), offset(c"cgear_phaser_y"));
+    s.device_speed = get(c"cgear_device_speed").and_then(|v| v.parse::<u8>().ok()).unwrap_or(5).clamp(1, 10);
     let band = |k: &CStr| get(k).and_then(|v| v.parse::<u8>().ok()).unwrap_or(100).min(150);
     s.eq = [band(c"cgear_eq_low"), band(c"cgear_eq_mid"), band(c"cgear_eq_high")];
     s.borders = match get(c"cgear_borders").as_deref() {

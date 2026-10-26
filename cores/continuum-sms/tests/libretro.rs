@@ -147,6 +147,9 @@ fn settings_reach_the_game() {
     let (w, h, px, _) = run_with(&[("cgear_borders", "full")], 5);
     assert_eq!((w, h), (13 + 256 + 15, 27 + 192 + 24), "the TV's border all round");
     assert_eq!(px[0], px[27 * w as usize + 13 + 100], "in the backdrop colour the game set (blue)");
+    let (w, _, px, _) = run_with(&[("cgear_port1", "phaser"), ("cgear_crosshair_colour", "red")], 5);
+    assert_eq!(px[96 * w as usize + 128 + 3], 0xFF0000, "the crosshair where the gun starts, mid-picture");
+    assert_eq!(px[96 * w as usize + 128 + 7], 0x0000FF);
 }
 
 #[test]

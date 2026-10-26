@@ -58,14 +58,14 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gearsystem | `gearsystem_psg_volume` | PSG Volume | done | `cgear_volume` | 0,10,20,30,40,50,60,70,80,90,... |
 | gearsystem | `gearsystem_fm_volume` | FM Volume | done | `cgear_fm_volume` | 0,10,20,30,40,50,60,70,80,90,... |
 | gearsystem | `gearsystem_up_down_allowed` | Allow Up+Down / Left+Right | done | `cgear_opposing` | Disabled,Enabled |
-| gearsystem | `gearsystem_lightgun_input` | Light Gun Input | planned |  | Light Gun,Touchscreen |
-| gearsystem | `gearsystem_lightgun_crosshair` | Light Gun Crosshair | planned |  | Disabled,Enabled |
-| gearsystem | `gearsystem_lightgun_shape` | Light Gun Crosshair Shape | planned |  | Cross,Square |
-| gearsystem | `gearsystem_lightgun_color` | Light Gun Crosshair Color | planned |  | White,Black,Red,Green,Blue,Yellow,Magenta,Cyan |
-| gearsystem | `gearsystem_lightgun_crosshair_offset_x` | Light Gun Crosshair Offset X | planned |  | -10,-9,-8,-7,-6,-5,-4,-3,-2,-1,... |
-| gearsystem | `gearsystem_lightgun_crosshair_offset_y` | Light Gun Crosshair Offset Y | planned |  | -10,-9,-8,-7,-6,-5,-4,-3,-2,-1,... |
-| gearsystem | `gearsystem_paddle_sensitivity` | Paddle Sensitivity | planned |  | 1,2,3,4,5,6,7,8,9,10,... |
-| gearsystem | `gearsystem_sports_pad_sensitivity` | Sports Pad Sensitivity | planned |  | 1,2,3,4,5,6,7,8,9,10,... |
+| gearsystem | `gearsystem_lightgun_input` | Light Gun Input | done | `cgear_port1`/`cgear_port2` = Light Phaser; stick, D-pad, or a touch once the app sends one | Light Gun,Touchscreen |
+| gearsystem | `gearsystem_lightgun_crosshair` | Light Gun Crosshair | done | `cgear_crosshair` | Disabled,Enabled |
+| gearsystem | `gearsystem_lightgun_shape` | Light Gun Crosshair Shape | done | `cgear_crosshair_shape` | Cross,Square |
+| gearsystem | `gearsystem_lightgun_color` | Light Gun Crosshair Color | done | `cgear_crosshair_colour` | White,Black,Red,Green,Blue,Yellow,Magenta,Cyan |
+| gearsystem | `gearsystem_lightgun_crosshair_offset_x` | Light Gun Crosshair Offset X | done | `cgear_phaser_x` | -10,-9,-8,-7,-6,-5,-4,-3,-2,-1,... |
+| gearsystem | `gearsystem_lightgun_crosshair_offset_y` | Light Gun Crosshair Offset Y | done | `cgear_phaser_y` | -10,-9,-8,-7,-6,-5,-4,-3,-2,-1,... |
+| gearsystem | `gearsystem_paddle_sensitivity` | Paddle Sensitivity | done | `cgear_device_speed` | 1,2,3,4,5,6,7,8,9,10,... |
+| gearsystem | `gearsystem_sports_pad_sensitivity` | Sports Pad Sensitivity | done | `cgear_device_speed` | 1,2,3,4,5,6,7,8,9,10,... |
 | gearsystem | `gearsystem_link_enable` | Game Link Cable Enable (restart) | planned | two Game Gears on one phone (like cBoy dual.rs), and the cable to a second phone | Enabled,Disabled |
 | gearsystem | `gearsystem_link_placement` | Dual Screen Placement | planned |  | Horizontal,Vertical |
 | gearsystem | `gearsystem_link_switch` | Dual Screen Switch | planned |  | Enabled,Disabled |
@@ -102,8 +102,8 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gpgx | `genesis_plus_gx_audio_eq_low` | EQ Low | done | `cgear_eq_low` (0-150%) | 0,5,10,15,20,25,30,35,40,45,... |
 | gpgx | `genesis_plus_gx_audio_eq_mid` | EQ Mid | done | `cgear_eq_mid` | 0,5,10,15,20,25,30,35,40,45,... |
 | gpgx | `genesis_plus_gx_audio_eq_high` | EQ High | done | `cgear_eq_high` | 0,5,10,15,20,25,30,35,40,45,... |
-| gpgx | `genesis_plus_gx_gun_input` | Light Gun Input | planned |  | lightgun,touchscreen |
-| gpgx | `genesis_plus_gx_gun_cursor` | Show Light Gun Crosshair | planned |  | disabled,enabled |
+| gpgx | `genesis_plus_gx_gun_input` | Light Gun Input | done | `cgear_port1` Light Phaser | lightgun,touchscreen |
+| gpgx | `genesis_plus_gx_gun_cursor` | Show Light Gun Crosshair | done | `cgear_crosshair` | disabled,enabled |
 | gpgx | `genesis_plus_gx_invert_mouse` | Invert Mouse Y-Axis | n/a | Mega Drive or Mega-CD only | disabled,enabled |
 | gpgx | `genesis_plus_gx_no_sprite_limit` | Remove Per-Line Sprite Limit | done | `cgear_sprite_limit` | disabled,enabled |
 | gpgx | `genesis_plus_gx_enhanced_vscroll` | Enhanced per-tile vertical scroll | n/a | Mega Drive or Mega-CD only | disabled,enabled |
@@ -147,7 +147,7 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | picodrive | `picodrive_fmchip` | Mega Drive FM chip type | n/a | Mega Drive or Mega-CD only | ym2612,ym3438 |
 | picodrive | `picodrive_audio_filter` | Audio Filter | done | `cgear_lowpass` | disabled,low-pass |
 | picodrive | `picodrive_lowpass_range` | Low-Pass Filter % | done | `cgear_lowpass` | 5,10,15,20,25,30,35,40,45,50,... |
-| picodrive | `picodrive_input1` | Input Device 1 | planned | what is plugged into each port (pad, light phaser, paddle, sports pad, keyboard) | 3 button pad,6 button pad,team player,4way play,None |
+| picodrive | `picodrive_input1` | Input Device 1 | done | `cgear_port1`/`cgear_port2` (Pad, Light Phaser, Paddle, Sports Pad) | 3 button pad,6 button pad,team player,4way play,None |
 | picodrive | `picodrive_input2` | Input Device 2 | n/a | Mega Drive or Mega-CD only | 3 button pad,6 button pad,None |
 | picodrive | `picodrive_drc` | Dynamic Recompilers | n/a | Mega Drive or Mega-CD only | enabled,disabled |
 | picodrive | `picodrive_frameskip` | Frameskip | app | the app has its own frame skip | disabled,auto,manual |

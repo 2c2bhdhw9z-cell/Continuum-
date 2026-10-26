@@ -16,6 +16,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::fm::Fm;
+use crate::peripherals::{self, Device, Port};
 use crate::psg::Psg;
 use crate::vdp::Vdp;
 use crate::z80;
@@ -83,6 +84,12 @@ pub struct Bus {
     /// The pads, as their ports read (a bit is 0 while its button is held): $DC and $DD.
     pub pad_dc: u8,
     pub pad_dd: u8,
+    /// What is plugged into the two controller ports besides a pad (peripherals.rs).
+    #[serde(default)]
+    pub ports: [Port; 2],
+    /// CPU cycles since power-on at the start of the line now running, for the devices' timing.
+    #[serde(default)]
+    pub clock: u64,
     /// Port $3F, the pads' output pins (for the region check and the light phaser).
     pub io_ctrl: u8,
     /// A Game Gear: its own ports $00-$06 (the Start button, the region, the link port, stereo).
@@ -141,6 +148,8 @@ impl Bus {
             audio_ctrl: 0,
             glasses_left: false,
             glasses_used: false,
+            ports: [Port::default(), Port::default()],
+            clock: 0,
             pad_dc: 0xFF,
             pad_dd: 0xFF,
             io_ctrl: 0xFF,
@@ -158,8 +167,62 @@ impl Bus {
     /// Port $DD: the second pad's buttons, then the two TH pins. An export console reads back
     /// what port $3F drives on a TH pin set to output, which is how games tell it from a
     /// Japanese one, whose pins read as their input level (SMS Power, "Region detection").
-    fn port_dd(&self) -> u8 {
-        let mut v = self.pad_dd;
+    fn now(&self) -> u64 {
+        self.clock + u64::from(self.line_cycle + IO_OFFSET)
+    }
+
+    /// What the console drives on port `p`'s TH pin, when it does: an export Master System with
+    /// that pin set to output.
+    fn th_out(&self, p: usize) -> Option<bool> {
+        let (dir, level) = if p == 0 { (0x02, 0x20) } else { (0x08, 0x80) };
+        (self.export && !self.sg && !self.gg && self.io_ctrl & dir == 0).then_some(self.io_ctrl & level != 0)
+    }
+
+    /// Port `p`'s six lines: the pad's, or the device's plugged in there.
+    fn lines(&self, p: usize) -> u8 {
+        if self.gg || self.ports[p].device == Device::Pad {
+            return if p == 0 { self.pad_dc & 0x3F } else { (self.pad_dc >> 6) | (self.pad_dd & 0x0F) << 2 };
+        }
+        self.ports[p].lines(self.now(), self.th_out(p))
+    }
+
+    fn port_dc(&self) -> u8 {
+        self.lines(0) | (self.lines(1) & 0x03) << 6
+    }
+
+    /// A Light Phaser in port `p` sees the beam: on a line near where it points, just after the
+    /// beam has passed that spot, where the picture is bright. The H counter is latched then
+    /// (SMS Power, "Light Phaser"), at the spot it points to.
+    fn phaser_lit(&mut self, p: usize) -> bool {
+        let port = &self.ports[p];
+        if self.gg || port.device != Device::Phaser || !port.aim_on {
+            return false;
+        }
+        let line = i32::from(self.vdp.line);
+        let (ax, ay) = (port.aim.0 as i32, port.aim.1 as i32);
+        if line >= i32::from(self.vdp.height()) || (line - ay).abs() > peripherals::PHASER_LINES {
+            return false;
+        }
+        let h = self.vdp.h_counter(self.line_cycle + IO_OFFSET);
+        let beam = 2 * i32::from(h);
+        if h > 0x93 || beam < ax || beam > ax + peripherals::PHASER_WIDTH {
+            return false;
+        }
+        let at = line as usize * crate::vdp::WIDTH + ax.clamp(0, 255) as usize;
+        if !self.vdp.frame.get(at).is_some_and(|c| peripherals::bright(*c)) {
+            return false;
+        }
+        self.hcount = (ax.clamp(0, 255) / 2) as u8;
+        true
+    }
+
+    fn port_dd(&mut self) -> u8 {
+        let mut v = 0xF0 | self.lines(1) >> 2;
+        for p in 0..2 {
+            if self.phaser_lit(p) {
+                v &= !(0x40 << p);
+            }
+        }
         if self.export && !self.sg {
             if self.io_ctrl & 0x02 == 0 {
                 v = (v & !0x40) | (self.io_ctrl & 0x20) << 1;
@@ -319,7 +382,7 @@ impl z80::Bus for Bus {
             0x41 => self.hcount,
             0x80 => self.vdp.read_data(),
             0x81 => self.vdp.read_status(),
-            0xC0 => self.pad_dc,
+            0xC0 => self.port_dc(),
             _ => self.port_dd(),
         }
     }
@@ -372,6 +435,13 @@ impl z80::Bus for Bus {
                     self.hcount = self.vdp.h_counter(self.line_cycle + IO_OFFSET);
                 }
                 self.io_ctrl = v;
+                // A Sports Pad steps through its nibbles as the console drives TH.
+                let t = self.now();
+                for p in 0..2 {
+                    if let Some(level) = self.th_out(p) {
+                        self.ports[p].th_driven(level, t);
+                    }
+                }
             }
             0x40 | 0x41 => self.psg.write(v),
             0x80 => self.vdp.write_data(v),

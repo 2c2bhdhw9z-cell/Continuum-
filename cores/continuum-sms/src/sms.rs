@@ -75,6 +75,7 @@ impl Sms {
             spent += self.cpu.step(&mut self.bus);
         }
         self.over = spent - budget;
+        self.bus.clock += u64::from(LINE_CYCLES);
         let hz = if self.bus.vdp.pal { CPU_HZ_PAL } else { CPU_HZ_NTSC };
         let start = self.samples.len();
         self.bus.psg.run(LINE_CYCLES, hz, self.rate, &mut self.samples);
@@ -191,6 +192,39 @@ mod tests {
         };
         let (a, b) = (loops(100), loops(200));
         assert!((b as f32 / a as f32 - 2.0).abs() < 0.01, "twice the work: {a} {b}");
+    }
+
+    /// A Light Phaser game in miniature: the picture all `colour`, then it waits for the gun's
+    /// sensor (TH, port $DD bit 6) and keeps the V and H counters it sees then at $C000.
+    fn phaser_game(colour: u8) -> Sms {
+        let code: &[u8] = &[
+            0xF3,
+            0x3E, 0x04, 0xD3, 0xBF, 0x3E, 0x80, 0xD3, 0xBF, // register 0: mode 4
+            0x3E, 0x00, 0xD3, 0xBF, 0x3E, 0x87, 0xD3, 0xBF, // register 7: border colour 0
+            0x3E, 0x00, 0xD3, 0xBF, 0x3E, 0xC0, 0xD3, 0xBF, 0x3E, colour, 0xD3, 0xBE, // colour 0
+            0x3E, 0x10, 0xD3, 0xBF, 0x3E, 0xC0, 0xD3, 0xBF, 0x3E, colour, 0xD3, 0xBE, // colour 16
+            0x3E, 0x40, 0xD3, 0xBF, 0x3E, 0x81, 0xD3, 0xBF, // register 1: screen on
+            0xDB, 0xDD, 0xE6, 0x40, 0x20, 0xFA, // wait: IN A,($DD) / AND $40 / JR NZ,wait
+            0xDB, 0x7E, 0x32, 0x00, 0xC0, 0xDB, 0x7F, 0x32, 0x01, 0xC0, 0x18, 0xFE,
+        ];
+        let mut rom = vec![0u8; 0x8000];
+        rom[..code.len()].copy_from_slice(code);
+        let mut m = Sms::new(rom);
+        m.bus.ram[0] = 0xEE;
+        m.bus.ports[0].device = crate::peripherals::Device::Phaser;
+        m.bus.ports[0].aim = (100.0, 50.0);
+        m
+    }
+
+    #[test]
+    fn the_light_phaser_sees_a_bright_picture_where_it_points_and_latches_the_h_counter() {
+        let mut m = phaser_game(0x3F);
+        m.run_frame();
+        assert_eq!(m.bus.ram[0], 50 - crate::peripherals::PHASER_LINES as u8, "the first line it sees");
+        assert_eq!(m.bus.ram[1], 50, "the H counter latched at x 100 (two pixels a count)");
+        let mut dark = phaser_game(0x00);
+        dark.run_frame();
+        assert_eq!(dark.bus.ram[0], 0xEE, "a dark picture: nothing seen");
     }
 
     #[test]
