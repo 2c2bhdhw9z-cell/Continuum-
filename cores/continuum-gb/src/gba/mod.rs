@@ -8,6 +8,7 @@ pub mod mp2k;
 pub mod ppu;
 pub mod gpio;
 pub mod save;
+pub mod rfu;
 pub mod sio;
 
 use serde::{Deserialize, Serialize};

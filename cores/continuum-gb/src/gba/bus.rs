@@ -299,6 +299,15 @@ pub struct Bus {
     /// The link port's transfer, and whether a second phone is on the cable (`sio.rs`).
     #[serde(skip)]
     pub sio: super::sio::Sio,
+    /// The Wireless Adapter on the link port (`rfu.rs`), and whether the setting lets a game
+    /// that looks for one find it.
+    #[serde(skip)]
+    pub rfu: super::rfu::Rfu,
+    #[serde(skip)]
+    pub rfu_allowed: bool,
+    /// RCNT's SD pin was driven high in general-purpose mode: the start of the adapter's reset.
+    #[serde(skip)]
+    rfu_sd_high: bool,
 }
 
 impl Bus {
@@ -320,6 +329,9 @@ impl Bus {
             vba_compat: true,
             gbp_i: 0,
             sio: Default::default(),
+            rfu: Default::default(),
+            rfu_allowed: true,
+            rfu_sd_high: false,
             gbp_motor: false,
             bios: mini_bios(),
             real_bios: false,
@@ -991,6 +1003,18 @@ impl Bus {
                 }
             }
             0x130 => {}
+            0x134 => {
+                self.set_io16(a, v);
+                // General-purpose mode with SD an output: high then low resets the adapter,
+                // which is how a game looks for one (gba-link-connection's pingAdapter).
+                if v & 0xC000 == 0x8000 && v & 0x20 != 0 {
+                    let high = v & 0x02 != 0;
+                    if self.rfu_sd_high && !high && self.rfu_allowed {
+                        self.rfu.reset();
+                    }
+                    self.rfu_sd_high = high;
+                }
+            }
             0x202 => {
                 let cur = self.io16(0x202);
                 self.set_io16(0x202, cur & !v);

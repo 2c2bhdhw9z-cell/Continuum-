@@ -256,6 +256,9 @@ const SPECS: &[Spec] = &[
     (c"link", c"cboy_link", c"Link cable",
      c"Loopback is for test programs; to link two phones, choose Link cable to a second phone in a game's ... menu.",
      &[(c"off", c"Unplugged"), (c"loopback", c"Loopback")], c"off"),
+    (c"link", c"cboy_gba_link_port", c"Advance link port",
+     c"Pokemon FireRed, LeafGreen and Emerald talk to the other phone through a Wireless Adapter here.",
+     &[(c"auto", c"Auto (a Wireless Adapter for games that look for one)"), (c"cable", c"Link cable only")], c"auto"),
     (c"link", c"cboy_dual", c"Two Game Boys on this phone",
      c"Two consoles play this game, joined by a link cable, each with its own save; changes apply at the next start.",
      OFF_ON, c"off"),
@@ -491,6 +494,8 @@ pub struct Settings {
     pub interference: u8,
     /// "Picture drawing": the exact (experimental) pixel-by-pixel drawer instead of the standard one.
     pub exact_renderer: bool,
+    /// A game that looks for an Advance Wireless Adapter finds one (`gba/rfu.rs`).
+    pub gba_wireless: bool,
     /// Two Game Boys on this phone, joined by a cable (`dual.rs`).
     pub dual: bool,
     /// Their screens side by side instead of one above the other.
@@ -557,6 +562,7 @@ impl Default for Settings {
             opposing: false, stick_dpad: false, sprite_limit: true, sgb_pal: false, auto_sgb: false, cgb_rev0: false, cgb_rev: crate::ppu::CgbRev::E, stick_deadzone: 0.15, swap_stick: false,
             frameskip_threshold: 85, frameskip_interval: 1, gba_obj_limit: false, force_color: false, gbp: false, gbc_light: 0, frameskip_auto: false, interference: 0,
             exact_renderer: false,
+            gba_wireless: true,
             dual: false, dual_side_by_side: false, dual_show: Which::Both, dual_swap: false, dual_audio: Which::First,
             dual_controls_second: false,
         }
@@ -808,6 +814,7 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     s.idle_skip = on(c"cboy_idle_skip", false);
     s.gb_idle_skip = on(c"cboy_gb_idle_skip", false);
     s.exact_renderer = get(c"cboy_renderer").is_some_and(|v| v == "exact");
+    s.gba_wireless = !get(c"cboy_gba_link_port").is_some_and(|v| v == "cable");
     s.dual = on(c"cboy_dual", false);
     s.dual_side_by_side = get(c"cboy_dual_layout").is_some_and(|v| v == "side");
     let which = |k: &CStr, default: Which| match get(k).as_deref() {

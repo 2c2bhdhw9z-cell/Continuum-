@@ -187,7 +187,9 @@ unsafe extern "C" fn netpacket_start(client: u16, send: Option<NetpacketSendFn>,
 
 /// A packet from the other phone. Parked only: the machine is touched on its own frame.
 unsafe extern "C" fn netpacket_receive(buf: *const c_void, len: usize, _client: u16) {
-    if buf.is_null() || len == 0 || len > 64 {
+    // The Wireless Adapter's radio messages are bigger than the cable's (a host sends up to 87
+    // bytes at a time).
+    if buf.is_null() || len == 0 || len > 256 {
         return;
     }
     let bytes = std::slice::from_raw_parts(buf as *const u8, len);
@@ -708,6 +710,10 @@ impl Core {
             g.bus.vba_compat = s.vba_compat;
             g.bus.gpio.clock_offset = s.rtc_offset_hours * 3600;
             g.bus.gpio.game_clock = s.gba_game_clock;
+            g.bus.rfu_allowed = s.gba_wireless;
+            if !s.gba_wireless {
+                g.bus.rfu.active = false;
+            }
             g.idle_skip = s.idle_skip;
             g.bus.apu.out_hz = s.sample_rate;
             g.bus.apu.hq = s.audio_hq;

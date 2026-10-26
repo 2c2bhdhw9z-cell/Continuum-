@@ -16,7 +16,7 @@ edit `.kiro/notes/docs/option-sources/mapping.tsv` and rerun.
 | tgbdual | https://github.com/libretro/tgbdual-libretro | `0392c9c469e653205e471114c7949c07c83bfce9` | 5 |
 | vbam | https://github.com/libretro/vbam-libretro | `115defb3a318258ab84746d45258a1aec19d0b4b` | 32 |
 
-Extracted keys: **132**. Covered by cBoy: 110. Gaps: 1. Deliberately not done: 4. Not applicable: 17. cBoy options: **77**.
+Extracted keys: **132**. Covered by cBoy: 111. Gaps: 0. Deliberately not done: 4. Not applicable: 17. cBoy options: **78**.
 
 ## Libretro core options, key by key
 
@@ -143,7 +143,7 @@ Extracted keys: **132**. Covered by cBoy: 110. Gaps: 1. Deliberately not done: 4
 | gpsp | `gpsp_rtc` | yes | `cboy_gba_hardware` |  |
 | gpsp | `gpsp_rtc_time_source` | yes | `cboy_gba_clock` | Phone clock, or game time counted from the machine's own running time |
 | gpsp | `gpsp_rumble` | yes | `cboy_rumble` |  |
-| gpsp | `gpsp_serial` | gap |  | the cable to a second phone is done (normal and multi-player modes, `gba/sio.rs`, the app's Link cable to a second phone); the wireless adapter is not |
+| gpsp | `gpsp_serial` | yes | `cboy_gba_link_port` | the cable to a second phone (normal and multi-player modes, `gba/sio.rs`) and the Wireless Adapter (`gba/rfu.rs`), over the app's Link cable to a second phone |
 | gpsp | `gpsp_sound_rate` | yes | `cboy_sample_rate` |  |
 | gpsp | `gpsp_sprlim` | yes | `cboy_gba_sprite_limit` |  |
 | gpsp | `gpsp_turbo_period` | yes | `cboy_turbo` |  |

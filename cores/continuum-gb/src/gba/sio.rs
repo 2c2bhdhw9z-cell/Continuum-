@@ -72,10 +72,16 @@ impl Bus {
     /// SI low on the parent and high on the child, and SD high when both consoles are there.
     pub(super) fn siocnt_read(&self) -> u16 {
         let v = self.io16(0x128);
+        if self.rfu.active && self.sio_mode() == Some(MODE_NORMAL32) {
+            // The adapter's ready signal on SI, answering what the game puts on SO.
+            let si = self.rfu.si(v & 0x08 != 0, v & 0x01 != 0);
+            return (v & !0x04) | if si { 0x04 } else { 0 };
+        }
         if self.sio_mode() != Some(MODE_MULTI) {
             return v;
         }
         let mut v = v & !0x004C;
+
         if self.sio.connected {
             v |= 0x0008;
             if !self.sio.parent {
@@ -93,6 +99,20 @@ impl Bus {
             MODE_MULTI => self.sio.parent || !self.sio.connected,
             _ => cnt & 1 != 0,
         };
+        if self.rfu.active && mode == MODE_NORMAL32 {
+            // The Wireless Adapter: the game's word goes to it and its answer comes back once
+            // the bits have gone; or, on the adapter's clock, the game waits for an event.
+            if drives {
+                let word = self.sio_word(mode);
+                let parent = self.sio.parent;
+                self.sio.waiting = false;
+                self.sio.early = Some(self.rfu.exchange(word, parent));
+                self.sio.lines = self.sio_lines(mode, cnt);
+            } else {
+                self.rfu_clock_in();
+            }
+            return;
+        }
         if !drives {
             // On the other console's clock: armed, waiting to be clocked (normal mode). A child
             // in multi-player mode cannot start a transfer at all.
@@ -135,8 +155,24 @@ impl Bus {
         }
     }
 
+    /// The adapter clocks an event into a game waiting on its clock, if it has one.
+    fn rfu_clock_in(&mut self) {
+        let cnt = self.io16(0x128);
+        if cnt & 0x81 != 0x80 || self.sio_mode() != Some(MODE_NORMAL32) || !self.rfu.has_event() {
+            return;
+        }
+        let Some(event) = self.rfu.clock_out() else { return };
+        self.rfu.game_word = self.sio_word(MODE_NORMAL32);
+        self.set_io16(0x120, event as u16);
+        self.set_io16(0x122, (event >> 16) as u16);
+        self.sio_done();
+    }
+
     /// Once a line: the transfer in progress gets its bits out.
     pub(super) fn sio_line(&mut self) {
+        if self.rfu.active {
+            self.rfu_clock_in();
+        }
         if self.sio.lines == 0 {
             return;
         }
@@ -285,8 +321,10 @@ pub struct Cable {
     pub connected: bool,
     /// This phone hosted the session (the parent in multi-player mode).
     pub parent: bool,
-    out: VecDeque<[u8; PACKET_LEN]>,
+    out: VecDeque<Vec<u8>>,
     inbox: VecDeque<[u8; PACKET_LEN]>,
+    /// The Wireless Adapter's radio messages each way (`rfu.rs`), which share the cable.
+    radio_in: VecDeque<Vec<u8>>,
     next_seq: u8,
     awaiting: Option<u8>,
     waited: u32,
@@ -300,7 +338,7 @@ impl Default for Cable {
 
 impl Cable {
     pub const fn new() -> Cable {
-        Cable { connected: false, parent: false, out: VecDeque::new(), inbox: VecDeque::new(), next_seq: 0, awaiting: None, waited: 0 }
+        Cable { connected: false, parent: false, out: VecDeque::new(), inbox: VecDeque::new(), radio_in: VecDeque::new(), next_seq: 0, awaiting: None, waited: 0 }
     }
 
     pub fn start(&mut self, parent: bool) {
@@ -317,6 +355,12 @@ impl Cable {
     }
 
     pub fn deliver(&mut self, bytes: &[u8]) {
+        if bytes.first() == Some(&super::rfu::RADIO_TAG) {
+            if self.radio_in.len() < QUEUE_MAX {
+                self.radio_in.push_back(bytes.to_vec());
+            }
+            return;
+        }
         if let Some(p) = Packet::decode(bytes) {
             if self.inbox.len() < QUEUE_MAX {
                 self.inbox.push_back(p.encode());
@@ -324,19 +368,31 @@ impl Cable {
         }
     }
 
-    pub fn take_out(&mut self) -> Option<[u8; PACKET_LEN]> {
+    pub fn take_out(&mut self) -> Option<Vec<u8>> {
         self.out.pop_front()
     }
 
     fn send(&mut self, p: Packet) {
         if self.out.len() < QUEUE_MAX {
-            self.out.push_back(p.encode());
+            self.out.push_back(p.encode().to_vec());
         }
     }
 
     /// One frame's worth of cable, as `crate::link::Cable::pump`.
     pub fn pump(&mut self, bus: &mut Bus) {
         self.attach(bus);
+        if bus.rfu.active {
+            bus.rfu.frame();
+            while let Some(m) = self.radio_in.pop_front() {
+                bus.rfu.hear(&m);
+            }
+            // With no second phone the radio has nobody to talk to, and its messages go nowhere.
+            while let Some(m) = bus.rfu.radio_out.pop_front() {
+                if self.connected && self.out.len() < QUEUE_MAX {
+                    self.out.push_back(m);
+                }
+            }
+        }
         if !self.connected {
             bus.sio_give_up();
             bus.sio.out.clear();

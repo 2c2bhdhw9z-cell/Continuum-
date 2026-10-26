@@ -100,3 +100,12 @@ if [ ! -s homebrew/voxelburg.gba ]; then
     && tar -xzf homebrew/voxelburg.tar.gz -C homebrew --strip-components=1 voxelburg_jam/voxelburg.gba \
     && rm -f homebrew/voxelburg.tar.gz) || { rm -f homebrew/voxelburg.tar.gz; echo "homebrew/voxelburg.gba not downloaded (optional)"; }
 fi
+
+# afska's gba-link-connection v8.0.3 (MIT): the LinkWireless demo, which tests/wireless.rs runs on
+# two Advances to check the Wireless Adapter. Optional.
+mkdir -p test-roms/gba-link
+if [ ! -f test-roms/gba-link/LinkWireless_demo.gba ]; then
+  curl -fsSL -o test-roms/gba-link/LinkWireless_demo.gba \
+    https://github.com/afska/gba-link-connection/releases/download/v8.0.3/LinkWireless_demo.gba \
+    || echo "LinkWireless demo not fetched (tests/wireless.rs will say SKIPPED)"
+fi
