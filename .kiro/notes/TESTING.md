@@ -7,6 +7,11 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Build 239 (26 October, 12:12 PM): the Pokémon Box, cGear's FM chip and 34 settings
+Commit 05718cb. Checked: 0.8.0 build 239, 39 emulators, JIT helper, the Box's strings in the app,
+cGear's new settings in its dylib. (237 cancelled, 238 stopped on one Swift main-actor error.)
+Box tested only on save files the tests build from the documented layouts, not yet on real saves.
+
 ## Build 236 (25 October, 11:35 PM): two Game Boys with two different games
 Commit a7a150c. Checked: 0.8.0 build 236, 39 emulators, JIT helper, "Second Game Boy plays" in the app.
 The last full rebuild (build-engine.sh lost its per-emulator lines). Owner's steps: on a Game Boy
