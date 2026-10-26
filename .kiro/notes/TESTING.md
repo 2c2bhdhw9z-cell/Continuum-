@@ -7,6 +7,10 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Build 244 (26 October, 6:20 PM): the Pokémon Box's Items, Gifts, Events, Migration, Showcase
+Commit 52b9f7c. Checked: 0.8.0 build 244, 39 emulators, JIT helper, the new tools' text in the app.
+Engine tested on save files built from the documented layouts; not yet on the owner's real saves.
+
 ## Build 243 (26 October, 3:30 PM): Pokémon Box tools and files, the rest of cGear
 Commit 5fabfd2. Checked: 0.8.0 build 243, 39 emulators, JIT helper, the Box's Tools (Team, List,
 Dashboard, Arrange, files) in the app, cGear's TV picture, sample rate, Game Gear link and devices in
