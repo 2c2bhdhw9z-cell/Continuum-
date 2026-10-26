@@ -87,7 +87,8 @@ const SPECS: &[Spec] = &[
      &[(c"60", c"60 Hz"), (c"50", c"50 Hz")], c"60"),
     (c"system", c"cgear_mapper", c"Cartridge wiring",
      c"Auto works for nearly every game; changes apply at the next start.",
-     &[(c"auto", c"Auto"), (c"sega", c"Sega"), (c"codemasters", c"Codemasters"), (c"korean", c"Korean")], c"auto"),
+     &[(c"auto", c"Auto"), (c"sega", c"Sega"), (c"codemasters", c"Codemasters"), (c"korean", c"Korean"),
+       (c"msx", c"Korean MSX"), (c"nemesis", c"Nemesis"), (c"janggun", c"Janggun")], c"auto"),
     (c"video", c"cgear_sprite_limit", c"Eight sprites a line",
      c"Off draws every sprite, so nothing flickers, but a few games use the limit on purpose.",
      &[(c"on", c"On"), (c"off", c"Off")], c"on"),
@@ -238,6 +239,9 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
         Some("sega") => Some(Mapper::Sega),
         Some("codemasters") => Some(Mapper::Codemasters),
         Some("korean") => Some(Mapper::Korean),
+        Some("msx") => Some(Mapper::Msx),
+        Some("nemesis") => Some(Mapper::Nemesis),
+        Some("janggun") => Some(Mapper::Janggun),
         _ => None,
     };
     s.sprite_limit = on(c"cgear_sprite_limit", true);

@@ -32,6 +32,15 @@ pub enum Mapper {
     Codemasters,
     /// The Korean one: a write to $A000 picks the third slot's bank; the first two stay.
     Korean,
+    /// Korean ports of MSX games: the first 16 KiB fixed, four 8 KiB slots from $4000 picked by
+    /// writes to $0000-$0003 ($0002 the slot at $4000, $0003 $6000, $0000 $8000, $0001 $A000).
+    Msx,
+    /// Nemesis: the MSX one, with the last 8 KiB of the cartridge always at $0000.
+    Nemesis,
+    /// Janggun-ui Adeul: four 8 KiB slots from $4000 picked by writes to $4000, $6000, $8000 and
+    /// $A000, or two at a time by $FFFE and $FFFF, whose bit 6 also reverses the bits of every
+    /// byte read from them.
+    Janggun,
 }
 
 impl Mapper {
@@ -60,6 +69,11 @@ pub struct Bus {
     pub banks: [u8; 3],
     #[serde(default)]
     pub mapper: Mapper,
+    /// The 8 KiB mappers' four slots from $4000, and which read reversed (Janggun).
+    #[serde(default = "natural8")]
+    pub banks8: [u8; 4],
+    #[serde(default)]
+    pub reversed8: [bool; 4],
     /// Port $3E. Bit 6 off: the cartridge answers; bit 4 off: work RAM answers.
     pub mem_ctrl: u8,
     pub vdp: Vdp,
@@ -128,6 +142,10 @@ fn yes() -> bool {
     true
 }
 
+fn natural8() -> [u8; 4] {
+    [2, 3, 4, 5]
+}
+
 impl Bus {
     pub fn new(rom: Vec<u8>) -> Bus {
         Bus {
@@ -138,6 +156,8 @@ impl Bus {
             ram_ctrl: 0,
             banks: [0, 1, 2],
             mapper: Mapper::Sega,
+            banks8: natural8(),
+            reversed8: [false; 4],
             // As a Master System's start-up file leaves it for a cartridge: the cartridge and
             // work RAM on, the BIOS, card and expansion slots off.
             mem_ctrl: 0xAB,
@@ -265,6 +285,19 @@ impl Bus {
         if self.mapper == Mapper::Codemasters && (0xA000..0xC000).contains(&addr) && self.banks[1] & 0x80 != 0 {
             return self.cart_ram[usize::from(addr - 0xA000)];
         }
+        if matches!(self.mapper, Mapper::Msx | Mapper::Nemesis | Mapper::Janggun) {
+            let banks = (self.rom.len() / 0x2000).max(1);
+            let rom8 = |bank: usize, off: u16| self.rom.get((bank % banks) * 0x2000 + usize::from(off)).copied().unwrap_or(0xFF);
+            return match addr {
+                0x0000..=0x1FFF if self.mapper == Mapper::Nemesis => rom8(banks - 1, addr),
+                0x0000..=0x3FFF => self.rom.get(usize::from(addr)).copied().unwrap_or(0xFF),
+                _ => {
+                    let slot = usize::from((addr - 0x4000) >> 13);
+                    let v = rom8(usize::from(self.banks8[slot]), addr & 0x1FFF);
+                    if self.reversed8[slot] { v.reverse_bits() } else { v }
+                }
+            };
+        }
         match addr {
             0x0000..=0x03FF if self.mapper == Mapper::Sega => self.rom.get(usize::from(addr)).copied().unwrap_or(0xFF),
             0x0000..=0x3FFF => self.rom_at(self.banks[0], addr),
@@ -319,7 +352,27 @@ impl z80::Bus for Bus {
                 self.banks[2] = v;
                 return;
             }
-            (Mapper::Codemasters | Mapper::Korean, 0xFFFC..=0xFFFF) => {
+            (Mapper::Msx | Mapper::Nemesis, 0x0000..=0x0003) => {
+                self.banks8[[2, 3, 0, 1][usize::from(addr)]] = v;
+                return;
+            }
+            (Mapper::Janggun, 0x4000 | 0x6000 | 0x8000 | 0xA000) => {
+                self.banks8[usize::from((addr - 0x4000) >> 13)] = v & 0x3F;
+                return;
+            }
+            (Mapper::Janggun, 0xFFFE | 0xFFFF) => {
+                let first = if addr == 0xFFFE { 0 } else { 2 };
+                let bank = (v & 0x3F) * 2;
+                self.banks8[first] = bank;
+                self.banks8[first + 1] = bank + 1;
+                self.reversed8[first] = v & 0x40 != 0;
+                self.reversed8[first + 1] = v & 0x40 != 0;
+                if self.mem_ctrl & 0x10 == 0 {
+                    self.ram[usize::from(addr & 0x1FFF)] = v;
+                }
+                return;
+            }
+            (Mapper::Codemasters | Mapper::Korean | Mapper::Msx | Mapper::Nemesis | Mapper::Janggun, 0xFFFC..=0xFFFF) => {
                 if self.mem_ctrl & 0x10 == 0 {
                     self.ram[usize::from(addr & 0x1FFF)] = v;
                 }
@@ -578,5 +631,30 @@ mod tests {
         assert!(!b.glasses_left, "the bottom two address bits are not looked at");
         b.write(0xFFF9, 0x55);
         assert_eq!(b.read(0xFFF9), 0x55, "work RAM underneath takes the write");
+    }
+
+    #[test]
+    fn the_8k_mappers_pick_their_banks_and_janggun_reverses_bits() {
+        // A 128 KiB cartridge whose every 8 KiB bank starts with its own number.
+        let mut rom = vec![0u8; 0x20000];
+        for b in 0..16 {
+            rom[b * 0x2000] = b as u8;
+            rom[b * 0x2000 + 1] = 0x01;
+        }
+        let mut b = Bus::new(rom.clone());
+        b.mapper = Mapper::Msx;
+        b.write(0x0002, 7);
+        b.write(0x0001, 9);
+        assert_eq!((b.read(0x4000), b.read(0xA000), b.read(0x0000)), (7, 9, 0));
+        b.mapper = Mapper::Nemesis;
+        assert_eq!(b.read(0x0000), 15, "Nemesis: the last 8 KiB at the bottom");
+        let mut j = Bus::new(rom);
+        j.mapper = Mapper::Janggun;
+        j.write(0x6000, 5);
+        assert_eq!(j.read(0x6000), 5);
+        j.write(0xFFFF, 0x40 | 3);
+        assert_eq!((j.read(0x8000), j.read(0xA000)), (6u8.reverse_bits(), 7u8.reverse_bits()));
+        assert_eq!(j.read(0x8001), 0x80, "every byte reversed");
+        assert_eq!(j.read(0xFFFF), 0x43, "and the write landed in work RAM too");
     }
 }
