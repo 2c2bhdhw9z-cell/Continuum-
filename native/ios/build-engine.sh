@@ -57,16 +57,23 @@ if [ "${CONTINUUM_CORE_CACHE:-0}" = "1" ] && [ -d "$LIBDIR" ]; then
   # `|| true` on each: an empty lib directory is the normal first-build case, not an error.
   cp -p "$LIBDIR"/*_libretro_ios.dylib "$KEEP"/ 2>/dev/null || true
   cp -p "$LIBDIR"/core-sources.txt "$KEEP"/ 2>/dev/null || true
-  # Except cBoy (cores/continuum-gb), this project's own core. It has no pin, is rebuilt from this
-  # checkout on every run, and its source is not in the CI cache key, so a cached copy can be from
-  # an older commit and must never get anywhere near the .ipa.
-  rm -f "$KEEP/continuum_gb_libretro_ios.dylib"
-  # The same for cArcade (cores/continuum-arcade), this project's own arcade emulator.
-  rm -f "$KEEP/continuum_arcade_libretro_ios.dylib"
-  # And for the GameCube core (cores/continuum-gc), this project's own GameCube emulator.
-  rm -f "$KEEP/continuum_gc_libretro_ios.dylib"
-  # And for cGear (cores/continuum-sms), this project's own Sega 8-bit emulator.
-  rm -f "$KEEP/continuum_sms_libretro_ios.dylib"
+  # Except this project's own emulators (cBoy, cArcade, the GameCube core, cGear and any added
+  # later). They have no pin, are rebuilt from this checkout on every run, and their source is not
+  # in the CI cache key, so a cached copy can be from an older commit and must never get anywhere
+  # near the .ipa. Worked out here rather than listed: every own core is named continuum_<x>, and
+  # the ones without a pin in `build-core.sh ios-pins` are dropped. Continuum Symbian has a pin and
+  # is kept like any other pinned core. A new own core therefore needs no line in this file: this
+  # file's hash is part of the CI core cache key, so editing it rebuilds every emulator (build 235).
+  # If ios-pins can't be read, every own core is dropped, which only costs time.
+  PINNED="$("$ROOT/scripts/build-core.sh" ios-pins 2>/dev/null | cut -f1 || true)"
+  for cached in "$KEEP"/continuum_*_libretro_ios.dylib; do
+    [ -e "$cached" ] || continue
+    own="$(basename "$cached" _libretro_ios.dylib)"
+    if ! printf '%s\n' "$PINNED" | grep -qx "$own"; then
+      rm -f "$cached"
+      echo "==> not keeping the cached $own: this project's own core, always rebuilt"
+    fi
+  done
   KEPT="$(ls -1 "$KEEP" 2>/dev/null | wc -l | tr -d ' ')"
   rm -rf "$OUT"
   mkdir -p "$LIBDIR" "$GENDIR"
@@ -242,7 +249,9 @@ echo "==> checking the core filenames agree across project.yml, ios.yml and Cont
 # file: the .ipa check then doesn't warn when one is missing, and the app still names it as not in
 # the bundle on its cores line. project.yml and ContinuumApp.swift are still checked. Take a name
 # out of this list in the same push that adds its `optional` line to ios.yml.
-NOT_IN_IOS_YML="continuum_arcade_libretro_ios.dylib continuum_gc_libretro_ios.dylib continuum_sms_libretro_ios.dylib"
+# The list lives in native/ios/not-in-ios-yml.txt, not here: this file's hash is part of the CI
+# core cache key, so a new core's name written here would rebuild every emulator (build 235).
+NOT_IN_IOS_YML="$(sed -e 's/#.*//' "$HERE/not-in-ios-yml.txt" | tr -s ' \t\n' ' ')"
 DIVERGED=""
 for core_dylib in $CORE_NAMES $OPTIONAL_CORE_NAMES; do
   for consumer in "$HERE/project.yml" \

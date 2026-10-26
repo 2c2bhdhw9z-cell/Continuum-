@@ -25,7 +25,7 @@ cBoy chat works only in `cores/continuum-gb/**`, except its last three items (ca
 on one phone, the Advance link), which may change the app and engine; it reads this file first.
 
 ### Requests between chats
-**cBoy/cGear chat, 25 October, 8:54 PM Eastern: still working.** Now on cBoy's Advance wireless adapter (gba/rfu.rs, two phones over the app's link), then cGear into the app, then one build.
+**cBoy/cGear chat, 25 October: still working.** build-engine.sh no longer has per-core lines: own cores (`continuum_<x>`, no pin) are found by themselves, and the "ios.yml may not name it yet" list is `native/ios/not-in-ios-yml.txt`. Adding a core never edits build-engine.sh again. The next build is one last full rebuild because of this move.
 
 **His certificate is FINE; Signer was wrong (26 October, 10 PM).** A profile for one exact app ID
 decides which identifier goes in an app's PERMISSIONS, not what the app must be called. zsign (so
@@ -725,8 +725,8 @@ Model it on cArcade (`.kiro/notes/docs/ARCADE_CORE.md`, "Every place the app wir
   pin), `build_ios_continuum_gc_core` (cargo build --release --target aarch64-apple-ios in cores/continuum-gc,
   stage `libcontinuum_gc.dylib`) and its dispatch in `build_ios_core`, all inside the region.
 - `scripts/check-core-cache.sh`: every hard-coded `IOS_OPTIONAL_CORES=(...)` line (four places) and three gc checks
-  like cArcade's. `native/ios/build-engine.sh`: drop a cached gc dylib (no pin) and add it to `NOT_IN_IOS_YML`
-  (ios.yml edits are parked). `native/ios/project.yml`: the four-line optional embed.
+  like cArcade's. `native/ios/build-engine.sh`: nothing any more (25 October: it now drops every unpinned
+  `continuum_<x>` cached core by itself); the ios.yml exemption is a line in `native/ios/not-in-ios-yml.txt`. `native/ios/project.yml`: the four-line optional embed.
 - Swift: `GameSystem` gets `gamecube` (Wii later), and every exhaustive switch (TouchControls badge,
   dpadDrivesAnalogStick, touchScreen, displayName, wantsKeyboard, controls (GameCube pad: retro A=A, B=B, X=X, Y=Y,
   L, R, L2/R2=Z, Start; left stick = main stick, right = C-stick), GameArtwork playlistDirectory and hue,

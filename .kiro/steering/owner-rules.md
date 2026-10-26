@@ -39,6 +39,11 @@ These come straight from the owner. They are not suggestions.
   to be able to happen anymore." Adding a core goes in scripts/build-core.sh (fingerprinted per
   core) and project.yml / ContinuumApp.swift only. If build-engine.sh really must change, say so
   first: it costs a full rebuild.
+- Since 25 October 2026 build-engine.sh has no per-core lines left. It works out by itself which
+  cached files are this project's own cores (named `continuum_<x>`, no pin in `build-core.sh
+  ios-pins`) and drops them. The list of cores ios.yml may not mention yet is in
+  `native/ios/not-in-ios-yml.txt` (not hashed): a new own core that ios.yml can't name goes there.
+  New own cores must keep the `continuum_<x>` name. That move itself cost one last full rebuild.
 
 ## The .ipa
 - The .ipa is the only thing the owner cares about. Whenever a build happens, hand over the

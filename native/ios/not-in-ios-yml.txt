@@ -1,0 +1,7 @@
+# Core files that .github/workflows/ios.yml is allowed not to mention yet, one per line.
+# Read by native/ios/build-engine.sh's name check. Kept out of build-engine.sh on purpose: that
+# file's hash is in the CI core cache key, so editing it rebuilds every emulator. Editing this
+# file rebuilds nothing. Take a name out in the same push that adds its line to ios.yml.
+continuum_arcade_libretro_ios.dylib
+continuum_gc_libretro_ios.dylib
+continuum_sms_libretro_ios.dylib
