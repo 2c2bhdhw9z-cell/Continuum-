@@ -61,6 +61,18 @@ impl Sms {
         Sms { cpu, bus, over: 0, frames: 0, samples: Vec::new(), rate: default_rate(), pause_held: false, shown: Vec::new(), cpu_percent: 100, frame_left_eye: false }
     }
 
+    /// Starts from the console's own start-up program (see `Bus::bios`), as at power-on: the
+    /// start-up program on and the cartridge off (a Game Gear's cartridge stays on beneath its
+    /// 1 KiB), the CPU from its reset.
+    pub fn use_bios(&mut self, bios: Vec<u8>) {
+        if bios.is_empty() || self.bus.sg {
+            return;
+        }
+        self.bus.bios = bios;
+        self.bus.mem_ctrl = if self.bus.gg { 0xA3 } else { 0xE3 };
+        self.cpu = Z80::new();
+    }
+
     /// One line of CPU time, with the picture chip's line events at its start.
     pub fn run_line(&mut self, line: u16) {
         self.bus.vdp.start_line(line);
@@ -280,6 +292,23 @@ mod tests {
             alone.run_frame();
         }
         assert_eq!(alone.bus.ram[1] & 0x04, 0x04, "on its own, the status says nobody is there");
+    }
+
+    #[test]
+    fn a_start_up_program_runs_first_then_hands_over_to_the_cartridge() {
+        // The start-up program: writes $42 to $C000, then switches itself off and the cartridge
+        // on (port $3E = $AB). The next instruction comes from the cartridge, which has a jump to
+        // its start there; its start writes $99 to $C001.
+        let mut bios = vec![0u8; 0x2000];
+        bios[..9].copy_from_slice(&[0x3E, 0x42, 0x32, 0x00, 0xC0, 0x3E, 0xAB, 0xD3, 0x3E]);
+        let mut rom = vec![0u8; 0x8000];
+        rom[..7].copy_from_slice(&[0x3E, 0x99, 0x32, 0x01, 0xC0, 0x18, 0xFE]);
+        rom[9..12].copy_from_slice(&[0xC3, 0x00, 0x00]);
+        let mut m = Sms::new(rom);
+        m.use_bios(bios);
+        m.run_frame();
+        assert_eq!(m.bus.ram[0], 0x42, "the start-up program ran");
+        assert_eq!(m.bus.ram[1], 0x99, "then the cartridge");
     }
 
     #[test]

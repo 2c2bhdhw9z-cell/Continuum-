@@ -726,7 +726,9 @@ enum CoreCatalog {
     static let continuumSms = CoreSpec(
         coreId: "continuum_sms", displayName: "cGear (SMS, GG, SG-1000)",
         systems: ["sms", "gg", "sg1000"], library: "continuum_sms_libretro_ios.dylib",
-        width: 256, height: 192, maxWidth: 256, maxHeight: 240,
+        // Up to two Game Gears side by side (320 wide) or a Master System picture with the TV
+        // border all round (284 x 294 at 50 Hz).
+        width: 256, height: 192, maxWidth: 320, maxHeight: 294,
         aspectRatio: 4.0 / 3.0, fps: 3_579_545.0 / (228.0 * 262.0), sampleRate: 48000, pixelFormat: 1,
         priority: 0, biosNames: []
     )
@@ -1291,11 +1293,15 @@ enum CoreCatalog {
         "cgb_boot.bin", "gba_bios.bin", "palette.txt",
     ]
 
+    /// cGear's optional start-up programs ("Console start-up screen"), read from the top of the
+    /// system folder under the names Gearsystem uses too. Optional, so not on its CoreSpec.
+    static let cgearFirmwareNames: [String] = ["bios.sms", "bios.gg"]
+
     /// Every firmware filename the install action will move across, from any of the lists.
     static let installableFirmwareNames: [String] = {
         var seen = Set<String>()
         var names: [String] = []
-        for name in biosNames + extraFirmwareNames + cboyFirmwareNames
+        for name in biosNames + extraFirmwareNames + cboyFirmwareNames + cgearFirmwareNames
         where seen.insert(name.lowercased()).inserted {
             names.append(name)
         }

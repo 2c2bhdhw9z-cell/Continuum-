@@ -60,6 +60,11 @@ impl Mapper {
 pub struct Bus {
     #[serde(skip)]
     pub rom: Vec<u8>,
+    /// The console's own start-up program, when the player has one and asked for it: a Master
+    /// System's whole BIOS (through the same mapper), or the Game Gear's 1 KiB at $0000. Answers
+    /// while bit 3 of port $3E is 0, until it switches itself off and starts the cartridge.
+    #[serde(skip)]
+    pub bios: Vec<u8>,
     pub ram: Vec<u8>,
     /// Cartridge RAM (two 16 KiB banks at most), and whether the game has used it.
     pub cart_ram: Vec<u8>,
@@ -153,6 +158,7 @@ impl Bus {
     pub fn new(rom: Vec<u8>) -> Bus {
         Bus {
             rom,
+            bios: Vec::new(),
             ram: vec![0; 0x2000],
             cart_ram: vec![0; 0x8000],
             cart_ram_used: false,
@@ -282,6 +288,23 @@ impl Bus {
     fn cart_read(&self, addr: u16) -> u8 {
         if self.sg {
             return self.rom.get(usize::from(addr)).copied().unwrap_or(0xFF);
+        }
+        if !self.bios.is_empty() && self.mem_ctrl & 0x08 == 0 {
+            if self.gg {
+                if addr < 0x400 {
+                    return self.bios.get(usize::from(addr)).copied().unwrap_or(0xFF);
+                }
+            } else {
+                let banks = self.bios.len().div_ceil(0x4000).max(1);
+                let at = |bank: u8, off: u16| (usize::from(bank) % banks) * 0x4000 + usize::from(off);
+                let a = match addr {
+                    0x0000..=0x03FF => usize::from(addr),
+                    0x0000..=0x3FFF => at(self.banks[0], addr),
+                    0x4000..=0x7FFF => at(self.banks[1], addr - 0x4000),
+                    _ => at(self.banks[2], addr - 0x8000),
+                };
+                return self.bios.get(a % self.bios.len()).copied().unwrap_or(0xFF);
+            }
         }
         if self.mem_ctrl & 0x40 != 0 {
             return 0xFF;

@@ -139,6 +139,9 @@ const SPECS: &[Spec] = &[
     (c"audio", c"cgear_mono", c"Mono sound",
      c"Game Gear games are in stereo; this mixes them into one.",
      OFF_ON, c"off"),
+    (c"system", c"cgear_bios", c"Console start-up screen",
+     c"Starts the way the console did, with its own start-up program, if you have bios.sms or bios.gg; next start.",
+     OFF_ON, c"off"),
     (c"system", c"cgear_cpu_speed", c"CPU speed",
      c"Faster than the real console takes away slowdown in busy scenes; a few games then run too fast.",
      &[(c"100", c"Real (100%)"), (c"150", c"150%"), (c"200", c"200%"), (c"300", c"300%")], c"100"),
@@ -235,6 +238,8 @@ pub struct Settings {
     pub eq: [u8; 3],
     /// The TV border: 0 none, 1 above and below, 2 all round.
     pub borders: u8,
+    /// Start with the console's own start-up program (bios.sms or bios.gg in the system folder).
+    pub bios: bool,
     /// The CPU's speed, percent.
     pub cpu_percent: u32,
     /// The FM chip: None for Auto (a Japanese Master System), or forced off or on.
@@ -246,7 +251,7 @@ impl Default for Settings {
     fn default() -> Settings {
         Settings {
             console: Console::Auto, japan: false, region_auto: true, refresh_auto: false, pal: false, mapper: None, sprite_limit: true, hide_left: false,
-            gg_ghosting: 0, gg_full: false, fm_chan_vol: [100; 9], lowpass: 0, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100, cpu_percent: 100, tms_colours_sms: None, borders: 0, glasses_eye: None, eq: [100; 3], ports: [crate::peripherals::Device::Pad; 2], crosshair: true, crosshair_square: false, crosshair_colour: 0xFFFFFF, phaser_offset: (0, 0), device_speed: 5, gg_link: false, gg_link_side: true, gg_link_show: 0, gg_link_swap: false, gg_link_audio: 0, gg_link_controls_second: false,
+            gg_ghosting: 0, gg_full: false, fm_chan_vol: [100; 9], lowpass: 0, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100, cpu_percent: 100, bios: false, tms_colours_sms: None, borders: 0, glasses_eye: None, eq: [100; 3], ports: [crate::peripherals::Device::Pad; 2], crosshair: true, crosshair_square: false, crosshair_colour: 0xFFFFFF, phaser_offset: (0, 0), device_speed: 5, gg_link: false, gg_link_side: true, gg_link_show: 0, gg_link_swap: false, gg_link_audio: 0, gg_link_controls_second: false,
         }
     }
 }
@@ -359,6 +364,7 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
         Some("full") => 2,
         _ => 0,
     };
+    s.bios = on(c"cgear_bios", false);
     s.cpu_percent = get(c"cgear_cpu_speed").and_then(|v| v.parse::<u32>().ok()).unwrap_or(100).clamp(100, 300);
     s
 }

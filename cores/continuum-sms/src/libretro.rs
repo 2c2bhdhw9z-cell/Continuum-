@@ -67,6 +67,7 @@ const MEMORY_SYSTEM_RAM: u32 = 2;
 const MEMORY_VIDEO_RAM: u32 = 3;
 const RATE: u32 = 48_000;
 const ENV_GET_SAVE_DIRECTORY: u32 = 31;
+const ENV_GET_SYSTEM_DIRECTORY: u32 = 9;
 /// How often the second Game Gear's save is written when its game has changed it: every two
 /// seconds, so at most that much is lost if the phone stops the app.
 const SECOND_SAVE_FRAMES: u32 = 120;
@@ -128,6 +129,20 @@ impl Drop for Second {
     fn drop(&mut self) {
         self.write_save();
     }
+}
+
+/// The console's start-up program from the app's system folder: bios.gg for a Game Gear,
+/// bios.sms for a Master System (the names Gearsystem uses too).
+unsafe fn read_bios(env: EnvFn, gg: bool) -> Option<Vec<u8>> {
+    let mut dir: *const c_char = std::ptr::null();
+    if !env(ENV_GET_SYSTEM_DIRECTORY, &mut dir as *mut *const c_char as *mut c_void) || dir.is_null() {
+        return None;
+    }
+    let dir = std::path::PathBuf::from(std::ffi::CStr::from_ptr(dir).to_string_lossy().into_owned());
+    let bytes = std::fs::read(dir.join(if gg { "bios.gg" } else { "bios.sms" })).ok()?;
+    // A Game Gear's is 1 KiB; a Master System's 8 KiB to 512 KiB.
+    let ok = if gg { bytes.len() >= 0x400 } else { (0x2000..=0x80000).contains(&bytes.len()) };
+    ok.then_some(bytes)
 }
 
 /// The second Game Gear's save file: the game's own name, in the app's save folder.
@@ -350,12 +365,22 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     }
     let s = env.map(|e| crate::options::read(e)).unwrap_or_default();
     let copy = s.gg_link.then(|| rom.clone());
-    let m = machine(rom, &s, (*game).path);
+    let mut m = machine(rom, &s, (*game).path);
+    let bios = match (env, s.bios && !m.bus.sg) {
+        (Some(e), true) => read_bios(e, m.bus.gg),
+        _ => None,
+    };
+    if let Some(b) = bios.clone() {
+        m.use_bios(b);
+    }
     // Two Game Gears: the same cartridge again, its own save in its own file. Game Gear games
     // only, and not with the whole picture shown.
     let second = match copy {
         Some(rom) if m.bus.gg && !s.gg_full => {
             let mut two = machine(rom, &s, (*game).path);
+            if let Some(b) = bios {
+                two.use_bios(b);
+            }
             let save = env.and_then(|e| second_save_path(e, (*game).path));
             let mut written = Vec::new();
             if let Some(bytes) = save.as_ref().and_then(|p| std::fs::read(p).ok()) {
@@ -426,6 +451,7 @@ fn power_cycle(m: &mut Box<Sms>) {
     fresh.bus.mapper = mapper;
     fresh.bus.cart_ram = cart_ram;
     fresh.rate = m.rate;
+    fresh.use_bios(std::mem::take(&mut m.bus.bios));
     **m = fresh;
 }
 
