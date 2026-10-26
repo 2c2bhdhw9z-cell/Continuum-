@@ -7,6 +7,13 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Build 236 (25 October, 11:35 PM): two Game Boys with two different games
+Commit a7a150c. Checked: 0.8.0 build 236, 39 emulators, JIT helper, "Second Game Boy plays" in the app.
+The last full rebuild (build-engine.sh lost its per-emulator lines). Owner's steps: on a Game Boy
+game's card (opening on cBoy), "Second Game Boy plays" -> another Pokemon game; open it, two screens,
+Cable Club trade, "your controls play" switches consoles. Not in it: tonight's cGear work (FM chip,
+34 settings), which goes in the next build.
+
 ## Build 235 (25 October, 10 PM): cGear in the app, cBoy's Wireless Adapter
 
 https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-235-5cd5592/Continuum-235.ipa
