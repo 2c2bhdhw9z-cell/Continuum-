@@ -7,6 +7,11 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Build 240 (26 October, 2:15 PM): cGear's Light Phaser, paddle, Sports Pad, two Game Gears
+Commit 44f9d1c. Checked: 0.8.0 build 240, 39 emulators, JIT helper, the new cGear settings in its
+dylib, bios.gg in the app's install list. Also in it: Korean MSX/Nemesis/Janggun wirings, Region
+Auto, the first Master System model, VDPTest 55/55, the start-up screen setting.
+
 ## Build 239 (26 October, 12:12 PM): the Pokémon Box, cGear's FM chip and 34 settings
 Commit 05718cb. Checked: 0.8.0 build 239, 39 emulators, JIT helper, the Box's strings in the app,
 cGear's new settings in its dylib. (237 cancelled, 238 stopped on one Swift main-actor error.)
