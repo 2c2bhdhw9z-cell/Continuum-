@@ -96,7 +96,10 @@ const SPECS: &[Spec] = &[
      &[(c"on", c"On"), (c"off", c"Off")], c"on"),
     (c"video", c"cgear_hide_left", c"Hide the left column",
      c"Many Master System games leave an empty strip at the left; changes apply at the next start.",
-     OFF_ON, c"off"),
+     &[(c"off", c"Off"), (c"on", c"Left"), (c"both", c"Left and right")], c"off"),
+    (c"video", c"cgear_tv", c"TV picture",
+     c"Softens the picture sideways the way a TV's cable did; Composite also lets colours run.",
+     &[(c"off", c"Off (sharp)"), (c"soft", c"S-Video (soft)"), (c"composite", c"Composite")], c"off"),
     (c"video", c"cgear_tms_colours", c"Colours in SG-1000 modes",
      c"A Master System shows SG-1000 games in its own darker colours; Auto matches the console being played.",
      &[(c"auto", c"Auto"), (c"sms", c"Master System's"), (c"sg", c"SG-1000's")], c"auto"),
@@ -136,6 +139,8 @@ const SPECS: &[Spec] = &[
     (c"audio", c"cgear_eq_low", c"Bass", c"Below about 880 Hz.", EQ, c"100"),
     (c"audio", c"cgear_eq_mid", c"Middle", c"", EQ, c"100"),
     (c"audio", c"cgear_eq_high", c"Treble", c"Above about 5 kHz.", EQ, c"100"),
+    (c"audio", c"cgear_sound_rate", c"Sound sample rate", c"Changes apply at the next start.",
+     &[(c"48000", c"48 kHz"), (c"44100", c"44.1 kHz"), (c"32000", c"32 kHz"), (c"22050", c"22 kHz")], c"48000"),
     (c"audio", c"cgear_mono", c"Mono sound",
      c"Game Gear games are in stereo; this mixes them into one.",
      OFF_ON, c"off"),
@@ -206,6 +211,11 @@ pub struct Settings {
     pub sprite_limit: bool,
     /// Cut the Master System's leftmost eight pixels off the picture.
     pub hide_left: bool,
+    /// The right-hand eight pixels too (with `hide_left`).
+    pub hide_right: bool,
+    /// 0 sharp, 1 S-Video, 2 composite.
+    pub tv: u8,
+    pub sound_rate: u32,
     /// How much of the last picture each one keeps, percent (0 off, 25 weak, 50 normal).
     pub gg_ghosting: u8,
     /// A Game Gear shows the whole 256-pixel picture, not its 160 x 144 window.
@@ -255,7 +265,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Settings {
         Settings {
-            console: Console::Auto, japan: false, region_auto: true, refresh_auto: false, pal: false, mapper: None, sprite_limit: true, hide_left: false,
+            console: Console::Auto, japan: false, region_auto: true, refresh_auto: false, pal: false, mapper: None, sprite_limit: true, hide_left: false, hide_right: false, tv: 0, sound_rate: 48_000,
             gg_ghosting: 0, gg_full: false, fm_chan_vol: [100; 9], lowpass: 0, volume: 100, chan_vol: [100; 4], mono: false, opposing: false, fm: None, fm_volume: 100, cpu_percent: 100, bios: false, tms_colours_sms: None, borders: 0, glasses_eye: None, eq: [100; 3], ports: [crate::peripherals::Device::Pad; 2], crosshair: true, crosshair_square: false, crosshair_colour: 0xFFFFFF, phaser_offset: (0, 0), device_speed: 5, gg_link: false, gg_link_side: true, gg_link_show: 0, gg_link_swap: false, gg_link_audio: 0, gg_link_controls_second: false,
         }
     }
@@ -290,7 +300,19 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
         _ => None,
     };
     s.sprite_limit = on(c"cgear_sprite_limit", true);
-    s.hide_left = on(c"cgear_hide_left", false);
+    s.hide_left = get(c"cgear_hide_left").is_some_and(|v| v == "on" || v == "both");
+    s.hide_right = get(c"cgear_hide_left").is_some_and(|v| v == "both");
+    s.tv = match get(c"cgear_tv").as_deref() {
+        Some("soft") => 1,
+        Some("composite") => 2,
+        _ => 0,
+    };
+    s.sound_rate = match get(c"cgear_sound_rate").as_deref() {
+        Some("44100") => 44_100,
+        Some("32000") => 32_000,
+        Some("22050") => 22_050,
+        _ => 48_000,
+    };
     s.gg_ghosting = match get(c"cgear_gg_ghosting").as_deref() {
         Some("weak") => 25,
         Some("on") => 50,

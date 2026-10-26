@@ -51,7 +51,7 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gearsystem | `gearsystem_bios_gg` | Game Gear BIOS (restart) | done | `cgear_bios` (bios.gg) | Disabled,Enabled |
 | gearsystem | `gearsystem_aspect_ratio` | Aspect Ratio | app | the app has its own picture shape setting | 1:1 PAR,4:3 DAR,16:9 DAR,16:10 DAR |
 | gearsystem | `gearsystem_overscan` | Overscan | done | `cgear_borders` (Off, Above and below, All round = 284 wide) | Disabled,Top+Bottom,Full (284 width),Full (320 width) |
-| gearsystem | `gearsystem_hide_left_bar` | Hide Left Bar (SMS only) | planned |  | No,Auto,Always |
+| gearsystem | `gearsystem_hide_left_bar` | Hide Left Bar (SMS only) | n/a | n/a (Auto would change the picture width mid-game; Off/Left/Left and right instead) | No,Auto,Always |
 | gearsystem | `gearsystem_no_sprite_limit` | No Sprite Limit | done | `cgear_sprite_limit` | Disabled,Enabled |
 | gearsystem | `gearsystem_glasses` | 3D Glasses | done | `cgear_3d` (Both eyes, Left eye, Right eye) | Both Eyes / OFF,Left Eye,Right Eye |
 | gearsystem | `gearsystem_ym2413` | YM2413 (restart) | done | `cgear_fm` (Auto/Off/On) | Auto,Disabled |
@@ -82,17 +82,17 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gpgx | `genesis_plus_gx_lock_on` | Cartridge Lock-On | n/a | Mega Drive or Mega-CD only | disabled,game genie,action replay (pro),sonic & knuckles |
 | gpgx | `genesis_plus_gx_aspect_ratio` | Core-Provided Aspect Ratio | app | the app has its own picture shape setting | auto,NTSC PAR,PAL PAR,4:3,Uncorrected |
 | gpgx | `genesis_plus_gx_overscan` | Borders | done | `cgear_borders` (no sides-only choice) | disabled,top/bottom,left/right,full |
-| gpgx | `genesis_plus_gx_left_border` | Hide Master System Side Borders | planned |  | disabled,left border,left & right borders |
+| gpgx | `genesis_plus_gx_left_border` | Hide Master System Side Borders | done | `cgear_hide_left` (Off, Left, Left and right) | disabled,left border,left & right borders |
 | gpgx | `genesis_plus_gx_gg_extra` | Game Gear Extended Screen | done | `cgear_gg_full` | disabled,enabled |
-| gpgx | `genesis_plus_gx_blargg_ntsc_filter` | Blargg NTSC Filter | planned | TV look; Blargg's filter is LGPL, so written our own way or left to the app's shaders | disabled,monochrome,composite,svideo,rgb |
+| gpgx | `genesis_plus_gx_blargg_ntsc_filter` | Blargg NTSC Filter | done | `cgear_tv` (Off, S-Video, Composite; our own filter, not Blargg's) | disabled,monochrome,composite,svideo,rgb |
 | gpgx | `genesis_plus_gx_lcd_filter` | LCD Ghosting Filter | done | `cgear_gg_ghosting` | disabled,enabled |
 | gpgx | `genesis_plus_gx_render` | Interlaced Mode 2 Output | n/a | Mega Drive or Mega-CD only | single field,double field |
 | gpgx | `genesis_plus_gx_frameskip` | Frameskip | app | the app has its own frame skip | disabled,auto,manual |
 | gpgx | `genesis_plus_gx_frameskip_threshold` | Frameskip Threshold (%) | app | the app has its own frame skip | 15,18,21,24,27,30,33,36,39,42,... |
 | gpgx | `genesis_plus_gx_ym2413` | Master System FM (YM2413) | done | `cgear_fm` | auto,disabled,enabled |
-| gpgx | `genesis_plus_gx_ym2413_core` | Master System FM (YM2413) Core | planned | one exact YM2413 of our own instead of a choice of two | mame,nuked |
+| gpgx | `genesis_plus_gx_ym2413_core` | Master System FM (YM2413) Core | n/a | n/a (one FM chip of our own) | mame,nuked |
 | gpgx | `genesis_plus_gx_ym2612` | Mega Drive/Genesis FM | n/a | Mega Drive or Mega-CD only | mame (ym2612),mame (asic ym3438),mame (enhanced ym3438),nuked (ym2612),nuked (ym3438) |
-| gpgx | `genesis_plus_gx_sound_output` | Sound Output | planned |  | stereo,mono |
+| gpgx | `genesis_plus_gx_sound_output` | Sound Output | done | `cgear_mono` | stereo,mono |
 | gpgx | `genesis_plus_gx_audio_filter` | Audio Filter | done | `cgear_lowpass` (low-pass; no EQ yet) | disabled,low-pass,EQ |
 | gpgx | `genesis_plus_gx_lowpass_range` | Low-Pass Filter % | done | `cgear_lowpass` (Light/Medium/Strong) | 5,10,15,20,25,30,35,40,45,50,... |
 | gpgx | `genesis_plus_gx_psg_preamp` | PSG Preamp Level | done | `cgear_volume` | 0,5,10,15,20,25,30,35,40,45,... |
@@ -140,8 +140,8 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | picodrive | `picodrive_ramcart` | Sega CD RAM Cart | n/a | Mega Drive or Mega-CD only | disabled,enabled |
 | picodrive | `picodrive_aspect` | Core-Provided Aspect Ratio | app | the app has its own picture shape setting | PAR,4/3,CRT |
 | picodrive | `picodrive_ggghost` | LCD Ghosting Filter | done | `cgear_gg_ghosting` (Off/Weak/Normal) | off,weak,normal |
-| picodrive | `picodrive_renderer` | Video Renderer | planned | a faster, less exact picture: only if the exact one is too slow | accurate,good,fast |
-| picodrive | `picodrive_sound_rate` | Audio Sample Rate (Hz) | planned | output sample rate | 16000,22050,32000,44100,native |
+| picodrive | `picodrive_renderer` | Video Renderer | n/a | n/a (one exact renderer; fast enough) | accurate,good,fast |
+| picodrive | `picodrive_sound_rate` | Audio Sample Rate (Hz) | done | `cgear_sound_rate` (48, 44.1, 32, 22 kHz) | 16000,22050,32000,44100,native |
 | picodrive | `picodrive_fm_filter` | FM filtering | n/a | Mega Drive or Mega-CD only | off,on |
 | picodrive | `picodrive_smsfm` | Master System FM Sound Unit | done | `cgear_fm` | off,on |
 | picodrive | `picodrive_fmchip` | Mega Drive FM chip type | n/a | Mega Drive or Mega-CD only | ym2612,ym3438 |
@@ -155,8 +155,8 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | picodrive | `picodrive_sprlim` | No Sprite Limit | done | `cgear_sprite_limit` | disabled,enabled |
 | picodrive | `picodrive_overclk68k` | 68K Overclock | n/a | Mega Drive or Mega-CD only | disabled,+25%,+50%,+75%,+100%,+200%,+400% |
 | smsplus | `smsplus_sms_bios` | Master System BIOS (Restart Required) | done | `cgear_bios` | disabled,auto |
-| smsplus | `smsplus_hardware` | Hardware (Restart Required) | planned | includes ColecoVision, a different console (not in S1) | auto,master system,master system II,game gear,game gear (sms compatibility),coleco |
+| smsplus | `smsplus_hardware` | Hardware (Restart Required) | n/a | n/a (ColecoVision is another console) | auto,master system,master system II,game gear,game gear (sms compatibility),coleco |
 | smsplus | `smsplus_region` | Region (Restart Required) | done | `cgear_region` | auto,ntsc-u,pal,ntsc-j |
 | smsplus | `smsplus_fm_sound` | Use FM (YM2413) (Restart Required) | done | `cgear_fm` | auto,disabled |
-| smsplus | `smsplus_hide_left_border` | Hide SMS Left Border | planned |  | disabled,enabled |
-| smsplus | `smsplus_ntsc_filter` | Blargg NTSC Filter | planned | as above | disabled,composite,svideo,rgb,monochrome |
+| smsplus | `smsplus_hide_left_border` | Hide SMS Left Border | done | `cgear_hide_left` | disabled,enabled |
+| smsplus | `smsplus_ntsc_filter` | Blargg NTSC Filter | done | `cgear_tv` | disabled,composite,svideo,rgb,monochrome |

@@ -137,6 +137,13 @@ fn settings_reach_the_game() {
     let _t = TURN.lock().unwrap_or_else(|e| e.into_inner());
     let (w, h, px, _) = run_with(&[("cgear_hide_left", "on")], 5);
     assert_eq!((w, h, px.len()), (248, 192, 248 * 192), "the left column cut off");
+    let (w, _, _, _) = run_with(&[("cgear_hide_left", "both")], 5);
+    assert_eq!(w, 240, "both sides cut off");
+    let (_, _, px, _) = run_with(&[("cgear_tv", "composite")], 5);
+    assert_eq!(px[100 * 256 + 100], 0x0000FF, "an even colour stays as it is");
+    let (_, _, _, slow) = run_with(&[("cgear_sound_rate", "22050")], 50);
+    let per = slow as f64 / 50.0;
+    assert!((per - 22_050.0 / 59.92).abs() < 3.0, "22 kHz: {per} a frame");
     let (_, _, _, fifty) = run_with(&[("cgear_refresh", "50")], 50);
     let (_, _, _, sixty) = run_with(&[], 50);
     assert!(fifty > sixty * 115 / 100, "a 50 Hz frame is longer, so it makes more sound: {fifty} {sixty}");

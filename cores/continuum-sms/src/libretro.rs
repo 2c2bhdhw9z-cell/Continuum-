@@ -346,7 +346,7 @@ unsafe fn machine(rom: Vec<u8>, s: &Settings, path: *const c_char) -> Box<Sms> {
         c => c,
     };
     let mut m = Box::new(Sms::new(rom));
-    m.rate = RATE;
+    m.rate = s.sound_rate;
     match console {
         Console::GameGear => m.bus.set_game_gear(),
         Console::Sg1000 => m.bus.set_sg1000(),
@@ -395,7 +395,7 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
     if let Some((w, h)) = dual {
         *info = RetroSystemAvInfo {
             geometry: RetroGameGeometry { base_width: w, base_height: h, max_width: 320, max_height: 294, aspect_ratio: w as f32 / h as f32 },
-            timing: RetroSystemTiming { fps: 3_579_545.0 / (228.0 * 262.0), sample_rate: f64::from(RATE) },
+            timing: RetroSystemTiming { fps: 3_579_545.0 / (228.0 * 262.0), sample_rate: f64::from(rate_now()) },
         };
         return;
     }
@@ -409,6 +409,7 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
             (m.bus.vdp.pal, m.bus.gg && !m.at_start.gg_full, m.at_start.hide_left && tb.is_none(), tb)
         }))
         .unwrap_or((false, false, false, None));
+    let both = CORE.lock().ok().and_then(|c| c.as_ref().map(|m| m.at_start.hide_right)).unwrap_or(false);
     // A Master System on a TV: 256 x 192 shown 4:3 (248 wide without its left column), and with
     // the TV's border round it at the same shape of dot. A Game Gear's own screen: 160 x 144, 10:9.
     let (w, h, aspect) = if gg {
@@ -417,7 +418,8 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
         let (w, h) = (256 + sides as u32, 192 + tb as u32);
         (w, h, w as f32 / h as f32)
     } else if cut {
-        (248, 192, 4.0 / 3.0 * 248.0 / 256.0)
+        let w = if both { 240 } else { 248 };
+        (w, 192, 4.0 / 3.0 * w as f32 / 256.0)
     } else {
         (256, 192, 4.0 / 3.0)
     };
@@ -425,7 +427,7 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
         geometry: RetroGameGeometry { base_width: w, base_height: h, max_width: 320, max_height: 294, aspect_ratio: aspect },
         timing: RetroSystemTiming {
             fps: if pal { 3_546_895.0 / (228.0 * 313.0) } else { 3_579_545.0 / (228.0 * 262.0) },
-            sample_rate: f64::from(RATE),
+            sample_rate: f64::from(rate_now()),
         },
     };
 }
@@ -776,6 +778,42 @@ fn shrink(px: &mut Vec<u32>, w: usize, h: usize, nw: usize, nh: usize) -> (usize
     (nw, nh)
 }
 
+/// The sound's sample rate the game was started with.
+fn rate_now() -> u32 {
+    CORE.lock().ok().and_then(|c| c.as_ref().map(|m| m.m.rate)).unwrap_or(RATE)
+}
+
+/// The picture as a TV's cable gave it: S-Video blurs each line a little sideways; composite also
+/// lets the colour run further than the brightness, as its colour signal had less room.
+fn tv_picture(px: &mut [u32], w: usize, composite: bool) {
+    let ch = |p: u32, s: u32| ((p >> s) & 0xFF) as f32;
+    for row in px.chunks_mut(w) {
+        let src: Vec<[f32; 3]> = row.iter().map(|p| [ch(*p, 16), ch(*p, 8), ch(*p, 0)]).collect();
+        let at = |i: isize| src[i.clamp(0, w as isize - 1) as usize];
+        for x in 0..w {
+            let xi = x as isize;
+            let soft = |c: usize| (at(xi - 1)[c] + 2.0 * at(xi)[c] + at(xi + 1)[c]) / 4.0;
+            let out: [f32; 3] = if composite {
+                let luma = |p: [f32; 3]| 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2];
+                let y = (luma(at(xi - 1)) + 2.0 * luma(at(xi)) + luma(at(xi + 1))) / 4.0;
+                let mut wide = [0f32; 3];
+                for d in -3..=3isize {
+                    let p = at(xi + d);
+                    let l = luma(p);
+                    for c in 0..3 {
+                        wide[c] += (p[c] - l) / 7.0;
+                    }
+                }
+                [y + wide[0], y + wide[1], y + wide[2]]
+            } else {
+                [soft(0), soft(1), soft(2)]
+            };
+            let c = |v: f32| v.round().clamp(0.0, 255.0) as u32;
+            row[x] = c(out[0]) << 16 | c(out[1]) << 8 | c(out[2]);
+        }
+    }
+}
+
 /// Two Game Gears' pictures as one (side by side or stacked, or only one, the second first when
 /// swapped). Returns the size.
 fn compose_pair(m: &mut Core, shown: &mut Vec<u32>, w: usize, h: usize) -> (usize, usize) {
@@ -904,10 +942,14 @@ pub unsafe extern "C" fn retro_run() {
         let mut shown = std::mem::take(&mut m.shown);
         let (mut w, h) = m.bus.vdp.shown(&mut shown);
         if m.at_start.hide_left && !m.bus.gg && m.bus.vdp.borders == 0 {
-            shown = shown.chunks(w).flat_map(|row| row[8..].iter().copied()).collect();
-            w -= 8;
+            let right = if m.at_start.hide_right { 8 } else { 0 };
+            shown = shown.chunks(w).flat_map(|row| row[8..w - right].iter().copied()).collect();
+            w -= 8 + right;
         }
         draw_crosshairs(m, &mut shown, w, h);
+        if m.s.tv > 0 && !m.bus.gg {
+            tv_picture(&mut shown, w, m.s.tv == 2);
+        }
         let (w, h) = if m.gg_sms { shrink(&mut shown, w, h, 160, 144) } else { (w, h) };
         let (w, h) = compose_pair(m, &mut shown, w, h);
         if m.s.gg_ghosting > 0 && m.bus.gg {
@@ -947,11 +989,12 @@ pub unsafe extern "C" fn retro_run() {
     }
     if m.s.eq != [100; 3] {
         let gains = m.s.eq;
-        equalise(&mut m.eq, gains, &mut samples);
+        let rate = m.m.rate;
+        equalise(&mut m.eq, gains, rate, &mut samples);
     }
     if m.s.lowpass > 0 {
         // One pole: each sample moves part of the way to the new value.
-        let a = 1.0 - (-std::f32::consts::TAU * f32::from(m.s.lowpass) / RATE as f32).exp();
+        let a = 1.0 - (-std::f32::consts::TAU * f32::from(m.s.lowpass) / m.m.rate as f32).exp();
         for pair in samples.chunks_mut(2) {
             for (x, y) in pair.iter_mut().zip(m.lp.iter_mut()) {
                 *y += a * (f32::from(*x) - *y);
@@ -1061,8 +1104,8 @@ pub extern "C" fn retro_get_memory_size(id: u32) -> usize {
 
 /// The equaliser: three bands from two one-pole low-passes (880 Hz and 5 kHz) per side, each
 /// band at its level (percent).
-fn equalise(state: &mut [[f32; 2]; 2], levels: [u8; 3], samples: &mut [i16]) {
-    let pole = |hz: f32| 1.0 - (-std::f32::consts::TAU * hz / RATE as f32).exp();
+fn equalise(state: &mut [[f32; 2]; 2], levels: [u8; 3], rate: u32, samples: &mut [i16]) {
+    let pole = |hz: f32| 1.0 - (-std::f32::consts::TAU * hz / rate as f32).exp();
     let (a, b) = (pole(880.0), pole(5000.0));
     let g = levels.map(|v| f32::from(v) / 100.0);
     for pair in samples.chunks_mut(2) {
@@ -1088,7 +1131,7 @@ mod eq_tests {
             [v, v]
         }).collect();
         let mut st = [[0.0; 2]; 2];
-        equalise(&mut st, levels, &mut s);
+        equalise(&mut st, levels, RATE, &mut s);
         s[s.len() - 2400..].iter().map(|v| i32::from(*v).abs()).max().unwrap() as f32 / 10_000.0
     }
 
