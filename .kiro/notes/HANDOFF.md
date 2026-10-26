@@ -91,11 +91,17 @@ identifier (what zsign, so ESign and GBox, does; his ESign installs kept built-i
 Checked here on Continuum 234: the helper survives as app.sweetpotato2703.cancer3985.JITHelper with
 the app's identifier and get-task-allow, clean on rcodesign and on Signer's own installer check.
 Also fixed: an .ipa handed over as a link read as "not a zip file". Signer's 80 engine tests pass.
-Open: his PUBG sign crashes at "Listing ShadowTrackerExtra.app contents" (the resource list). Not
-reproduced here: a stand-in app of 45,600 files and 1.5 GB signed fine at 198 MB peak memory; a
-120,000-file, 4 GB one (Chinese and emoji names, .lproj folders, a symlink) also signed fine here:
-207 s, 478 MB peak memory. So it is the phone, not the app's size or its file names. Next step if he
-wants it: a breadcrumb file in Signer so a crash says which file and phase it died on (offered).
+Open: his PUBG sign closes itself at "Listing ShadowTrackerExtra.app contents" (the resource list).
+Not reproduced here: stand-in apps of 45,600 files/1.5 GB and 120,000 files/4 GB (Chinese and emoji
+names, .lproj folders, a symlink) both signed fine, 198 and 478 MB peak memory. So it is the phone.
+He asked for a trace, in Settings, toggleable: SIGNER BUILD 19 has it (Settings, Troubleshooting,
+"Keep a trace while signing", on by default, and a "Last run" screen that shows, copies or shares
+it; the run before is kept, so retrying does not wipe a crash). Every line is flushed as written;
+per-file lines at most 5 a second and at least one per 2,000 files (4 GB app: 241 lines, 28 KB, no
+time cost). It records the phases, file count and free space, each part signed, every large file,
+writing the file list, and packing. Build 19 also carries the extension fix and the link fix:
+https://github.com/2c2bhdhw9z-cell/snes-tas-studio/releases/download/build-19/Signer.ipa
+Waiting on him: the trace from a failed PUBG sign.
 
 6:45 PM: he asked whether cBoy made it into 233: only partly (up to c667a2e: Advance timing, the sound chip,
 settings). The cBoy chat's build 234 (fb4af3b, 6:20 PM) has ALL of 233 (the same GameCube core, 1,726,176
