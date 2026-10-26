@@ -118,6 +118,9 @@ fn settings_reach_the_game() {
     assert_eq!((w, h), (160, 144), "a Game Gear's own screen");
     let (w, h, _, _) = run_with(&[("cgear_console", "gg"), ("cgear_gg_full", "on")], 5);
     assert_eq!((w, h), (256, 192), "the whole picture it draws");
+    let (w, h, px, _) = run_with(&[("cgear_borders", "full")], 5);
+    assert_eq!((w, h), (13 + 256 + 15, 27 + 192 + 24), "the TV's border all round");
+    assert_eq!(px[0], px[27 * w as usize + 13 + 100], "in the backdrop colour the game set (blue)");
 }
 
 #[test]

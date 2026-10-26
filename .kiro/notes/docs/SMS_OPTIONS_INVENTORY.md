@@ -50,7 +50,7 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gearsystem | `gearsystem_bios_sms` | Master System BIOS (restart) | planned |  | Disabled,Enabled |
 | gearsystem | `gearsystem_bios_gg` | Game Gear BIOS (restart) | planned |  | Disabled,Enabled |
 | gearsystem | `gearsystem_aspect_ratio` | Aspect Ratio | app | the app has its own picture shape setting | 1:1 PAR,4:3 DAR,16:9 DAR,16:10 DAR |
-| gearsystem | `gearsystem_overscan` | Overscan | planned |  | Disabled,Top+Bottom,Full (284 width),Full (320 width) |
+| gearsystem | `gearsystem_overscan` | Overscan | done | `cgear_borders` (Off, Above and below, All round = 284 wide) | Disabled,Top+Bottom,Full (284 width),Full (320 width) |
 | gearsystem | `gearsystem_hide_left_bar` | Hide Left Bar (SMS only) | planned |  | No,Auto,Always |
 | gearsystem | `gearsystem_no_sprite_limit` | No Sprite Limit | done | `cgear_sprite_limit` | Disabled,Enabled |
 | gearsystem | `gearsystem_glasses` | 3D Glasses | planned | SegaScope 3-D glasses: which eye is shown | Both Eyes / OFF,Left Eye,Right Eye |
@@ -81,7 +81,7 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | gpgx | `genesis_plus_gx_add_on` | CD add-on (MD mode) (Requires Restart) | n/a | Mega Drive or Mega-CD only | auto,sega/mega cd,megasd,none |
 | gpgx | `genesis_plus_gx_lock_on` | Cartridge Lock-On | n/a | Mega Drive or Mega-CD only | disabled,game genie,action replay (pro),sonic & knuckles |
 | gpgx | `genesis_plus_gx_aspect_ratio` | Core-Provided Aspect Ratio | app | the app has its own picture shape setting | auto,NTSC PAR,PAL PAR,4:3,Uncorrected |
-| gpgx | `genesis_plus_gx_overscan` | Borders | planned |  | disabled,top/bottom,left/right,full |
+| gpgx | `genesis_plus_gx_overscan` | Borders | done | `cgear_borders` (no sides-only choice) | disabled,top/bottom,left/right,full |
 | gpgx | `genesis_plus_gx_left_border` | Hide Master System Side Borders | planned |  | disabled,left border,left & right borders |
 | gpgx | `genesis_plus_gx_gg_extra` | Game Gear Extended Screen | done | `cgear_gg_full` | disabled,enabled |
 | gpgx | `genesis_plus_gx_blargg_ntsc_filter` | Blargg NTSC Filter | planned | TV look; Blargg's filter is LGPL, so written our own way or left to the app's shaders | disabled,monochrome,composite,svideo,rgb |

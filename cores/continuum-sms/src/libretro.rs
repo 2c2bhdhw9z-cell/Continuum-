@@ -114,6 +114,7 @@ impl Core {
         self.m.bus.vdp.sms_tms_colours = s.tms_colours_sms.unwrap_or(!self.m.bus.sg);
         self.m.bus.vdp.tms_from_cram = s.tms_colours_sms.is_none() && self.m.bus.gg;
         self.m.bus.vdp.gg_full = self.at_start.gg_full;
+        self.m.bus.vdp.borders = self.at_start.borders;
     }
 }
 
@@ -167,18 +168,30 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
     if info.is_null() {
         return;
     }
-    let (pal, gg, cut) = CORE.lock().ok().and_then(|c| c.as_ref().map(|m| (m.bus.vdp.pal, m.bus.gg && !m.at_start.gg_full, m.at_start.hide_left))).unwrap_or((false, false, false));
-    // A Master System on a TV: 256 x 192 shown 4:3 (248 wide without its left column). A Game
-    // Gear's own screen: 160 x 144, 10:9.
+    let (pal, gg, cut, borders) = CORE
+        .lock()
+        .ok()
+        .and_then(|c| c.as_ref().map(|m| {
+            let (t, b) = m.bus.vdp.border_lines();
+            let sides = if m.bus.vdp.borders == 2 { 13 + 15 } else { 0 };
+            let tb = if m.bus.vdp.borders > 0 && !m.bus.gg { Some((sides, t + b)) } else { None };
+            (m.bus.vdp.pal, m.bus.gg && !m.at_start.gg_full, m.at_start.hide_left && tb.is_none(), tb)
+        }))
+        .unwrap_or((false, false, false, None));
+    // A Master System on a TV: 256 x 192 shown 4:3 (248 wide without its left column), and with
+    // the TV's border round it at the same shape of dot. A Game Gear's own screen: 160 x 144, 10:9.
     let (w, h, aspect) = if gg {
         (160, 144, 10.0 / 9.0)
+    } else if let Some((sides, tb)) = borders {
+        let (w, h) = (256 + sides as u32, 192 + tb as u32);
+        (w, h, w as f32 / h as f32)
     } else if cut {
         (248, 192, 4.0 / 3.0 * 248.0 / 256.0)
     } else {
         (256, 192, 4.0 / 3.0)
     };
     *info = RetroSystemAvInfo {
-        geometry: RetroGameGeometry { base_width: w, base_height: h, max_width: 256, max_height: 240, aspect_ratio: aspect },
+        geometry: RetroGameGeometry { base_width: w, base_height: h, max_width: 256 + 13 + 15, max_height: 294, aspect_ratio: aspect },
         timing: RetroSystemTiming {
             fps: if pal { 3_546_895.0 / (228.0 * 313.0) } else { 3_579_545.0 / (228.0 * 262.0) },
             sample_rate: f64::from(RATE),
@@ -383,7 +396,7 @@ pub unsafe extern "C" fn retro_run() {
     if let Some(video) = video {
         let mut shown = std::mem::take(&mut m.shown);
         let (mut w, h) = m.bus.vdp.shown(&mut shown);
-        if m.at_start.hide_left && !m.bus.gg {
+        if m.at_start.hide_left && !m.bus.gg && m.bus.vdp.borders == 0 {
             shown = shown.chunks(w).flat_map(|row| row[8..].iter().copied()).collect();
             w -= 8;
         }

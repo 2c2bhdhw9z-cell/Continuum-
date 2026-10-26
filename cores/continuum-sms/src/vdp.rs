@@ -91,6 +91,13 @@ pub struct Vdp {
     /// game has to set itself (black otherwise), as on the real one (SMS Power, "Palette").
     #[serde(skip)]
     pub tms_from_cram: bool,
+    /// The border a TV shows round the picture, in the colour of register 7 (a setting): 0 none,
+    /// 1 above and below, 2 all round.
+    #[serde(skip)]
+    pub borders: u8,
+    /// The border colour at the start of each line of the frame, for `borders`.
+    #[serde(skip)]
+    border_rows: Vec<u32>,
     /// Draw only as many sprites a line as the console can (a setting; not saved).
     #[serde(skip, default = "yes")]
     pub sprite_limit: bool,
@@ -124,6 +131,8 @@ impl Default for Vdp {
             gg_full: false,
             sms_tms_colours: false,
             tms_from_cram: false,
+            borders: 0,
+            border_rows: Vec::new(),
             tms: false,
             sprite_limit: true,
             cram_latch: 0,
@@ -158,8 +167,29 @@ impl Vdp {
             return (160, 144);
         }
         let h = usize::from(self.height());
-        out.extend_from_slice(&self.frame[..h * WIDTH]);
-        (WIDTH, h)
+        if self.borders == 0 || self.gg {
+            out.extend_from_slice(&self.frame[..h * WIDTH]);
+            return (WIDTH, h);
+        }
+        let (top, bottom) = self.border_lines();
+        let (left, right) = if self.borders == 2 { Self::SIDE_BORDERS } else { (0, 0) };
+        let n = usize::from(self.lines());
+        let at = |l: usize| self.border_rows.get(l % n.max(1)).copied().unwrap_or(0);
+        let w = left + WIDTH + right;
+        // The top border is the end of the frame before (the lines just before line 0).
+        for i in 0..top {
+            out.extend(std::iter::repeat_n(at(n + i - top), w));
+        }
+        for y in 0..h {
+            let c = at(y);
+            out.extend(std::iter::repeat_n(c, left));
+            out.extend_from_slice(&self.frame[y * WIDTH..(y + 1) * WIDTH]);
+            out.extend(std::iter::repeat_n(c, right));
+        }
+        for i in 0..bottom {
+            out.extend(std::iter::repeat_n(at(h + i), w));
+        }
+        (w, top + h + bottom)
     }
 
     /// Lines in a frame.
@@ -297,7 +327,48 @@ impl Vdp {
         if line < h {
             self.draw_line(line);
         }
+        if self.borders > 0 {
+            let n = usize::from(self.lines());
+            if self.border_rows.len() != n {
+                self.border_rows = vec![0; n];
+            }
+            self.border_rows[usize::from(line) % n] = self.backdrop();
+        }
     }
+
+    /// The border colour, register 7's low four bits in whichever mode is on.
+    fn backdrop(&self) -> u32 {
+        let i = usize::from(self.regs[7] & 15);
+        if !self.tms && self.regs[0] & 0x04 != 0 {
+            return self.colour(16 + i);
+        }
+        if self.tms_from_cram {
+            self.colour(i)
+        } else if self.sms_tms_colours {
+            let level = |v: u8| u32::from(v & 3) * 85;
+            let c = SMS_TMS[i];
+            level(c) << 16 | level(c >> 2) << 8 | level(c >> 4)
+        } else {
+            TMS_RGB[i]
+        }
+    }
+
+    /// Lines of border above and below the picture on a TV (Charles MacDonald's VDP document:
+    /// the NTSC and PAL breakdown of each mode). The picture with them is 243 lines at 60 Hz and
+    /// 294 at 50 Hz in every mode, except 240 lines at 60 Hz, which has none.
+    pub fn border_lines(&self) -> (usize, usize) {
+        match (self.pal, self.height()) {
+            (false, 224) => (11, 8),
+            (false, 240) => (0, 0),
+            (true, 224) => (38, 32),
+            (true, 240) => (30, 24),
+            (true, _) => (54, 48),
+            _ => (27, 24),
+        }
+    }
+
+    /// Dots of border left and right of the picture.
+    pub const SIDE_BORDERS: (usize, usize) = (13, 15);
 
     /// A colour from colour memory: the Master System's six bits, two each of blue, green and red.
     fn colour(&self, index: usize) -> u32 {
@@ -692,6 +763,31 @@ mod tests {
         v.sms_tms_colours = true;
         v.start_line(0);
         assert_eq!(px(&v, 0, 0), 0x000055, "the Master System's: palette entry $10, blue at level 1 of 3");
+    }
+
+    #[test]
+    fn the_borders_a_tv_shows_are_the_border_colour_round_the_picture() {
+        let mut v = dotted();
+        v.borders = 2;
+        v.regs[7] = 0x01;
+        v.cram[17] = 0x30; // border colour: sprite palette entry 1, blue
+        for l in 0..v.lines() {
+            v.start_line(l);
+        }
+        let mut out = Vec::new();
+        let (w, h) = v.shown(&mut out);
+        assert_eq!((w, h), (13 + 256 + 15, 27 + 192 + 24), "60 Hz, 192 lines");
+        assert_eq!((out[0], out[w * h - 1]), (0x0000FF, 0x0000FF), "corners");
+        assert_eq!(out[27 * w + 13], 0xFF0000, "the picture's first dot where it belongs");
+        v.borders = 1;
+        let (w, h) = v.shown(&mut out);
+        assert_eq!((w, h), (256, 243));
+        v.pal = true;
+        v.border_rows.clear();
+        for l in 0..v.lines() {
+            v.start_line(l);
+        }
+        assert_eq!(v.shown(&mut out), (256, 294), "50 Hz: 54 above, 48 below");
     }
 
     #[test]
