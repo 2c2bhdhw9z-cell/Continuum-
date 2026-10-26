@@ -25,7 +25,15 @@ cBoy chat works only in `cores/continuum-gb/**`, except its last three items (ca
 on one phone, the Advance link), which may change the app and engine; it reads this file first.
 
 ### Requests between chats
-(none yet)
+**25 October, 8:25 PM Eastern, from the GameCube chat to the cBoy/cGear chat:** the owner asked
+whether you are still working. Please push a one-line answer here (replace this request) saying what
+you are on and the time, so he can see it in the repo. Nothing else needed.
+
+**Note for the owner's signing (both chats):** his certificate's profile allows only ONE app ID
+(app.sweetpotato2703.cancer3985), so any signer renames Continuum's bundle id to that and its JIT
+helper to app.sweetpotato2703.cancer3985.JITHelper. The helper is found by FILE NAME
+(Bundle.main.builtInPlugInsURL + "ContinuumJITHelper.appex", BuiltInJIT.swift), so renaming is fine:
+do not add a hardcoded helper bundle id anywhere.
 
 ### cBoy chat, 25 October 2026 evening: where cboy-finish.json stands
 B1-B4, B6, B7 done; B8 the cable done (gba/sio.rs), the wireless adapter not (no game here to check it
@@ -66,6 +74,29 @@ keeps iSH alive in the background; ssh -R 80:127.0.0.1:8200 nokey@localhost.run 
 sandbox reaches localhost.run). No second VPN, so LocalDevVPN and JIT stay up. Answered with the time it takes
 (about an hour the first time, 2-3 minutes a session). 6:35 PM: he said save it as an idea for later and he
 tests 233 first: PARKED in .kiro/notes/docs/ideas/phone-control-ictrl.md. Do not start it unless he asks.
+HIS 234 UPLOAD (x9w9wj, 51 seconds of Animal Crossing, 7:53 PM): THE GPU DRAWER WORKS AND THE GAME IS
+AT FULL SPEED. "Runs Way Way better... now it's smooth and sound is normal" (he had only reached the
+title screen so far). Numbers: 100% speed every second (was 83-88%), 60-61 new pictures a second (was
+42-61), worst field 9-14 ms (was 21-24), no crashes. Start-up line: "drawing on the graphics chip
+(Apple A19 Pro GPU, 128 MB for textures): set up in 506 ms, picture check against the processor in
+43 ms: 1 of 337920 pixels differ". Where the second goes now: cpu 300-490 ms, draw (handing work over)
+35-54 ms, waiting for the chip 100-350 ms, EFB copies on the processor 37 ms, picture 8-10 ms; the
+game thread spends 31-58% in the kernel, which is that waiting. 100-145k triangles and 30-60M pixels
+a second. So drawing is no longer the limit; the emulated CPU and the waits are. Next for speed when
+he asks: EFB copies on the chip, then the JIT's floating point and paired singles.
+
+SIGNER (his own signer, repo 2c2bhdhw9z-cell/snes-tas-studio, cloned here): he signed 234 with it and
+Continuum said "the JIT helper is missing from this copy". Cause found and FIXED IN HIS REPO (commits
+77cc662, b68adcb): his profile allows one app ID, and Signer removed every extension in that case;
+now it keeps them, moves their bundle ids under the app's new id and signs them with the app's own
+identifier (what zsign, so ESign and GBox, does; his ESign installs kept built-in JIT working).
+Checked here on Continuum 234: the helper survives as app.sweetpotato2703.cancer3985.JITHelper with
+the app's identifier and get-task-allow, clean on rcodesign and on Signer's own installer check.
+Also fixed: an .ipa handed over as a link read as "not a zip file". Signer's 80 engine tests pass.
+Open: his PUBG sign crashes at "Listing ShadowTrackerExtra.app contents" (the resource list). Not
+reproduced here: a stand-in app of 45,600 files and 1.5 GB signed fine at 198 MB peak memory; a
+120,000-file, 4 GB one (with Chinese/emoji names, .lproj folders and a symlink) is being tried.
+
 6:45 PM: he asked whether cBoy made it into 233: only partly (up to c667a2e: Advance timing, the sound chip,
 settings). The cBoy chat's build 234 (fb4af3b, 6:20 PM) has ALL of 233 (the same GameCube core, 1,726,176
 bytes, checked: the drawer's strings inside) plus the rest of the cBoy batch: told him to install 234 for both.
