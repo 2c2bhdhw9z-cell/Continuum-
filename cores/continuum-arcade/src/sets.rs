@@ -595,7 +595,7 @@ mod tests {
     fn the_known_boards_are_named_to_the_player() {
         assert_eq!(
             Refusal::Unknown.line(),
-            "Our arcade emulator can\u{2019}t play this one yet. Right now it plays Pac-Man, Ms. Pac-Man, Galaxian, Scramble, Frogger, Amidar, Donkey Kong, Donkey Kong Jr. and games on the same boards."
+            "Our arcade emulator can\u{2019}t play this one yet. Right now it plays Pac-Man, Ms. Pac-Man, Galaxian, Scramble, Frogger, Amidar, Jump Bug, Donkey Kong, Donkey Kong Jr. and games on the same boards."
         );
         assert_eq!(
             Refusal::NeedsParent { parent: "mspacman".into() }.line(),

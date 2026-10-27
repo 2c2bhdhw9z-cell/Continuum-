@@ -130,7 +130,7 @@ fn carcade_through_the_frontend() {
 
     // A game it can't play: the core's own sentence comes back as the reason, word for word.
     std::fs::write(dir.join("sf2.zip"), zip(&[("sf2_30a.bin", vec![1; 4096])])).unwrap();
-    let plays = "Our arcade emulator can\u{2019}t play this one yet. Right now it plays Pac-Man, Ms. Pac-Man, Galaxian, Scramble, Frogger, Amidar, Donkey Kong, Donkey Kong Jr. and games on the same boards.";
+    let plays = "Our arcade emulator can\u{2019}t play this one yet. Right now it plays Pac-Man, Ms. Pac-Man, Galaxian, Scramble, Frogger, Amidar, Jump Bug, Donkey Kong, Donkey Kong Jr. and games on the same boards.";
     match open(&mut core, &dir.join("sf2.zip")) {
         Err(BridgeError::InvalidContent { reason, .. }) => {
             assert_eq!(reason, plays);

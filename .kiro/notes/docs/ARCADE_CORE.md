@@ -374,7 +374,7 @@ Arcade games are zips named after the game (`pacman.zip`), holding the board's R
    which MAME also runs (with a warning). The log names the chips that differ.
 6. **Otherwise it refuses with one plain sentence**, never a crash. For a game it doesn't know:
    "Our arcade emulator can't play this one yet. Right now it plays Pac-Man, Ms. Pac-Man, Galaxian,
-   Scramble, Frogger, Amidar, Donkey Kong, Donkey Kong Jr. and games on the same boards." The sentence is built from the boards that are switched on. For a split
+   Scramble, Frogger, Amidar, Jump Bug, Donkey Kong, Donkey Kong Jr. and games on the same boards." The sentence is built from the boards that are switched on. For a split
    clone with no parent: "This one needs mspacman.zip next to it." For a missing or bad chip:
    "This copy of Pac-Man is missing a piece. A complete copy of pacman.zip fixes it."
 
