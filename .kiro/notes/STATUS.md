@@ -327,6 +327,17 @@ launch with an empty library.
 
 ## Next up
 
+**27 October 2026, evening Eastern.** **cAtari, Continuum's own Atari 7800 emulator, is finished
+and on master: Built, untested** (no phone has run it). It is the second choice next to ProSystem
+(still the default) in Settings, Cores, Core for Atari 7800 games. It plays every board ProSystem
+and the a7800 emulator play, the High Score Cartridge and SaveKey, and matches MAME 0.289 frame for
+frame, the TIA's sound sample for sample and POKEY's clock for clock on our own test programs
+(`.kiro/notes/docs/ATARI7800_CORE.md`; settings: `docs/A7800_OPTIONS_INVENTORY.md`; checklist:
+`tasks/atari7800.json`). Not yet: the XM module's own chips, and Rikki & Vikki's music player.
+**cMini** (the Pokémon Mini) is being built by a workflow in its own clone
+(`/projects/sandbox/.scratch/pokemini-work`). Then ONE build with both, and the phone checks in
+TESTING.md "Next install (after 244)".
+
 **18 October 2026, 9:20 AM Eastern, read this first.** **Build 192** (`006c199`) is the newest
 install:
 https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-192-006c199/Continuum-192.ipa

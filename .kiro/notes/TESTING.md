@@ -7,6 +7,21 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
+## Next install (after 244): cAtari, Continuum's own Atari 7800 emulator
+
+Not built yet: it goes in one build with cMini (the Pokémon Mini), when both are done. ProSystem
+stays the 7800's default until you've played cAtari.
+
+1. Settings → Cores → Core for Atari 7800 games → cAtari. Open a 7800 game. ✅ It starts straight
+   away, with picture and sound; the pad moves, B and A are the two fire buttons.
+2. In the game, ⋯ → Core settings... ✅ cAtari's settings are there (TV system, Colours, Smooth
+   flicker, the two sound chips, the controllers, the difficulty switches and more).
+3. X is Reset, Start pauses, L and R flip the left and right difficulty switches. ✅ Each does that.
+4. A game with music on the cartridge (Ballblazer or Commando, if you have them). ✅ The music plays.
+5. A light gun game, if you have one (Barnyard Blaster, Alien Brigade, Crossbow, Meltdown): tap the
+   screen to shoot. ✅ The shot lands where you tap.
+6. Save a state, play on, load it. ✅ Back where you were.
+
 ## Build 244 (26 October, 6:20 PM): the Pokémon Box's Items, Gifts, Events, Migration, Showcase
 Commit 52b9f7c. Checked: 0.8.0 build 244, 39 emulators, JIT helper, the new tools' text in the app.
 Engine tested on save files built from the documented layouts; not yet on the owner's real saves.

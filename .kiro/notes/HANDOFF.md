@@ -5,7 +5,26 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE FOR A NEW CHAT (25 October 2026, evening Eastern): finish cBoy, then the Sega core
+## START HERE (27 October 2026, evening Eastern): cAtari done, cMini being built, then one build
+
+The owner asked for the next easiest core (27 October): the Atari 7800 ("Then do the Atari 7800."),
+with subagents doing the Pokémon Mini at the same time.
+
+- **cAtari** (`cores/continuum-atari`, Atari 7800) is finished and pushed (Built, untested). Write-up:
+  `.kiro/notes/docs/ATARI7800_CORE.md`; settings: `docs/A7800_OPTIONS_INVENTORY.md`; checklist:
+  `tasks/atari7800.json` (A1-A8 done, A9 = the build). Second choice next to ProSystem (default).
+  Its tests need MAME only to remake references: the reference MAME is
+  `/projects/sandbox/.scratch/mame/mame-mame0289/arcaderef` (a7800, a7800p and pokemini added),
+  scratch is `/projects/sandbox/.scratch/atari-tmp/` (dasm, Stella's core, ProSystem's source).
+- **cMini** (Pokémon Mini) is being built by workflow `wf_e0bbffe07689612b` in its own clone
+  `/projects/sandbox/.scratch/pokemini-work` (scratch `/projects/sandbox/.scratch/pokemini-tmp/`);
+  when it finishes, read its final report, make sure its work is on master, and fold the report
+  into the notes.
+- **Then ONE build** with both (the next has 41 emulator files: 244's 39 plus cAtari and cMini).
+  Check the .ipa (0.8.0, the build number, both dylibs inside) and hand over the link with the steps
+  in TESTING.md "Next install (after 244)" plus cMini's.
+
+## Earlier: finish cBoy, then the Sega core (25 October 2026, evening Eastern)
 
 Owner's order: a new chat finishes **cBoy** first, because it is much nearer done than the GameCube
 core, then builds the **next easiest core**, which must be as good as the outside emulator it replaces

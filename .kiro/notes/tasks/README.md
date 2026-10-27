@@ -10,6 +10,7 @@ saved part-way (`../wip/` holds only the scratch tools).
 
 | File | Job | Done | Left |
 |---|---|---|---|
+| `atari7800.json` | cAtari, Continuum's own Atari 7800 emulator (owner, 27 October: "Then do the Atari 7800.") | A1 to A8 (`.kiro/notes/docs/ATARI7800_CORE.md`) | A9: the one build with cMini |
 | `gamecube.json` | GameCube and Wii on Dolphin with our own faster interpreter (owner, 16 October) | nothing yet | GC1 to GC5 |
 | `cboy-finish.json` | Finish cBoy (B1 to B9), then start the Sega 8-bit core (S1) (owner, 25 October) | nothing yet | B1 to B9, S1 |
 | `library-and-manic.json` | Covers like Manic's, the library by console, Manic's other features from the owner's screenshots | **All done (17 October), in build 191**: L1 to L10 (`.kiro/notes/docs/reports/library-and-manic-2026-10-16.md`) | nothing |

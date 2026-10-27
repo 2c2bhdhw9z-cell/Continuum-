@@ -21,9 +21,10 @@
   },
   {
    "id": "A2",
-   "done": false,
+   "done": true,
    "title": "Settings inventory",
-   "detail": "Every setting of ProSystem (libretro, the app's current core), a7800 (the standalone, MAME-based), MAME's a7800, BizHawk's A7800Hawk, js7800 and EMU7800, generated as CORE_OPTIONS_STANDARD.md says, in .kiro/notes/docs/A7800_OPTIONS_INVENTORY.md; each planned, app or n/a."
+   "detail": "Every setting of ProSystem (libretro, the app's current core), a7800 (the standalone, MAME-based), MAME's a7800, BizHawk's A7800Hawk, js7800 and EMU7800, generated as CORE_OPTIONS_STANDARD.md says, in .kiro/notes/docs/A7800_OPTIONS_INVENTORY.md; each planned, app or n/a.",
+   "result": ".kiro/notes/docs/A7800_OPTIONS_INVENTORY.md: ProSystem's 4 settings, MAME 0.289's and a7800's (difficulty switches, BIOS, palettes, HSC, controllers, XM), BizHawk's, JS7800's and EMU7800's, each done, app or n/a; gaps: the XM, the Souper music player, rare controllers."
   },
   {
    "id": "A3",
@@ -34,10 +35,10 @@
   },
   {
    "id": "A4",
-   "done": false,
+   "done": true,
    "title": "Cartridges",
    "detail": ".a78 headers (v1 to v4), headerless .bin, every bank-switching scheme ProSystem and a7800 play (SuperGame with its RAM and bank-6 variants, Absolute, Activision, Souper, BankSet), POKEY on the cartridge, cartridge RAM, the High Score Cartridge (the player's own HSC file), SaveKey/AtariVox saves.",
-   "progress": "Done: .a78 headers (the v4 bits), headerless files by MAME's CC0 list (189), every board MAME 0.289 plays, plus BankSet (all variants, as the a7800 emulator plays them), the Souper board (as ProSystem), POKEY at $0440/$0450/$0800 as well as $4000, 52 KB BankSet images from $3000, the High Score Cartridge (the player's own highscre.bin, a setting: Auto/Every game/Off; proved against MAME), SaveKey/AtariVox (32 KB EEPROM on port 2, by the 24LC256 data sheet; Auto for games whose header asks). Battery memory (HSC RAM, SaveKey) is the core's save RAM. Not yet: the Souper board's own music player (BupChip, Rikki & Vikki's music, which ProSystem plays from a .cdf file) and .cdf loading."
+   "result": "Done: .a78 headers (the v4 bits), headerless files by MAME's CC0 list (189), every board MAME 0.289 plays, plus BankSet (all variants, as the a7800 emulator plays them), the Souper board (as ProSystem), POKEY at $0440/$0450/$0800 as well as $4000, 52 KB BankSet images from $3000, the High Score Cartridge (the player's own highscre.bin, a setting: Auto/Every game/Off; proved against MAME), SaveKey/AtariVox (32 KB EEPROM on port 2, by the 24LC256 data sheet; Auto for games whose header asks). Battery memory (HSC RAM, SaveKey) is the core's save RAM. Not yet: the Souper board's own music player (BupChip, Rikki & Vikki's music, which ProSystem plays from a .cdf file) and .cdf loading."
   },
   {
    "id": "A5",
@@ -55,10 +56,10 @@
   },
   {
    "id": "A7",
-   "done": false,
+   "done": true,
    "title": "Proved against MAME 0.289",
    "detail": "Our own 7800 test programs run on cAtari and MAME's a7800: the processor's trace, every frame, the sound; pinned in tests/references so the tests run without MAME.",
-   "progress": "Matched against MAME 0.289 (tests/mame_frames.rs, tia_mame.rs, pokey_mame.rs; references by tests/mame/make_refs.py, nothing of MAME's committed): zones 120 frames, dma 60, modes 70, inputs 110, five bank boards 20 each, the High Score Cartridge 12, dot for dot; the TIA's sound, all 204,800 samples; POKEY's sound, every one of 6.2 million clocks through MAME's recording (3.1 million samples, none more than 8 out of 32,768), with MAME's clock rounding and its 50-a-second sound updates allowed for. The RIOT against Stella (tests/riot_stella.rs). Not compared (no reference emulator in hand): BankSet, Souper, POKEY at $0440/$0800, SaveKey (unit tests from the reference emulators' behaviour and the EEPROM's data sheet)."
+   "result": "Matched against MAME 0.289 (tests/mame_frames.rs, tia_mame.rs, pokey_mame.rs; references by tests/mame/make_refs.py, nothing of MAME's committed): zones 120 frames, dma 60, modes 70, inputs 110, five bank boards 20 each, the High Score Cartridge 12, dot for dot; the TIA's sound, all 204,800 samples; POKEY's sound, every one of 6.2 million clocks through MAME's recording (3.1 million samples, none more than 8 out of 32,768), with MAME's clock rounding and its 50-a-second sound updates allowed for. The RIOT against Stella (tests/riot_stella.rs). Not compared (no reference emulator in hand): BankSet, Souper, POKEY at $0440/$0800, SaveKey (unit tests from the reference emulators' behaviour and the EEPROM's data sheet)."
   },
   {
    "id": "A8",
@@ -71,7 +72,8 @@
    "id": "A9",
    "done": false,
    "title": "Write-up and the one build",
-   "detail": "ATARI7800_CORE.md, STATUS.md, TESTING.md, HANDOFF.md; then the one build with cMini, check the .ipa, the link and phone steps."
+   "detail": "ATARI7800_CORE.md, STATUS.md, TESTING.md, HANDOFF.md; then the one build with cMini, check the .ipa, the link and phone steps.",
+   "progress": ".kiro/notes/docs/ATARI7800_CORE.md written; STATUS.md, TESTING.md (Next install after 244), HANDOFF.md and the tasks table updated. Left: the one build with cMini, checking the .ipa, the link and phone steps."
   }
  ]
 }
