@@ -207,7 +207,7 @@ pub unsafe extern "C" fn retro_get_system_info(info: *mut RetroSystemInfo) {
     *info = RetroSystemInfo {
         library_name: c"cAtari".as_ptr(),
         library_version: c"0.1.0 (state format 1)".as_ptr(),
-        valid_extensions: c"a78|bin".as_ptr(),
+        valid_extensions: c"a78|bin|cdf".as_ptr(),
         need_fullpath: false,
         block_extract: false,
     };
@@ -347,9 +347,21 @@ fn port_kind(p: Port, cart: &Cart, port: usize) -> PortKind {
     }
 }
 
-/// A new machine for `data` as the settings ask.
-unsafe fn machine(data: &[u8], s: &Settings, env: Option<EnvFn>) -> Option<Box<Atari7800>> {
-    let cart = Cart::load(data).ok()?;
+/// The cartridge in a game file: an .a78 or a plain ROM, or a ProSystem description (.cdf) whose
+/// ROM is beside it at `path`.
+unsafe fn cartridge(data: &[u8], path: *const c_char) -> Option<Cart> {
+    if data.starts_with(b"ProSystem") {
+        let dir = (!path.is_null())
+            .then(|| std::path::PathBuf::from(CStr::from_ptr(path).to_string_lossy().into_owned()))
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))?;
+        let text = String::from_utf8_lossy(data);
+        return Cart::from_cdf(&text, |f| std::fs::read(dir.join(f)).ok()).ok();
+    }
+    Cart::load(data).ok()
+}
+
+/// A new machine for `cart` as the settings ask.
+unsafe fn machine(cart: Cart, s: &Settings, env: Option<EnvFn>) -> Option<Box<Atari7800>> {
     let pal = s.region.or(cart.info.pal).unwrap_or(false);
     let region = if pal { Region::Pal } else { Region::Ntsc };
     let bios = match (env, s.bios) {
@@ -398,7 +410,8 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
         describe_inputs(env);
     }
     let s = env.map(|e| crate::options::read(e)).unwrap_or_default();
-    let Some(mut m) = machine(data, &s, env) else { return false };
+    let Some(cart) = cartridge(data, (*game).path) else { return false };
+    let Some(mut m) = machine(cart, &s, env) else { return false };
     if let Some(env) = env {
         publish_memory(env, &mut m);
     }

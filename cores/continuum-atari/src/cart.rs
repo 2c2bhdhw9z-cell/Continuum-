@@ -255,13 +255,38 @@ impl Cart {
                 (kind, Pokeys::default(), true, data.to_vec())
             }
         };
+        Cart::build(kind, pokeys, pokey_reads, rom, info)
+    }
+
+    /// A ProSystem cartridge description (.cdf): "ProSystem", the board ("EMPTY", "SUPER",
+    /// "ABSOLUTE", "ACTIVISION" or "SOUPER"), the title, the ROM file (read with `read`, a path
+    /// beside the .cdf), then the files of the Souper board's music player, which isn't played.
+    pub fn from_cdf(text: &str, read: impl Fn(&str) -> Option<Vec<u8>>) -> Result<Cart, String> {
+        let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
+        if lines.next() != Some("ProSystem") {
+            return Err("not a ProSystem description".into());
+        }
+        let kind = match lines.next() {
+            Some("SUPER") => Kind::Sg,
+            Some("ABSOLUTE") => Kind::Absolute,
+            Some("ACTIVISION") => Kind::Activision,
+            Some("SOUPER") => Kind::Souper,
+            _ => Kind::Rom,
+        };
+        let info = Info { title: lines.next().unwrap_or_default().to_string(), controllers: [1, 1], ..Info::default() };
+        let file = lines.next().ok_or("no ROM file named")?.replace('\\', "/");
+        let rom = read(&file).ok_or_else(|| format!("{file} is missing"))?;
+        Cart::build(kind, Pokeys::default(), true, rom, info)
+    }
+
+    fn build(kind: Kind, pokeys: Pokeys, pokey_reads: bool, rom: Vec<u8>, info: Info) -> Result<Cart, String> {
         if rom.is_empty() {
             return Err("empty".into());
         }
         if kind == Kind::Rom && rom.len() > 0xC000 {
             return Err("too big for a cartridge without bank switching".into());
         }
-        if kind.bankset() && (rom.len() % 2 != 0 || (matches!(kind, Kind::BankSet | Kind::BankSetRam) && rom.len() > 0x1A000)) {
+        if kind.bankset() && (!rom.len().is_multiple_of(2) || (matches!(kind, Kind::BankSet | Kind::BankSetRam) && rom.len() > 0x1A000)) {
             return Err("not a BankSet image".into());
         }
         // BankSet: each side is half the file.
@@ -789,6 +814,14 @@ mod tests {
         c.write(0x8002, 17); // B: the same, 128 bytes on, for the second half of each 256
         assert_eq!(c.maria_peek(0xA080), 2);
         assert_eq!(c.peek(0xA000), 5, "the processor still sees its bank");
+    }
+
+    #[test]
+    fn a_prosystem_description_names_the_board_and_the_rom() {
+        let cdf = "ProSystem\r\nSOUPER\r\nA game\r\n\r\nroms\\game.bin\r\nCORETONE\r\nsamples.bin\r\n";
+        let c = Cart::from_cdf(cdf, |p| (p == "roms/game.bin").then(|| banks(32, 0))).unwrap();
+        assert_eq!((c.kind, c.info.title.as_str(), c.peek(0xC000)), (Kind::Souper, "A game", 31));
+        assert!(Cart::from_cdf("ProSystem\nSUPER\nx\nmissing.bin\n", |_| None).is_err());
     }
 
     #[test]
