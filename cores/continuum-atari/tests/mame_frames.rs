@@ -20,17 +20,40 @@ fn fnv(data: &[u8]) -> u64 {
     h
 }
 
-fn a78(rom: &[u8]) -> Vec<u8> {
+fn a78(rom: &[u8], mapper: u16) -> Vec<u8> {
     let mut h = vec![0u8; 128];
     h[0] = 3;
     h[1..10].copy_from_slice(b"ATARI7800");
     h[17..28].copy_from_slice(b"cAtari test");
     h[49..53].copy_from_slice(&(rom.len() as u32).to_be_bytes());
+    h[53..55].copy_from_slice(&mapper.to_be_bytes());
     h[55] = 1;
     h[56] = 1;
     h[100..128].copy_from_slice(b"ACTUAL CART DATA STARTS HERE");
     h.extend_from_slice(rom);
     h
+}
+
+/// The .a78 for a test program; the bank-switching ones are built round their code as
+/// tests/mame/a78.py builds them: each 16 KB bank k starts $10+k, $80+k, then k, and the code
+/// replaces the board's fixed part.
+fn cartridge(program: &str) -> Vec<u8> {
+    let code = std::fs::read(crate_dir().join(format!("test-programs/{program}.bin"))).unwrap();
+    let (size, mapper, at) = match program {
+        "banks_sg" => (0x20000, 0x0002, 0x1C000),
+        "banks_sg9" => (0x24000, 0x000A, 0x20000),
+        "banks_sgram" => (0x20000, 0x0006, 0x1C000),
+        "banks_abs" => (0x10000, 0x0200, 0x8000),
+        "banks_act" => (0x20000, 0x0100, 0x1E000),
+        _ => return a78(&code, 0),
+    };
+    let mut rom = Vec::with_capacity(size);
+    for k in 0..size / 0x4000 {
+        rom.extend([0x10 + k as u8, 0x80 + k as u8]);
+        rom.extend(std::iter::repeat_n(k as u8, 0x4000 - 2));
+    }
+    rom[at..at + code.len()].copy_from_slice(&code);
+    a78(&rom, mapper)
 }
 
 /// One of MAME's input changes, on our controls.
@@ -83,9 +106,8 @@ fn check(case: &str) {
             _ => {}
         }
     }
-    let rom = std::fs::read(crate_dir().join(format!("test-programs/{program}.bin"))).unwrap();
     let bios = std::fs::read(crate_dir().join("test-programs/bios.bin")).unwrap();
-    let cart = Cart::load(&a78(&rom)).unwrap();
+    let cart = Cart::load(&cartridge(&program)).unwrap();
     let mut m = Atari7800::new(cart, Region::Ntsc, Some(bios));
     let (first, end) = Region::Ntsc.visible();
     for (k, &h) in want.iter().enumerate() {
@@ -131,4 +153,29 @@ fn modes_matches_mame() {
 #[test]
 fn inputs_match_mame() {
     check("inputs");
+}
+
+#[test]
+fn banks_sg_matches_mame() {
+    check("banks_sg");
+}
+
+#[test]
+fn banks_sg9_matches_mame() {
+    check("banks_sg9");
+}
+
+#[test]
+fn banks_sgram_matches_mame() {
+    check("banks_sgram");
+}
+
+#[test]
+fn banks_abs_matches_mame() {
+    check("banks_abs");
+}
+
+#[test]
+fn banks_act_matches_mame() {
+    check("banks_act");
 }

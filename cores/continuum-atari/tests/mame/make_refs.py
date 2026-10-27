@@ -44,6 +44,11 @@ CASES = [
     ("dma", "dma", 60, []),
     ("modes", "modes", 70, []),
     ("inputs", "inputs", 110, press_each()),
+    ("banks_sg", "banks_sg", 20, []),
+    ("banks_sg9", "banks_sg9", 20, []),
+    ("banks_sgram", "banks_sgram", 20, []),
+    ("banks_abs", "banks_abs", 20, []),
+    ("banks_act", "banks_act", 20, []),
 ]
 
 
@@ -117,7 +122,7 @@ def run(case, program, frames, events):
         f"  if k >= {frames} + 2 then manager.machine:exit() end\n"
         "end)"
     )
-    log = a78.run_mame(work, a78.a78(a78.program(program)), "\n".join(lua) + "\n", frames // 50 + 5)
+    log = a78.run_mame(work, a78.cartridge(program), "\n".join(lua) + "\n", frames // 50 + 5)
     if "LUA ERROR" in log or "Error" in log and "CHECKSUM" not in log.upper():
         print(log)
     palette = {}

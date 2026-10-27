@@ -64,3 +64,28 @@ def run_mame(work, cart, lua, seconds, extra=(), pal=False):
     if "LUA ERROR" in log or "error" in log.lower() and "checksum" not in log.lower():
         pass
     return log
+
+
+# The bank-switching test cartridges (test-programs/banks_*.asm): (size, mapper word, where the
+# assembled code goes in the ROM). Each 16 KB bank k starts $10+k, $80+k, then k; the code
+# replaces the board's fixed part. tests/mame_frames.rs builds the same.
+BANKS = {
+    "banks_sg": (0x20000, 0x0002, 0x1C000),
+    "banks_sg9": (0x24000, 0x000A, 0x20000),
+    "banks_sgram": (0x20000, 0x0006, 0x1C000),
+    "banks_abs": (0x10000, 0x0200, 0x8000),
+    "banks_act": (0x20000, 0x0100, 0x1E000),
+}
+
+
+def cartridge(name):
+    """The .a78 for a test program: the bank-switching ones built round their code."""
+    if name not in BANKS:
+        return a78(program(name))
+    size, mapper, at = BANKS[name]
+    rom = bytearray()
+    for k in range(size // 0x4000):
+        rom += bytes([0x10 + k, 0x80 + k]) + bytes([k]) * (0x4000 - 2)
+    code = program(name)
+    rom[at:at + len(code)] = code
+    return a78(bytes(rom), mapper=mapper)
