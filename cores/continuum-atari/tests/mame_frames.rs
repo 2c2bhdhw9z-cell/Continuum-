@@ -93,11 +93,13 @@ fn check(case: &str) {
     let mut want = Vec::new();
     let mut events: Vec<(usize, String, u32, u32)> = Vec::new();
     let mut hsc = false;
+    let mut region = Region::Ntsc;
     for line in text.lines() {
         let w: Vec<&str> = line.split_whitespace().collect();
         match w.first() {
             Some(&"program") => program = w[1].to_string(),
             Some(&"hsc") => hsc = true,
+            Some(&"pal") => region = Region::Pal,
             Some(&"frame") => want.push(u64::from_str_radix(w[3], 16).unwrap()),
             Some(&"event") => events.push((
                 w[1].parse().unwrap(),
@@ -110,12 +112,12 @@ fn check(case: &str) {
     }
     let bios = std::fs::read(crate_dir().join("test-programs/bios.bin")).unwrap();
     let cart = Cart::load(&cartridge(&program)).unwrap();
-    let mut m = Atari7800::new(cart, Region::Ntsc, Some(bios));
+    let mut m = Atari7800::new(cart, region, Some(bios));
     if hsc {
         // Our stand-in for the High Score Cartridge's ROM, as tests/mame/a78.py makes it.
         m.sys.plug_hsc((0..0x1000usize).map(|i| (i * 7 + (i >> 8)) as u8).collect());
     }
-    let (first, end) = Region::Ntsc.visible();
+    let (first, end) = region.visible();
     for (k, &h) in want.iter().enumerate() {
         // MAME's frame callback k comes as frame k ends, and MAME reads a change made there as
         // frame k + 1 ends (a difficulty switch a frame later still): here it is made before
@@ -125,7 +127,12 @@ fn check(case: &str) {
             apply(&mut m.sys.input, tag, *mask, *value);
         }
         m.run_frame();
-        let pic = m.picture(first, end - first);
+        let mut pic = m.picture(first, end - first).to_vec();
+        if region == Region::Pal {
+            // MAME's PAL palette shows hue 15 as hue 1: compare them as one.
+            pic.iter_mut().filter(|v| **v >= 0xF0).for_each(|v| *v -= 0xE0);
+        }
+        let pic = &pic[..];
         let got = fnv(pic);
         if got != h {
             let mut why = format!("{case}: frame {k} differs from MAME's");
@@ -190,4 +197,14 @@ fn banks_act_matches_mame() {
 #[test]
 fn the_high_score_cartridge_matches_mame() {
     check("hsc");
+}
+
+#[test]
+fn zones_on_pal_match_mame() {
+    check("zones_pal");
+}
+
+#[test]
+fn modes_on_pal_match_mame() {
+    check("modes_pal");
 }

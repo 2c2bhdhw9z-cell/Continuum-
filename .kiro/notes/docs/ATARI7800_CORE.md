@@ -55,7 +55,9 @@ start straight away; the player's own BIOS (ProSystem's file names) can play the
   `tests/mame/make_refs.py`, only hashes committed:
   - dot for dot on every frame (`tests/mame_frames.rs`): zones 120 frames, DMA timing 60 (the
     processor counting its own cycles under every kind of DMA load), every read mode 70, every
-    control 110, five bank-switching boards 20 each, the High Score Cartridge 12;
+    control 110, five bank-switching boards 20 each, the High Score Cartridge 12, and on the PAL
+    console (a7800p, 313 lines) zones 60 and every read mode 70 (MAME's PAL palette shows hue 15
+    as hue 1, so those two count as one there);
   - the TIA's sound, all 204,800 samples of every mode at many pitches and volumes
     (`tests/tia_mame.rs`);
   - POKEY's sound, every one of 6.2 million clocks, through MAME's own recording (3.1 million

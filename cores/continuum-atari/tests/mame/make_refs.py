@@ -50,7 +50,13 @@ CASES = [
     ("banks_abs", "banks_abs", 20, []),
     ("banks_act", "banks_act", 20, []),
     ("hsc", "hsc", 12, []),
+    ("zones_pal", "zones", 60, []),
+    ("modes_pal", "modes", 70, []),
 ]
+
+# The cases played on MAME's PAL console (a7800p). Its palette shows hue 15 as hue 1, so the
+# colour values are compared with hue 15 counted as hue 1.
+PAL = {"zones_pal", "modes_pal"}
 
 # The cases played with the High Score Cartridge between the console and the cartridge.
 HSC = {"hsc"}
@@ -126,14 +132,19 @@ def run(case, program, frames, events):
         f"  if k >= {frames} + 2 then manager.machine:exit() end\n"
         "end)"
     )
-    log = a78.run_mame(work, a78.cartridge(program), "\n".join(lua) + "\n", frames // 50 + 5, hsc=case in HSC)
+    pal = case in PAL
+    log = a78.run_mame(work, a78.cartridge(program), "\n".join(lua) + "\n", frames // 50 + 5, hsc=case in HSC, pal=pal)
     if "LUA ERROR" in log or "Error" in log and "CHECKSUM" not in log.upper():
         print(log)
     palette = {}
     for line in open(os.path.join(work, "palette.txt")):
         i, c = line.split()
-        palette[int(c, 16) & 0xFFFFFF] = int(i)
-    assert len(palette) == 256, "MAME's NTSC palette maps back to one colour value each"
+        # The first colour value with each colour (on PAL, hue 1 for hue 15).
+        palette.setdefault(int(c, 16) & 0xFFFFFF, int(i))
+    if pal:
+        assert len(palette) == 240 and all(palette[k] < 0xF0 for k in palette), "PAL: hue 15 shows as hue 1"
+    else:
+        assert len(palette) == 256, "MAME's NTSC palette maps back to one colour value each"
     hashes = []
     for k in range(frames):
         w, h, rgb = png_rgb(os.path.join(work, "snap", f"f{k:05}.png"))
@@ -145,10 +156,12 @@ def run(case, program, frames, events):
     os.makedirs(os.path.dirname(ref), exist_ok=True)
     with open(ref, "w") as f:
         f.write(f"# MAME 0.289's a7800 running test-programs/{program}.asm with our stand-in BIOS, made by\n")
-        f.write("# tests/mame/make_refs.py: each frame's MARIA colour values (320 x 224), FNV-1a 64.\n")
+        f.write(f"# tests/mame/make_refs.py: each frame's MARIA colour values ({'320 x 260, hue 15 as hue 1' if pal else '320 x 224'}), FNV-1a 64.\n")
         f.write(f"program {program}\n")
         if case in HSC:
             f.write("hsc\n")
+        if pal:
+            f.write("pal\n")
         for (fr, tag, mask, value) in events:
             f.write(f"event {fr} {tag} {mask} {value}\n")
         for k, (w, h, hh) in enumerate(hashes):
