@@ -414,15 +414,17 @@ mod tests {
     fn defaults_are_the_factory_settings() {
         for set in SETS {
             let s = switches(set, |_| None);
-            let generated = matches!(set.dips, Dips::Table(_));
+            // The board's four ports, in its own order.
+            let tags: [&str; 4] = match set.board {
+                crate::sets::Board::Pacman(..) => ["IN0", "IN1", "DSW1", "DSW2"],
+                crate::sets::Board::Galaxian(..) => ["IN0", "IN1", "IN2", "IN3"],
+                crate::sets::Board::Dkong(..) => ["IN0", "IN1", "IN2", "DSW0"],
+            };
             for &(port, mask, value) in set.factory {
-                let i = match (port, generated) {
-                    ("IN0", _) => 0,
-                    ("IN1", _) => 1,
-                    ("DSW1", false) | ("IN2", true) => 2,
-                    ("IN3", true) | ("DSW0", true) => 3,
-                    (other, _) => panic!("{}: a switch in {other}", set.name),
-                };
+                let i = tags
+                    .iter()
+                    .position(|&t| t == port)
+                    .unwrap_or_else(|| panic!("{}: a switch in {port}", set.name));
                 assert_eq!(s.ports[i] & mask, value, "{}: {port}", set.name);
             }
         }

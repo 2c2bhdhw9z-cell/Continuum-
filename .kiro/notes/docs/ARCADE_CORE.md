@@ -1,6 +1,10 @@
 # cArcade: Continuum's own arcade emulator
 
-**Where it stands (16 October 2026): the first version is finished and in the app.** cArcade plays
+**Where it stands (27 October 2026): the second round is under way** (`tasks/arcade-2.json`:
+more games on the boards it has and .7z files, then Galaga, Dig Dug and Xevious, then 1942, Time
+Pilot, Pooyan and Bomb Jack, then the 68000 with Capcom's CPS-1 and the Neo Geo; one build at the
+end). So far it adds 49 sets on the Pac-Man driver's other boards and reads .7z sets as well as
+zips. **The first version (16 October 2026) is finished and in the app.** cArcade plays
 199 sets on three kinds of board: 65 on the Pac-Man board, 119 on the Galaxian family's
 (Galaxian and Moon Cresta, and Konami's Scramble, The End, Super Cobra, Frogger and Amidar), and
 15 on Donkey Kong's (Donkey Kong and Donkey Kong Jr.), every one listed in "What it plays". The
@@ -57,6 +61,13 @@ parent. A split clone's zip needs its parent's zip next to it ("How a game is re
   Come-Cocos (Ms. Pac-Man) ('Made in Greece' Herle SA bootleg); `mspacmanbi` Ms. Pac-Man (Impeuropex
   bootleg); `mspacmanbgc` Ms. Pac-Man ('Made in Greece' Enavi bootleg); `mspacmanbpl` Ms. Pac-Man
   (Playmark bootleg).
+
+### The Pac-Man driver's other boards (49 sets, second round)
+
+Added in the second round (`tasks/arcade-2.json`, item A1): the sets of MAME's `pacman.cpp` on
+boards that are the Pac-Man board with something changed, each switched on once our own test
+programs matched MAME 0.289 on every frame ("How the second round's Pac-Man boards are proved").
+`piranha` Piranha; `piranhao` Piranha (older); `mspacmab3` Ms. Pac-Man (bootleg, set 3); `mspacmab5` Ms. Pac-Man (bootleg, set 5); `abscam` Abscam; `titanpac` Titan (hack of Pac-Man); `mspacmbe` Ms. Pac-Man (bootleg, encrypted); `mspacmbn` Ms. Pac-Man (Novatronic bootleg); `mspacii` Ms. Pac-Man II (Orca bootleg, set 1); `mspacii2` Ms. Pac-Man II (Orca bootleg, set 2); `mschamp` Ms. Pacman Champion Edition / Zola-Puc Gal; `mschamps` Ms. Pacman Champion Edition / Super Zola-Puc Gal; `mspackpls` Miss Packman Plus; `mspacmanbgf` Mr Pac-Turbo ('Made in Greece' Fermin bootleg); `mspacmanbco` Come-Cocos (Ms. Pac-Man) (Cocamatic bootleg); `crush` Crush Roller (set 1); `crush2` Crush Roller (set 2); `crush3` Crush Roller (set 3); `crush4` Crush Roller (set 4); `crush5` Crush Roller (set 5); `maketrax` Make Trax (US set 1); `maketrxb` Make Trax (US set 2); `korosuke` Korosuke Roller (Japan); `crushrlf` Crush Roller (Famare SA PCB); `crushbl` Crush Roller (bootleg, set 1); `crushbl2` Crush Roller (bootleg, set 2); `crushbl3` Crush Roller (bootleg, set 3); `mbrush` Magic Brush (bootleg of Crush Roller); `paintrlr` Paint Roller (bootleg of Crush Roller); `eyes` Eyes (US, set 1); `eyes2` Eyes (US, set 2); `eyesb` Eyes (bootleg, set 1); `eyeszac` Eyes (Italy); `eyeszacb` Eyes (bootleg, set 2, decrypted); `mrtnt` Mr. TNT; `gorkans` Gorkans; `lizwiz` Lizard Wizard; `woodpeck` Woodpecker (set 1); `woodpeca` Woodpecker (set 2); `nmouse` Naughty Mouse (set 1); `nmouseb` Naughty Mouse (set 2); `ponpoko` Ponpoko; `ponpokov` Ponpoko (Venture Line); `candory` Candory (Ponpoko bootleg with Mario); `pengojpm` Pengo (bootleg on Pac-Man hardware, set 1); `pengopac` Pengo (bootleg on Pac-Man hardware, set 2); `pengomc1` Pengo (Marti Colls bootleg on Pac-Man hardware, set 1); `pengomc2` Pengo (Marti Colls bootleg on Pac-Man hardware, set 2); `pinguinos` Pinguinos (Spanish bootleg on Pac-Man hardware).
 
 ### Galaxian and Moon Cresta (77 sets)
 
@@ -132,6 +143,46 @@ parent. A split clone's zip needs its parent's zip next to it ("How a game is re
   Junior (US, bootleg?); `dkongjrj` Donkey Kong Jr. (Japan); `dkongjnrj` Donkey Kong Junior (Japan
   set F-1); `dkongjrb` Donkey Kong Jr. (bootleg); `dkongjre` Donkey Kong Junior (E kit); `dkongjrpb`
   Donkey Kong Junior (P kit, bootleg).
+
+## How the second round's Pac-Man boards are proved
+
+`src/pacman.rs` takes a `Mods` per set: how its program ROMs are wired (Eyes' and Piranha's D3/D5
+swap, the 74298 bootleg's A0/A1 swap, Marti Colls' page-reversed ROMs, Miss Packman Plus's D3/D4
+swap), how its graphics are (Eyes' and Woodpecker's crossed lines, Ponpoko's reordered pieces, Crush
+Roller 5's split planes), what its sync bus controller does to the interrupt vector (Piranha, Naughty
+Mouse, Ms. Pac-Man II), its protection chip (Make Trax's counting table, Magic Brush's fixed answers,
+Ms. Pac-Man II's), the blue/green swap, and how its monitor is turned (Make Trax's the other way,
+Ponpoko's upright, 288 x 224 at 4:3). Two new layouts: the Pengo bootlegs' map (RAM and ports at
+8000h-90FFh, no mirrors) and Champion Edition's two games in one ROM (DSW2 bit 3 picks at reset; its
+menu reads the switches through a latch on port 0). The sets, their controls and their switches are
+generated from MAME's driver by `scripts/make-set-list.py` (`PACMAN_MACHINES`).
+
+`tests/common/more.rs` lays our own programs out as each set's chips hold them, scrambled the set's
+way (written again from MAME's inits, apart from `src/pacman.rs`), and loads them through the set
+list as the app does. `tests/pacman_more_mame.rs` runs them on MAME too: all 22 cases match on every
+frame, picture and sound (`wiring` and `lowgfx` for the ROM and graphics wiring and the palette,
+`vectors` for the vectors, `ports` for the protection chips with the switches moving, `pengo` and
+`champion` for the two layouts, which reset through the watchdog into the other game).
+`tests/pacman_more_board.rs` checks the recorded runs everywhere, and planted mistakes (a wrong
+vector, a missing protection answer, the wrong address swap) fail it. `tests/libretro.rs` plays
+them through the entry points, Ponpoko at 288 x 224.
+
+One thing MAME does that cArcade doesn't copy: its Namco sound chip takes the sound on/off switch
+from the last moment its stream was brought up to date, not the moment the game writes it, so a
+voice already playing when the sound is switched on can start a sample or two earlier there. It
+can't be heard; the `pengo` program switches the sound on before setting its voice so the
+comparison doesn't depend on it.
+
+## How a .7z set is read
+
+`src/sevenz.rs` is our own 7z reader, written from Igor Pavlov's 7z format notes and LZMA
+specification (public domain): the header (packed or not), LZMA and LZMA2, and stored files. A 7z
+packed some other way (PPMd, BCJ filters, encryption) is refused with one plain line. `src/zip.rs`
+hands its files to the rest of the core as it does a zip's, so recognising a set, its parent next to
+it (`<name>.zip` or `<name>.7z`) and the refusal lines (which say .7z) work the same.
+`tests/sevenz.rs` unpacks archives the real 7-Zip 26.05 makes 15 ways (fetched into scratch, never
+committed), three small ones committed so it runs everywhere, and damaged and cut-off archives;
+`tests/libretro.rs` plays a Pac-Man test set packed as `pacman.7z` with MAME's frames.
 
 ## What the tests prove
 

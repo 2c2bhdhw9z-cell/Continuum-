@@ -1043,6 +1043,12 @@ const CARCADE_SETS: &[&str] = &[
     "tazmania", "spdcoin", "dkong", "dkonghrd", "dkongo", "dkongj", "dkongjo", "dkongjo1",
     "dkongf", "dkongpe", "dkongjr", "dkongjr2", "dkongjrj", "dkongjnrj", "dkongjrb", "dkongjre",
     "dkongjrpb",
+    "piranha", "piranhao", "mspacmab3", "mspacmab5", "abscam", "titanpac", "mspacmbe", "mspacmbn",
+    "mspacii", "mspacii2", "mschamp", "mschamps", "mspackpls", "mspacmanbgf", "mspacmanbco",
+    "crush", "crush2", "crush3", "crush4", "crush5", "maketrax", "maketrxb", "korosuke", "crushrlf",
+    "crushbl", "crushbl2", "crushbl3", "mbrush", "paintrlr", "eyes", "eyes2", "eyesb", "eyeszac",
+    "eyeszacb", "mrtnt", "gorkans", "lizwiz", "woodpeck", "woodpeca", "nmouse", "nmouseb",
+    "ponpoko", "ponpokov", "candory", "pengojpm", "pengopac", "pengomc1", "pengomc2", "pinguinos",
 ];
 
 /// Extensions that only ever name a playable ROM or disc entry inside an archive.

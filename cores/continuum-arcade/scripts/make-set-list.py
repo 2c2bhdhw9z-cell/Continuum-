@@ -97,9 +97,17 @@ BOARDS = [
 # question-ROM trivia games, Number Crash, Super ABC, Jump Shot, Club Pac-Man, Ms Pac Man Twin and
 # the AY-3-8912 Crush Roller bootleg).
 def mods(**kw):
+    return kw
+
+
+def mods_rs(kw):
+    """A pacman::Mods literal."""
     if not kw:
         return "MODS_NONE"
     return "Mods { " + ", ".join(f"{k}: {v}" for k, v in kw.items()) + ", ..MODS_NONE }"
+
+
+TURNS = {"ROT90": None, "ROT270": "Turn::ThreeQuarters", "ROT0": "Turn::None"}
 
 
 PACMAN_MACHINES = {
@@ -250,10 +258,16 @@ def macros(body):
     return out
 
 
-def parse_block(name, body):
+def parse_block(name, body, skip_nodump=False):
+    """The regions and chips of a ROM_START block. With `skip_nodump`, a chip that was never
+    dumped is left out (for a region the board doesn't read)."""
     regions, roms = [], []
     region, rom = None, None
+    skipping = False
     for mac, args in macros(body):
+        if skipping and mac in ("ROM_CONTINUE", "ROM_IGNORE", "ROM_RELOAD"):
+            continue
+        skipping = False
         if mac == "ROM_REGION":
             size, tag, flags = num(args[0]), args[1].strip('"'), args[2]
             erase = 0
@@ -270,6 +284,10 @@ def parse_block(name, body):
             fname, at, length, hashes = args[0].strip('"'), num(args[1]), num(args[2]), args[3]
             status = "Good"
             if "NO_DUMP" in hashes:
+                if skip_nodump:
+                    skipping = True
+                    rom = None
+                    continue
                 fail(f"{name}: {fname} was never dumped")
             if "BAD_DUMP" in hashes:
                 status = "BadDump"
@@ -525,13 +543,15 @@ def pacman_generated_sets(src_dir, mame, machines, out, families):
             print(f"  skipped {name}: not in this MAME")
             continue
         try:
-            regions, roms = parse_block(name, blocks[name])
+            regions, roms = parse_block(name, blocks[name], skip_nodump=True)
         except SystemExit as e:
             print(f"  skipped {name}: {e}")
             continue
         sizes = {r["tag"]: r["size"] for r in regions}
-        gfx_size = 0x4000 if "Crush4" in layout[1] else 0x2000
-        if set(sizes) != PACMAN_REGIONS or sizes["gfx1"] != gfx_size or sizes["maincpu"] < 0x10000 \
+        gfx_size = 0x4000 if layout[1].get("gfx") == "GfxWiring::Crush4" else 0x2000
+        # Extra regions the board never reads (a PAL or a bootleg board's own PROM) are allowed:
+        # their chips aren't needed.
+        if not PACMAN_REGIONS <= set(sizes) or sizes["gfx1"] < gfx_size or sizes["maincpu"] < 0x10000 \
                 or sizes["proms"] < 0x120 or sizes["namco"] != 0x200:
             print(f"  skipped {name}: regions {sorted(sizes.items())} aren't the board's")
             continue
@@ -540,14 +560,23 @@ def pacman_generated_sets(src_dir, mame, machines, out, families):
         parsed = sorted((r["name"], r["size"], r["crc"]) for r in roms)
         if listed != parsed:
             fail(f"{name}: its ROM_START block and -listxml disagree:\n{parsed}\n{listed}")
-        # The board reads all of each region but the namco one's second half (the timing PROM).
+        # The board reads all of each region but the namco one's second half (the timing PROM) and
+        # the regions it doesn't have.
         unread = set()
         for reg in regions:
+            if reg["tag"] not in PACMAN_REGIONS:
+                unread |= {op[1] for op in reg["ops"] if op[0] == "load"}
             if reg["tag"] == "namco":
                 for op in reg["ops"]:
                     if op[0] == "load" and op[2] >= 0x100:
                         unread.add(op[1])
-        emit_generated(mame, mach, regions, roms, f"Board::Pacman({layout[0]}, {layout[1]})",
+        if rot not in TURNS:
+            print(f"  skipped {name}: its monitor is turned {rot}")
+            continue
+        kw = dict(layout[1])
+        if TURNS[rot]:
+            kw["turn"] = TURNS[rot]
+        emit_generated(mame, mach, regions, roms, f"Board::Pacman({layout[0]}, {mods_rs(kw)})",
                        [":IN0", ":IN1", ":DSW1", ":DSW2"], out, families, unread)
         count += 1
     return count
@@ -645,7 +674,7 @@ def main():
         "use crate::dkong::Variant as DVariant;",
         "use crate::galaxian::{Konami, Rotation, Variant as GVariant};",
         "use crate::options::{Switch, SwitchFamily};",
-        "use crate::pacman::{GfxWiring, Mods, Protection, Scramble, Variant, VectorWiring};",
+        "use crate::pacman::{GfxWiring, Mods, Protection, Scramble, Turn, Variant, VectorWiring};",
         "",
         "const MODS_NONE: Mods = Mods::NONE;",
         "use crate::sets::{Board, Control, Dips, InputBit, Op, Region, Rom, SetSpec, Status};",

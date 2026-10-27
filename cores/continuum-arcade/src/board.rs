@@ -130,6 +130,7 @@ impl Image {
     /// The picture's size, upright.
     pub fn size(&self) -> (usize, usize) {
         match self {
+            Image::Pacman(_, roms, _) if roms.mods.turn == pacman::Turn::None => (pacman::HEIGHT, pacman::WIDTH),
             Image::Pacman(..) => (pacman::WIDTH, pacman::HEIGHT),
             Image::Galaxian(..) => (galaxian::WIDTH, GALAXIAN_HEIGHT),
             Image::Dkong(..) => (dkong::WIDTH, dkong::HEIGHT),
@@ -312,7 +313,8 @@ impl Machine for PacmanBoard {
     }
 
     fn picture(&self) -> (&[u32], usize, usize) {
-        (self.board.video(), pacman::WIDTH, pacman::HEIGHT)
+        let (w, h) = self.board.size();
+        (self.board.video(), w, h)
     }
 
     fn sound(&self) -> &[i16] {

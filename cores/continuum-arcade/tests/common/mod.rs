@@ -684,12 +684,8 @@ fn read_png(p: &Path) -> Vec<u32> {
     let mut reader = png::Decoder::new(file).read_info().unwrap();
     let mut buf = vec![0; reader.output_buffer_size()];
     let info = reader.next_frame(&mut buf).unwrap();
-    assert_eq!(
-        (info.width, info.height),
-        (pacman::WIDTH as u32, pacman::HEIGHT as u32),
-        "{}",
-        p.display()
-    );
+    // 224 x 288 from a monitor on its side, 288 x 224 from one standing upright.
+    assert_eq!(info.width * info.height, (pacman::WIDTH * pacman::HEIGHT) as u32, "{}", p.display());
     let bpp = info.color_type.samples();
     buf[..info.buffer_size()]
         .chunks_exact(bpp)

@@ -714,7 +714,7 @@ enum CoreCatalog {
     static let continuumArcade = CoreSpec(
         coreId: "continuum_arcade", displayName: "cArcade (Arcade)",
         systems: ["arcade"], library: "continuum_arcade_libretro_ios.dylib",
-        width: 224, height: 288, maxWidth: 224, maxHeight: 288,
+        width: 224, height: 288, maxWidth: 288, maxHeight: 288,
         aspectRatio: 3.0 / 4.0, fps: 6_144_000.0 / (384.0 * 264.0), sampleRate: 48000, pixelFormat: 1,
         priority: 0, biosNames: []
     )

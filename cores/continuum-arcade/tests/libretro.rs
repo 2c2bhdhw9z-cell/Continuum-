@@ -471,6 +471,36 @@ fn a_7z_set_plays_as_its_zip_does() {
     assert!(last_log_line().contains("arcade 7z"), "{}", last_log_line());
 }
 
+/// The Pac-Man driver's other boards through the entry points: each case of tests/common/more.rs
+/// zipped as its set plays MAME's recorded frames (before any switch moves), and Ponpoko, whose
+/// monitor stands upright, comes out 288 x 224 at 4:3.
+#[test]
+fn the_pacman_drivers_other_boards_play_through_the_entry_points() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    for case in common::more::cases().into_iter().filter(|c| c.events.is_empty()) {
+        frontend();
+        let dir = work_dir(case.name);
+        let zip = dir.join(format!("{}.zip", case.set));
+        write_zip(&zip, &common::more::files(&case));
+        assert!(load(&zip), "{}: {}", case.name, last_log_line());
+        let mut av = std::mem::MaybeUninit::<RetroSystemAvInfo>::uninit();
+        let av = unsafe {
+            retro_get_system_av_info(av.as_mut_ptr());
+            av.assume_init()
+        };
+        let upright = case.set.starts_with("ponpoko");
+        let want_size = if upright { (288, 224) } else { (224, 288) };
+        assert_eq!((av.geometry.base_width, av.geometry.base_height), want_size, "{}", case.name);
+        assert_eq!(av.geometry.aspect_ratio, if upright { 4.0 / 3.0 } else { 0.75 }, "{}", case.name);
+        let want = common::more::read_reference(&case);
+        for (i, (w, h, frame)) in run(case.frames).iter().enumerate() {
+            assert_eq!((*w, *h), want_size, "{}", case.name);
+            assert_eq!(video_hash(frame), want[i].0, "{}: frame {} isn't MAME's", case.name, i + 1);
+        }
+        retro_unload_game();
+    }
+}
+
 #[test]
 fn the_switches_are_settings_and_only_the_games_own_show() {
     let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());

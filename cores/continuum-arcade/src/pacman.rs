@@ -74,6 +74,19 @@ pub struct Mods {
     pub protection: Protection,
     /// The palette PROM's green and blue outputs swapped (two Ms. Pac-Man bootlegs).
     pub rbg: bool,
+    /// How the cabinet's monitor is mounted.
+    pub turn: Turn,
+}
+
+/// How the monitor is mounted, and so how the raster is turned for the player.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Turn {
+    /// On its side, turned a quarter clockwise (MAME's ROT90): Pac-Man and most of the driver.
+    Quarter,
+    /// On its other side (ROT270): Make Trax.
+    ThreeQuarters,
+    /// Upright, as the raster is (ROT0): Ponpoko.
+    None,
 }
 
 impl Mods {
@@ -83,6 +96,7 @@ impl Mods {
         vector: VectorWiring::Plain,
         protection: Protection::None,
         rbg: false,
+        turn: Turn::Quarter,
     };
 }
 
@@ -989,9 +1003,19 @@ impl Pacman {
         self.hw.ports
     }
 
-    /// The last frame, upright, 224 × 288, 0x00RRGGBB.
+    /// The last frame as the player sees it (`size`), 0x00RRGGBB.
     pub fn video(&self) -> &[u32] {
         &self.video
+    }
+
+    /// The picture's width and height as the player sees it: 224 × 288 on a monitor on its side,
+    /// 288 × 224 on one standing upright.
+    pub fn size(&self) -> (usize, usize) {
+        if self.hw.mods.turn == Turn::None {
+            (HEIGHT, WIDTH)
+        } else {
+            (WIDTH, HEIGHT)
+        }
     }
 
     /// The last frame's sound, mono, 48 kHz (792 samples).
@@ -1258,12 +1282,30 @@ impl Pacman {
                 }
             }
         }
-        // Turned a quarter clockwise: the raster's left edge is the screen's top, its bottom
-        // edge the screen's left.
-        for uy in 0..HEIGHT {
-            for ux in 0..WIDTH {
-                let pen = self.native[(NATIVE_H - 1 - ux) * NATIVE_W + uy];
-                self.video[uy * WIDTH + ux] = rom.rgb[usize::from(pen)];
+        match hw.mods.turn {
+            // Turned a quarter clockwise: the raster's left edge is the screen's top, its bottom
+            // edge the screen's left.
+            Turn::Quarter => {
+                for uy in 0..HEIGHT {
+                    for ux in 0..WIDTH {
+                        let pen = self.native[(NATIVE_H - 1 - ux) * NATIVE_W + uy];
+                        self.video[uy * WIDTH + ux] = rom.rgb[usize::from(pen)];
+                    }
+                }
+            }
+            // The other way: the raster's right edge is the screen's top.
+            Turn::ThreeQuarters => {
+                for uy in 0..HEIGHT {
+                    for ux in 0..WIDTH {
+                        let pen = self.native[ux * NATIVE_W + (NATIVE_W - 1 - uy)];
+                        self.video[uy * WIDTH + ux] = rom.rgb[usize::from(pen)];
+                    }
+                }
+            }
+            Turn::None => {
+                for (v, &pen) in self.video.iter_mut().zip(&self.native) {
+                    *v = rom.rgb[usize::from(pen)];
+                }
             }
         }
     }

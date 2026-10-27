@@ -45,7 +45,8 @@ pub fn cases() -> Vec<MoreCase> {
         // The plain board's wiring, for comparison, and every board that scrambles its ROMs.
         c("wiring-crush2", "crush2", wiring, 120),
         c("wiring-eyes", "eyes", wiring, 120),
-        c("wiring-woodpeck", "woodpeck", wiring, 120),
+        c("wiring-woodpeck", "woodpeck", Program::Plain("lowgfx.bin", Some("lowgfx-hi.bin")), 120),
+        c("lowgfx-lizwiz", "lizwiz", Program::Plain("lowgfx.bin", Some("lowgfx-hi.bin")), 120),
         c("wiring-ponpoko", "ponpoko", wiring, 120),
         c("wiring-crush5", "crush5", wiring, 120),
         c("wiring-mspacmbe", "mspacmbe", wiring, 120),
@@ -244,9 +245,9 @@ pub fn files(case: &MoreCase) -> Vec<(String, Vec<u8>)> {
     let regions = scrambled_regions(case);
     let mut chips: Vec<Vec<u8>> = spec.roms.iter().map(|r| vec![0u8; r.size as usize]).collect();
     for region in spec.regions {
-        let Some(bytes) = regions.get(region.tag) else {
-            panic!("{}: no test bytes for region {}", spec.name, region.tag)
-        };
+        // A region the board doesn't read (a bootleg board's own PROM): zeros.
+        let zeros = vec![0u8; region.size];
+        let bytes = regions.get(region.tag).unwrap_or(&zeros);
         for op in region.ops {
             if let Op::Load { rom, at, from, len } = *op {
                 chips[rom][from..from + len].copy_from_slice(&bytes[at..at + len]);

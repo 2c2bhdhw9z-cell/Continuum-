@@ -456,8 +456,9 @@ impl Found {
                         }
                     }
                     Op::Copy { region: src, from, at, len } => {
-                        let bytes = out
-                            .get(src)
+                        // From a region made before this one, or from this one so far.
+                        let source = if src == out.len() { Some(&r) } else { out.get(src) };
+                        let bytes = source
                             .and_then(|s| s.get(from..from + len))
                             .ok_or("a copy from outside its region")?
                             .to_vec();

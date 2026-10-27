@@ -2,10 +2,11 @@ Reference MAME for cArcade's board comparisons (local only: never shipped, never
 
 Binary: /projects/sandbox/.scratch/mame/mame-mame0289/arcaderef
 Version: MAME 0.289, built from the mame0289 release tarball (codeload.github.com).
-Drivers in it (880 machines): every driver in src/mame/pacman/ (Pac-Man, Puck Man, Ms. Pac-Man,
-Pac-Man Plus and clones, Pengo, Jr. Pac-Man, ...), every driver in src/mame/galaxian/ (Galaxian,
-Moon Cresta, Konami's Scramble, Super Cobra, Frogger, Amidar, ...), and
-src/mame/nintendo/dkong.cpp (Donkey Kong, Donkey Kong Jr., ...).
+Drivers in it (1608 machines since 27 October 2026, cArcade's second round): every driver in
+src/mame/pacman/ and src/mame/galaxian/, src/mame/nintendo/dkong.cpp, and namco/galaga.cpp,
+xevious.cpp, digdug.cpp, bosco.cpp, capcom/1942.cpp, konami/timeplt.cpp, pooyan.cpp,
+tecmo/bombjack.cpp, capcom/cps1.cpp and snk/neogeo.cpp. In a fresh sandbox run setup-mame-deps.sh
+then build-mame.sh (about 40 minutes with 7 jobs).
 Built by /projects/sandbox/.scratch/mame/build-mame.sh (SUBTARGET=arcaderef with SOURCES=..., -j2).
 
 Headless use (no X11, no OpenGL; SDL2 here has only its dummy/offscreen video and dummy/disk audio):

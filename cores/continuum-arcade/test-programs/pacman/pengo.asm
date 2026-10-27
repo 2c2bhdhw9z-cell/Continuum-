@@ -58,20 +58,21 @@ init:
     ld (RAM2 + 0x123), a
     ld a, 0xA7
     ld (HIGHRAM + 0xABC), a
-    ; a tone on voice 0
+    ; a tone on voice 0, the sound switched on first: MAME takes the switch from the sound
+    ; stream's last update, not the moment of the write, and a silent voice keeps that out of it
     ld hl, SOUND
     ld b, 0x20
 .z: ld (hl), 0
     inc hl
     djnz .z
+    ld a, 1
+    ld (SNDEN), a
     ld a, 2
     ld (SOUND + 0x05), a
     ld a, 0x0C
     ld (SOUND + 0x13), a
     ld a, 0x0F
     ld (SOUND + 0x15), a
-    ld a, 1
-    ld (SNDEN), a
     ld a, 0x4F
     ld i, a
     im 2

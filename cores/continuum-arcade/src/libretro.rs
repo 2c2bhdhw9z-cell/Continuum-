@@ -94,9 +94,12 @@ const JOY_X: u32 = 9;
 const JOY_L: u32 = 10;
 const JOY_R: u32 = 11;
 
-/// Every board's picture fits in this, upright.
-const MAX_W: u32 = 224;
+/// Every board's picture fits in this, upright or on its side.
+const MAX_W: u32 = 288;
 const MAX_H: u32 = 288;
+/// The picture before a game is loaded (and after one has failed): the Pac-Man board's.
+const DEFAULT_W: u32 = 224;
+const DEFAULT_H: u32 = 288;
 /// The monitors are 4:3 turned on their side.
 const ASPECT: f32 = 3.0 / 4.0;
 const SAMPLE_RATE: f64 = 48_000.0;
@@ -223,8 +226,8 @@ fn switch_off(entry: &str, why: &(dyn Any + Send)) {
 static SENT_PICTURE: AtomicBool = AtomicBool::new(false);
 static SENT_SOUND: AtomicBool = AtomicBool::new(false);
 static CAN_DUPE: AtomicBool = AtomicBool::new(false);
-static LAST_W: AtomicU32 = AtomicU32::new(MAX_W);
-static LAST_H: AtomicU32 = AtomicU32::new(MAX_H);
+static LAST_W: AtomicU32 = AtomicU32::new(DEFAULT_W);
+static LAST_H: AtomicU32 = AtomicU32::new(DEFAULT_H);
 /// A frame's sound on every board: 792 samples at 48 kHz.
 const FRAME_SAMPLES: usize = 792;
 static SILENCE: [i16; 2 * FRAME_SAMPLES] = [0; 2 * FRAME_SAMPLES];
@@ -361,14 +364,15 @@ unsafe fn write_av_info(info: *mut RetroSystemAvInfo, loaded: bool) {
     } else {
         None
     };
-    let (w, h, fps) = game.unwrap_or((MAX_W, MAX_H, crate::pacman::FPS));
+    let (w, h, fps) = game.unwrap_or((DEFAULT_W, DEFAULT_H, crate::pacman::FPS));
     *info = RetroSystemAvInfo {
         geometry: RetroGameGeometry {
             base_width: w,
             base_height: h,
             max_width: MAX_W,
             max_height: MAX_H,
-            aspect_ratio: ASPECT,
+            // A 4:3 monitor, standing upright or on its side.
+            aspect_ratio: if w > h { 1.0 / ASPECT } else { ASPECT },
         },
         timing: RetroSystemTiming { fps, sample_rate: SAMPLE_RATE },
     };
