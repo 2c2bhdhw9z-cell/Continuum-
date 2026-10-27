@@ -120,5 +120,6 @@
       "title": "Write-up and the one build",
       "detail": "ARCADE_CORE.md, STATUS.md, TESTING.md; then the one build, check the .ipa, hand over the link and phone steps."
     }
-  ]
+  ],
+  "paused_27_october": "Owner said 'wrap it up, running out of credits' at about 9:45 PM Eastern on 26 October. Done and pushed: A1 (49 Pac-Man-driver sets), A2 (Pisces 22, Jump Bug 3, King & Balloon 2), A4 (.7z), B1 started (src/mb88.rs written, not yet proven against MAME). NO build made yet (owner's answer 3A: one build when everything is done). Unfinished and thrown away: A3's Donkey Kong 'Wiring' (inverted PROMs for dkingjr/maguila, jrking's 16 KB sprites): redo it; make-set-list.py's dump_ports failed for dkingjr (MAME didn't list its ports with zero stand-in ROMs; find out why). Next after A3: B1 proof (trace MAME's 51xx/54xx like tests/mcs48_mame.rs), B2 Galaga."
 }
