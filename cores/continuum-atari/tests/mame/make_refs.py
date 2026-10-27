@@ -17,11 +17,33 @@ import zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import a78  # noqa: E402
 
-# (case, program, frames, input events: (frame, port tag, mask, value))
+def press_each():
+    """Every stick direction, button and switch, one at a time, three frames each, then the two
+    difficulty switches to B and back."""
+    ev, f = [], 6
+    for tag, masks in [(":JOYSTICKS", [0x10, 0x20, 0x40, 0x80, 0x01, 0x02, 0x04, 0x08]),
+                       (":BUTTONS", [0x08, 0x02, 0x04, 0x01]), (":CONSOLE", [0x01, 0x02, 0x08])]:
+        for m in masks:
+            ev.append((f, tag, m, 1))
+            ev.append((f + 3, tag, m, 0))
+            f += 5
+    # Two at once: up and fire, both buttons.
+    ev += [(f, ":JOYSTICKS", 0x10, 1), (f, ":BUTTONS", 0x08, 1), (f + 3, ":JOYSTICKS", 0x10, 0), (f + 3, ":BUTTONS", 0x08, 0)]
+    f += 5
+    ev += [(f, ":BUTTONS", 0x08, 1), (f, ":BUTTONS", 0x02, 1), (f + 3, ":BUTTONS", 0x08, 0), (f + 3, ":BUTTONS", 0x02, 0)]
+    f += 5
+    # The difficulty switches, A to B: "pressing" a DIP field in MAME's Lua moves it (one frame
+    # later than a button, and letting go doesn't move it back).
+    ev += [(f, ":CONSOLE", 0x40, 1), (f + 3, ":CONSOLE", 0x80, 1)]
+    return ev
+
+
+# (case, program, frames, input events: (frame, port tag, mask, value); a "dip:" tag sets a DIP)
 CASES = [
     ("zones", "zones", 120, []),
     ("dma", "dma", 60, []),
     ("modes", "modes", 70, []),
+    ("inputs", "inputs", 110, press_each()),
 ]
 
 
@@ -83,7 +105,10 @@ def run(case, program, frames, events):
     ]
     for (fr, tag, mask, value) in events:
         lua.append(f"ev[{fr}] = ev[{fr}] or {{}}")
-        lua.append(f"table.insert(ev[{fr}], function() ports['{tag}']:field({mask}):set_value({value}) end)")
+        if tag.startswith("dip:"):
+            lua.append(f"table.insert(ev[{fr}], function() ports['{tag[4:]}']:field({mask}).user_value = {value} end)")
+        else:
+            lua.append(f"table.insert(ev[{fr}], function() ports['{tag}']:field({mask}):set_value({value}) end)")
     lua.append(
         "sub = emu.add_machine_frame_notifier(function()\n"
         "  local k = scr:frame_number()\n"

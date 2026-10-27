@@ -5,7 +5,7 @@
 //! differs.
 
 use continuum_atari::cart::Cart;
-use continuum_atari::machine::{Atari7800, Region};
+use continuum_atari::machine::{Atari7800, Input, Region};
 use std::path::PathBuf;
 
 fn crate_dir() -> PathBuf {
@@ -33,16 +33,53 @@ fn a78(rom: &[u8]) -> Vec<u8> {
     h
 }
 
+/// One of MAME's input changes, on our controls.
+fn apply(i: &mut Input, tag: &str, mask: u32, value: u32) {
+    let on = value != 0;
+    match tag {
+        ":JOYSTICKS" => {
+            let (p, bit) = if mask >= 0x10 { (0, mask >> 4) } else { (1, mask) };
+            let d = match bit {
+                1 => 0,
+                2 => 1,
+                4 => 2,
+                _ => 3,
+            };
+            i.dirs[p][d] = on;
+        }
+        ":BUTTONS" => match mask {
+            0x08 => i.buttons[0][0] = on,
+            0x02 => i.buttons[0][1] = on,
+            0x04 => i.buttons[1][0] = on,
+            _ => i.buttons[1][1] = on,
+        },
+        ":CONSOLE" => match mask {
+            0x01 => i.reset = on,
+            0x02 => i.select = on,
+            0x08 => i.pause = on,
+            0x40 => i.difficulty_a[0] = !on,
+            _ => i.difficulty_a[1] = !on,
+        },
+        _ => panic!("{tag}"),
+    }
+}
+
 fn check(case: &str) {
     let text = std::fs::read_to_string(crate_dir().join(format!("tests/references/{case}.txt"))).unwrap();
     let mut program = String::new();
     let mut want = Vec::new();
+    let mut events: Vec<(usize, String, u32, u32)> = Vec::new();
     for line in text.lines() {
         let w: Vec<&str> = line.split_whitespace().collect();
         match w.first() {
             Some(&"program") => program = w[1].to_string(),
             Some(&"frame") => want.push(u64::from_str_radix(w[3], 16).unwrap()),
-            Some(&"event") => panic!("{case}: inputs aren't replayed by this test yet"),
+            Some(&"event") => events.push((
+                w[1].parse().unwrap(),
+                w[2].to_string(),
+                w[3].parse().unwrap(),
+                w[4].parse().unwrap(),
+            )),
             _ => {}
         }
     }
@@ -52,6 +89,12 @@ fn check(case: &str) {
     let mut m = Atari7800::new(cart, Region::Ntsc, Some(bios));
     let (first, end) = Region::Ntsc.visible();
     for (k, &h) in want.iter().enumerate() {
+        // MAME shows a change made in its frame callback k two frames later (a difficulty switch
+        // three); here it is made before frame k + 1 (k + 2) runs.
+        let switch = |tag: &str, mask: u32| tag == ":CONSOLE" && mask >= 0x40;
+        for (_, tag, mask, value) in events.iter().filter(|e| e.0 + if switch(&e.1, e.2) { 2 } else { 1 } == k) {
+            apply(&mut m.sys.input, tag, *mask, *value);
+        }
         m.run_frame();
         let pic = m.picture(first, end - first);
         let got = fnv(pic);
@@ -83,4 +126,9 @@ fn dma_matches_mame() {
 #[test]
 fn modes_matches_mame() {
     check("modes");
+}
+
+#[test]
+fn inputs_match_mame() {
+    check("inputs");
 }

@@ -1,0 +1,153 @@
+# MAME 0.289's a7800 running test-programs/inputs.asm with our stand-in BIOS, made by
+# tests/mame/make_refs.py: each frame's MARIA colour values (320 x 224), FNV-1a 64.
+program inputs
+event 6 :JOYSTICKS 16 1
+event 9 :JOYSTICKS 16 0
+event 11 :JOYSTICKS 32 1
+event 14 :JOYSTICKS 32 0
+event 16 :JOYSTICKS 64 1
+event 19 :JOYSTICKS 64 0
+event 21 :JOYSTICKS 128 1
+event 24 :JOYSTICKS 128 0
+event 26 :JOYSTICKS 1 1
+event 29 :JOYSTICKS 1 0
+event 31 :JOYSTICKS 2 1
+event 34 :JOYSTICKS 2 0
+event 36 :JOYSTICKS 4 1
+event 39 :JOYSTICKS 4 0
+event 41 :JOYSTICKS 8 1
+event 44 :JOYSTICKS 8 0
+event 46 :BUTTONS 8 1
+event 49 :BUTTONS 8 0
+event 51 :BUTTONS 2 1
+event 54 :BUTTONS 2 0
+event 56 :BUTTONS 4 1
+event 59 :BUTTONS 4 0
+event 61 :BUTTONS 1 1
+event 64 :BUTTONS 1 0
+event 66 :CONSOLE 1 1
+event 69 :CONSOLE 1 0
+event 71 :CONSOLE 2 1
+event 74 :CONSOLE 2 0
+event 76 :CONSOLE 8 1
+event 79 :CONSOLE 8 0
+event 81 :JOYSTICKS 16 1
+event 81 :BUTTONS 8 1
+event 84 :JOYSTICKS 16 0
+event 84 :BUTTONS 8 0
+event 86 :BUTTONS 8 1
+event 86 :BUTTONS 2 1
+event 89 :BUTTONS 8 0
+event 89 :BUTTONS 2 0
+event 91 :CONSOLE 64 1
+event 94 :CONSOLE 128 1
+frame 0 320x224 c5e18ac6f2dc0325
+frame 1 320x224 c5e18ac6f2dc0325
+frame 2 320x224 a051ed333c85e6a5
+frame 3 320x224 a051ed333c85e6a5
+frame 4 320x224 a051ed333c85e6a5
+frame 5 320x224 a051ed333c85e6a5
+frame 6 320x224 a051ed333c85e6a5
+frame 7 320x224 a051ed333c85e6a5
+frame 8 320x224 0f094def319f8ca5
+frame 9 320x224 0f094def319f8ca5
+frame 10 320x224 0f094def319f8ca5
+frame 11 320x224 a051ed333c85e6a5
+frame 12 320x224 a051ed333c85e6a5
+frame 13 320x224 fced31f2dd29c0a5
+frame 14 320x224 fced31f2dd29c0a5
+frame 15 320x224 fced31f2dd29c0a5
+frame 16 320x224 a051ed333c85e6a5
+frame 17 320x224 a051ed333c85e6a5
+frame 18 320x224 1e5cff659bffa9a5
+frame 19 320x224 1e5cff659bffa9a5
+frame 20 320x224 1e5cff659bffa9a5
+frame 21 320x224 a051ed333c85e6a5
+frame 22 320x224 a051ed333c85e6a5
+frame 23 320x224 8604a8bc3ef97da5
+frame 24 320x224 8604a8bc3ef97da5
+frame 25 320x224 8604a8bc3ef97da5
+frame 26 320x224 a051ed333c85e6a5
+frame 27 320x224 a051ed333c85e6a5
+frame 28 320x224 900cc43f227f6da5
+frame 29 320x224 900cc43f227f6da5
+frame 30 320x224 900cc43f227f6da5
+frame 31 320x224 a051ed333c85e6a5
+frame 32 320x224 a051ed333c85e6a5
+frame 33 320x224 caff01c5e300cca5
+frame 34 320x224 caff01c5e300cca5
+frame 35 320x224 caff01c5e300cca5
+frame 36 320x224 a051ed333c85e6a5
+frame 37 320x224 a051ed333c85e6a5
+frame 38 320x224 0ae5681959ecbaa5
+frame 39 320x224 0ae5681959ecbaa5
+frame 40 320x224 0ae5681959ecbaa5
+frame 41 320x224 a051ed333c85e6a5
+frame 42 320x224 a051ed333c85e6a5
+frame 43 320x224 b13d13acb2a920a5
+frame 44 320x224 b13d13acb2a920a5
+frame 45 320x224 b13d13acb2a920a5
+frame 46 320x224 a051ed333c85e6a5
+frame 47 320x224 a051ed333c85e6a5
+frame 48 320x224 84dfd2224fade6a5
+frame 49 320x224 84dfd2224fade6a5
+frame 50 320x224 84dfd2224fade6a5
+frame 51 320x224 a051ed333c85e6a5
+frame 52 320x224 a051ed333c85e6a5
+frame 53 320x224 9a14e1624fade6a5
+frame 54 320x224 9a14e1624fade6a5
+frame 55 320x224 9a14e1624fade6a5
+frame 56 320x224 a051ed333c85e6a5
+frame 57 320x224 a051ed333c85e6a5
+frame 58 320x224 f6354461c19de6a5
+frame 59 320x224 f6354461c19de6a5
+frame 60 320x224 f6354461c19de6a5
+frame 61 320x224 a051ed333c85e6a5
+frame 62 320x224 a051ed333c85e6a5
+frame 63 320x224 991ad3a1c19de6a5
+frame 64 320x224 991ad3a1c19de6a5
+frame 65 320x224 991ad3a1c19de6a5
+frame 66 320x224 a051ed333c85e6a5
+frame 67 320x224 a051ed333c85e6a5
+frame 68 320x224 c0040530ac4e7b25
+frame 69 320x224 c0040530ac4e7b25
+frame 70 320x224 c0040530ac4e7b25
+frame 71 320x224 a051ed333c85e6a5
+frame 72 320x224 a051ed333c85e6a5
+frame 73 320x224 d70ccf82d936c0a5
+frame 74 320x224 d70ccf82d936c0a5
+frame 75 320x224 d70ccf82d936c0a5
+frame 76 320x224 a051ed333c85e6a5
+frame 77 320x224 a051ed333c85e6a5
+frame 78 320x224 3f2d1729802780a5
+frame 79 320x224 3f2d1729802780a5
+frame 80 320x224 3f2d1729802780a5
+frame 81 320x224 a051ed333c85e6a5
+frame 82 320x224 a051ed333c85e6a5
+frame 83 320x224 f39732de44c78ca5
+frame 84 320x224 f39732de44c78ca5
+frame 85 320x224 f39732de44c78ca5
+frame 86 320x224 a051ed333c85e6a5
+frame 87 320x224 a051ed333c85e6a5
+frame 88 320x224 cc91cd780fade6a5
+frame 89 320x224 cc91cd780fade6a5
+frame 90 320x224 cc91cd780fade6a5
+frame 91 320x224 a051ed333c85e6a5
+frame 92 320x224 a051ed333c85e6a5
+frame 93 320x224 a051ed333c85e6a5
+frame 94 320x224 892841fb44ae96a5
+frame 95 320x224 892841fb44ae96a5
+frame 96 320x224 892841fb44ae96a5
+frame 97 320x224 6e3da5b533da27a5
+frame 98 320x224 6e3da5b533da27a5
+frame 99 320x224 6e3da5b533da27a5
+frame 100 320x224 6e3da5b533da27a5
+frame 101 320x224 6e3da5b533da27a5
+frame 102 320x224 6e3da5b533da27a5
+frame 103 320x224 6e3da5b533da27a5
+frame 104 320x224 6e3da5b533da27a5
+frame 105 320x224 6e3da5b533da27a5
+frame 106 320x224 6e3da5b533da27a5
+frame 107 320x224 6e3da5b533da27a5
+frame 108 320x224 6e3da5b533da27a5
+frame 109 320x224 6e3da5b533da27a5

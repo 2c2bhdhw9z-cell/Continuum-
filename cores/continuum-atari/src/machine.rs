@@ -73,7 +73,7 @@ pub enum PortKind {
 }
 
 /// The controls, as the hardware sees them.
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct Input {
     /// Per player: up, down, left, right.
     pub dirs: [[bool; 4]; 2],
@@ -92,6 +92,24 @@ pub struct Input {
     pub paddles: [u8; 4],
     /// The paddles' buttons.
     pub paddle_buttons: [bool; 4],
+}
+
+impl Default for Input {
+    /// Nothing pressed, both difficulty switches at A (where MAME and ProSystem start them).
+    fn default() -> Self {
+        Input {
+            dirs: [[false; 4]; 2],
+            buttons: [[false; 2]; 2],
+            reset: false,
+            select: false,
+            pause: false,
+            difficulty_a: [true; 2],
+            gun: None,
+            trigger: false,
+            paddles: [0; 4],
+            paddle_buttons: [false; 4],
+        }
+    }
 }
 
 /// The parts of the machine the processor reaches through its bus.
