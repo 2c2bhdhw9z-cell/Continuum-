@@ -5,8 +5,15 @@ Version: MAME 0.289, built from the mame0289 release tarball (codeload.github.co
 Drivers in it (1608 machines since 27 October 2026, cArcade's second round): every driver in
 src/mame/pacman/ and src/mame/galaxian/, src/mame/nintendo/dkong.cpp, and namco/galaga.cpp,
 xevious.cpp, digdug.cpp, bosco.cpp, capcom/1942.cpp, konami/timeplt.cpp, pooyan.cpp,
-tecmo/bombjack.cpp, capcom/cps1.cpp and snk/neogeo.cpp. In a fresh sandbox run setup-mame-deps.sh
-then build-mame.sh (about 40 minutes with 7 jobs).
+tecmo/bombjack.cpp, capcom/cps1.cpp and snk/neogeo.cpp, and since 27 October 2026 also
+atari/a7800.cpp (a7800, a7800p: for cAtari) and nintendo/pokemini.cpp (pokemini: for cMini).
+In a fresh sandbox run setup-mame-deps.sh then build-mame.sh (about 15 minutes with 6 jobs on
+27 October). The sandbox kills a command's processes when the tool call ends: run it as a
+background tool call with the longest timeout (30 minutes), or in the foreground; make picks up
+where it stopped. After changing SOURCES, run it with REGEN=1 once.
+Neither the 7800 nor the Pokemon Mini machine starts without its BIOS file, and the real ones
+are commercial (never fetched): give MAME our own stand-in under the BIOS's file name; it runs
+it after a checksum warning.
 Built by /projects/sandbox/.scratch/mame/build-mame.sh (SUBTARGET=arcaderef with SOURCES=..., -j2).
 
 Headless use (no X11, no OpenGL; SDL2 here has only its dummy/offscreen video and dummy/disk audio):
