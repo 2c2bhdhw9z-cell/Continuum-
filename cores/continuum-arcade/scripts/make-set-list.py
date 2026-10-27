@@ -153,12 +153,15 @@ GALAXIAN_MACHINES = {
     # Jump Bug's board, with its AY-3-8910 or without (the Brazilian boards).
     ("jumpbug", "init_jumpbug"): "Variant::JumpBug { ay: true }",
     ("jumpbugbrf", "init_jumpbug"): "Variant::JumpBug { ay: false }",
+    # King & Balloon: Moon Cresta's board with a speech board (its own Z80 and a DAC).
+    ("kingball", "init_galaxian"): "Variant::KingBalloon",
 }
 # Flags allowed for a machine anyway. MAME marks Jump Bug's sound imperfect because the AY's clock
 # on the real board isn't confirmed; cArcade plays it as MAME does (owner's list, 26 October 2026).
 GALAXIAN_FLAGS_OK = {("jumpbug", "init_jumpbug"): ("IMPERFECT_SOUND",)}
 # The class each machine's sets must be of (galaxian_state unless named here).
-GALAXIAN_CLASSES = {("pisces", "init_pisces"): "pisces_state", ("pisces", "init_batman2"): "pisces_state"}
+GALAXIAN_CLASSES = {("pisces", "init_pisces"): "pisces_state", ("pisces", "init_batman2"): "pisces_state",
+                    ("kingball", "init_galaxian"): "kingball_state"}
 GALAXIAN_BAD_FLAGS = ("NOT_WORKING", "WRONG_COLORS", "IMPERFECT", "UNEMULATED", "NO_SOUND", "NO_COCKTAIL")
 GALAXIAN_REGIONS = {"maincpu", "gfx1", "proms", "audiocpu"}
 
@@ -442,7 +445,7 @@ def galaxian_sets(src_dir, mame, machines, out, families):
         konami = "Konami" in variant
         gfx_sizes = (0x1000, 0x2000, 0x3000) if "JumpBug" in variant else (0x1000, 0x2000)
         if not tags <= GALAXIAN_REGIONS or "gfx1" not in tags or sizes["gfx1"] not in gfx_sizes \
-                or ("audiocpu" in tags) != konami or sizes.get("proms") != 0x20:
+                or ("audiocpu" in tags) != (konami or "KingBalloon" in variant) or sizes.get("proms") != 0x20:
             print(f"  skipped {name}: regions {sorted(sizes.items())} aren't the board's")
             continue
         xroms = mach.findall("rom")

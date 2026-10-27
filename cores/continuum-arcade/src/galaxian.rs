@@ -92,6 +92,61 @@ pub enum Variant {
     /// circuit; an AY-3-8910 at 5800h/5900h (`ay`, missing on the Brazilian boards), and a
     /// protection ROM at B000h that answers a few addresses.
     JumpBug { ay: bool },
+    /// King & Balloon: Moon Cresta's board (unscrambled) without stars, with a speech board: a
+    /// second Z80 at 2.5 MHz playing samples from its own 8 KB through a 4-bit DAC, told what to
+    /// say through a latch the main CPU sets two bits of (B000h and B002h). B003h picks which of
+    /// two switches IN0 bit 6 reads, and IN1 bit 5 is the sound circuit's noise.
+    KingBalloon,
+}
+
+/// King & Balloon's speech board.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Speech {
+    cpu: Z80,
+    /// Written only: the board's RAM sits under its ROM, so reads come from the ROM.
+    ram: Vec<u8>,
+    /// The command latch (its top four bits read high), and when each new value came, in the
+    /// speech CPU's cycles.
+    latch: u8,
+    latch_events: Vec<(u64, u8)>,
+    /// The DAC's level, and this frame's changes (when, in main CPU cycles; the level).
+    dac: u8,
+    dac_events: Vec<(u64, u8)>,
+    /// Speech CPU cycles run since power-on.
+    now: u64,
+}
+
+/// The speech CPU's clock against the main CPU's: 2.5 MHz against 3.072 MHz.
+const SPEECH_HZ: u64 = 2_500_000;
+
+struct SpeechBus<'a> {
+    rom: &'a [u8],
+    ram: &'a mut Vec<u8>,
+    latch: u8,
+    dac: Option<u8>,
+}
+
+impl Bus for SpeechBus<'_> {
+    fn read(&mut self, addr: u16) -> u8 {
+        let a = usize::from(addr & 0x3FFF);
+        if a < 0x2000 {
+            self.rom.get(a).copied().unwrap_or(0xFF)
+        } else {
+            0xFF
+        }
+    }
+    fn write(&mut self, addr: u16, val: u8) {
+        let a = usize::from(addr & 0x3FFF);
+        if a < 0x2000 {
+            self.ram[a & 0x3FF] = val;
+        }
+    }
+    fn input(&mut self, _port: u16) -> u8 {
+        self.latch
+    }
+    fn output(&mut self, _port: u16, val: u8) {
+        self.dac = Some(val >> 4);
+    }
 }
 
 /// Konami's boards, by their memory map and picture (MAME's scramble, theend, scobra, frogger and
@@ -216,6 +271,12 @@ struct Hw {
     /// the value).
     ay: Option<Ay8910>,
     ay_events: Vec<(u64, bool, u8)>,
+    /// King & Balloon: its speech board, the two bits the main CPU sends it, which switch IN0
+    /// bit 6 reads, and the noise line's generator.
+    speech: Option<Speech>,
+    speech_bits: u8,
+    speech_dip: u8,
+    noise: u32,
     /// The stars' blink counter on Scramble's boards (a 555 that steps it every 0.8316 s, from
     /// each reset on), as it stood at the last reset, and when that was.
     blinks_at_reset: u32,
@@ -285,6 +346,8 @@ struct Rom {
     /// The star generator's states, one per step: bit 7 lit, bits 0-5 the colour.
     stars: Vec<u8>,
     star_rgb: [u32; 64],
+    /// King & Balloon's speech program (8 KB); empty on the other boards.
+    sound: Vec<u8>,
 }
 
 /// The board.
@@ -494,6 +557,7 @@ impl Rom {
             }
         }
         Ok(Rom {
+            sound: if variant == Variant::KingBalloon { roms.sound.clone() } else { Vec::new() },
             program,
             tiles,
             sprites,
@@ -531,7 +595,7 @@ impl Hw {
             coin_counter: [false; 2],
             sound: SoundLatches::default(),
             snd: GalaxianSound::new(match variant {
-                Variant::MoonCresta { .. } => Mixer::MoonCresta,
+                Variant::MoonCresta { .. } | Variant::KingBalloon => Mixer::MoonCresta,
                 _ => Mixer::Galaxian,
             }),
             sound_events: Vec::new(),
@@ -545,6 +609,18 @@ impl Hw {
             konami_out: Vec::new(),
             ay: (variant == Variant::JumpBug { ay: true }).then(Ay8910::new),
             ay_events: Vec::new(),
+            speech: (variant == Variant::KingBalloon).then(|| Speech {
+                cpu: Z80::new(),
+                ram: vec![0; 0x400],
+                latch: 0xF0,
+                latch_events: Vec::new(),
+                dac: 0,
+                dac_events: Vec::new(),
+                now: 0,
+            }),
+            speech_bits: 0,
+            speech_dip: 0,
+            noise: 0x1_2345,
             blinks_at_reset: 0,
             reset_at: 0,
             protection_bits: 0,
@@ -612,6 +688,22 @@ fn read_board(hw: &Hw, rom: &Rom, addr: u16) -> u8 {
                 0x235 => 0x02,
                 _ => 0xFF,
             },
+            _ => 0xFF,
+        },
+        Variant::KingBalloon => match a {
+            0x0000..=0x3FFF => rom.program[a],
+            0x8000..=0x87FF => hw.ram[a & 0x3FF],
+            0x9000..=0x97FF => hw.vram[a & 0x3FF],
+            0x9800..=0x9FFF => hw.objram[a & 0xFF],
+            // Bit 6: the service switch (B003h = 0) or the speech switch (1), both off and on
+            // as the factory left them (service off, speech on).
+            0xA000..=0xA7FF => {
+                let mux = if hw.speech_dip == 1 { 1 } else { 0 };
+                (hw.ports.in0 & !0x40) | mux << 6
+            }
+            // Bit 5: the noise line (the game only checks it moves).
+            0xA800..=0xAFFF => (hw.ports.in1 & !0x20) | ((hw.noise & 1) as u8) << 5,
+            0xB000..=0xB7FF => hw.ports.in2,
             _ => 0xFF,
         },
         Variant::MoonCresta { .. } => match a {
@@ -786,7 +878,7 @@ impl Bus for View<'_> {
             Variant::Galaxian | Variant::Pisces { .. } => (0x7800..=0x7FFF).contains(&addr),
             // No watchdog on Jump Bug's board.
             Variant::JumpBug { .. } => false,
-            Variant::MoonCresta { .. } => (0xB800..=0xBFFF).contains(&addr),
+            Variant::MoonCresta { .. } | Variant::KingBalloon => (0xB800..=0xBFFF).contains(&addr),
             Variant::Konami(k) => konami_decode(k, addr) == Decoded::Watchdog,
         };
         if watchdog {
@@ -842,6 +934,9 @@ enum Effect {
     Lfo(usize),
     Sound(usize),
     Pitch,
+    /// King & Balloon: the speech command's two bits, and the switch select.
+    Speech(u8),
+    SpeechDip,
     /// Jump Bug's AY-3-8910: its address latch, its data.
     AyAddress,
     AyData,
@@ -894,6 +989,29 @@ fn decode_write(variant: Variant, addr: u16) -> Effect {
                 7 => Effect::FlipY,
                 _ => Effect::None,
             },
+            _ => Effect::None,
+        },
+        Variant::KingBalloon => match a {
+            0x8000..=0x87FF => Effect::Ram(a & 0x3FF),
+            0x9000..=0x97FF => Effect::Video(a & 0x3FF),
+            0x9800..=0x9FFF => Effect::Object(a & 0xFF),
+            0xA000..=0xA7FF => match a & 7 {
+                n @ 0..=2 => Effect::GfxBank(n),
+                3 => Effect::CoinCounter(0),
+                n => Effect::Lfo(n - 4),
+            },
+            0xA800..=0xAFFF => Effect::Sound(a & 7),
+            0xB000..=0xB7FF => match a & 7 {
+                0 => Effect::Speech(0),
+                1 => Effect::NmiEnable,
+                2 => Effect::Speech(1),
+                3 => Effect::SpeechDip,
+                6 => Effect::FlipX,
+                7 => Effect::FlipY,
+                // 4 would be the stars: not on this board.
+                _ => Effect::None,
+            },
+            0xB800..=0xBFFF => Effect::Pitch,
             _ => Effect::None,
         },
         Variant::MoonCresta { .. } => match a {
@@ -1037,6 +1155,10 @@ impl Galaxian {
     fn reset(&mut self) {
         self.cpu.reset();
         self.hw.watchdog = 8;
+        // MAME's soft reset resets the speech CPU too.
+        if let Some(sp) = self.hw.speech.as_mut() {
+            sp.cpu.reset();
+        }
         if self.hw.variant.konami().is_some() {
             // MAME's soft reset resets every device: the sound board (its Z80 and AYs) and the
             // PPIs, and restarts the stars' blink timer, which steps the counter at once.
@@ -1094,11 +1216,47 @@ impl Galaxian {
         if self.hw.konami.is_some() {
             self.run_sound_board(trace);
         } else {
+            self.run_speech(end);
             self.make_sound();
         }
         self.hw.frame_start = end;
         self.hw.frames += 1;
         self.turn_upright();
+    }
+
+    /// King & Balloon's speech board runs up to the frame's end (`end`, in main CPU cycles),
+    /// each new command reaching its latch at the moment the main CPU sent it; its DAC's changes
+    /// are kept for the frame's sound.
+    fn run_speech(&mut self, end: u64) {
+        // The noise line moves (a 17-bit shift register, stepped once a frame).
+        let n = self.hw.noise;
+        self.hw.noise = (n >> 1) | (((n ^ (n >> 3)) & 1) << 16);
+        let rom = &self.rom.sound;
+        let Some(sp) = self.hw.speech.as_mut() else { return };
+        let stop = (u128::from(end) * u128::from(SPEECH_HZ) / u128::from(CPU_HZ)) as u64;
+        let mut events = std::mem::take(&mut sp.latch_events);
+        events.sort_by_key(|e| e.0);
+        let mut next = events.into_iter().peekable();
+        sp.dac_events.clear();
+        while sp.now < stop {
+            while let Some(&(t, v)) = next.peek() {
+                if t > sp.now {
+                    break;
+                }
+                sp.latch = v;
+                next.next();
+            }
+            let mut bus = SpeechBus { rom, ram: &mut sp.ram, latch: sp.latch, dac: None };
+            let t = sp.cpu.step(&mut bus);
+            let dac = bus.dac;
+            sp.now += u64::from(t);
+            if let Some(d) = dac {
+                // At the end of the OUT: back in main CPU cycles.
+                let at = (u128::from(sp.now) * u128::from(CPU_HZ) / u128::from(SPEECH_HZ)) as u64 + 32;
+                sp.dac_events.push((at, d));
+            }
+        }
+        sp.latch_events = next.collect();
     }
 
     /// Jump Bug's sound: its AY-3-8910, clocked at 1.536 MHz, makes a sample every 8 of its clocks,
@@ -1181,7 +1339,18 @@ impl Galaxian {
                 self.hw.snd.set_latches(l);
                 next.next();
             }
-            self.raw.push(galaxian_sound::to_sample(self.hw.snd.step()));
+            let mut sample = i32::from(galaxian_sound::to_sample(self.hw.snd.step()));
+            if let Some(sp) = self.hw.speech.as_mut() {
+                while let Some(&(t, d)) = sp.dac_events.first() {
+                    if t > at {
+                        break;
+                    }
+                    sp.dac = d;
+                    sp.dac_events.remove(0);
+                }
+                sample += speech_level(sp.dac);
+            }
+            self.raw.push(sample.clamp(-32768, 32767) as i16);
         }
         for &(_, l) in next {
             self.hw.snd.set_latches(l);
@@ -1389,6 +1558,20 @@ impl Galaxian {
                 self.hw.sound.pitch = val;
                 self.hw.sound_events.push((at, self.hw.sound));
             }
+            Effect::Speech(n) => {
+                // B000h sets bit 0 (MAME ORs the whole byte in), B002h bit 1 and sends the latch.
+                if n == 0 {
+                    self.hw.speech_bits = (self.hw.speech_bits & !0x01) | val;
+                } else {
+                    self.hw.speech_bits = (self.hw.speech_bits & !0x02) | val << 1;
+                    let v = self.hw.speech_bits | 0xF0;
+                    if let Some(sp) = self.hw.speech.as_mut() {
+                        let t = (u128::from(at) * u128::from(SPEECH_HZ) / u128::from(CPU_HZ)) as u64;
+                        sp.latch_events.push((t, v));
+                    }
+                }
+            }
+            Effect::SpeechDip => self.hw.speech_dip = val,
             Effect::AyAddress => self.hw.ay_events.push((at, true, val)),
             Effect::AyData => self.hw.ay_events.push((at, false, val)),
             Effect::Background => {
@@ -1827,6 +2010,16 @@ fn extend_tile(hw: &Hw, code: &mut u16, colour: &mut u8) {
         _ => {}
     }
 }
+
+/// King & Balloon's speech DAC (4 bits through an R-2R ladder) as a sample, alongside the sound
+/// circuit's. The step, and the 32 main CPU cycles the DAC's changes come after its writes, are
+/// measured from MAME's output (tests/kingball_sound.rs); the speech is an approximation of MAME's.
+fn speech_level(dac: u8) -> i32 {
+    i32::from(dac & 0x0F) * SPEECH_STEP
+}
+
+/// One step of the speech DAC, in the sound's 16-bit units.
+const SPEECH_STEP: i32 = 1173;
 
 /// Frogger's colour bits are wired one place round: bit 0 is the top one.
 fn frogger_colour(c: u8) -> u8 {

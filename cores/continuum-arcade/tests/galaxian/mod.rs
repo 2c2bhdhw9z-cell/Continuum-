@@ -122,6 +122,14 @@ pub fn cases() -> Vec<Case> {
             events: vec![],
         },
         Case {
+            name: "kingball",
+            program: "kingball",
+            set: "kingball",
+            variant: Variant::KingBalloon,
+            frames: 130,
+            events: vec![],
+        },
+        Case {
             name: "mooncrst-encrypted",
             program: "mooncrst",
             set: "mooncrst",
@@ -313,6 +321,12 @@ fn generic_files(case: &Case) -> Vec<(String, Vec<u8>)> {
     regions.insert("maincpu", cpu);
     regions.insert("gfx1", gfx);
     regions.insert("proms", program_file("palette.bin"));
+    if size("audiocpu") > 0 {
+        // King & Balloon's speech board.
+        let mut snd = program_file("kbspeech.bin");
+        snd.resize(size("audiocpu"), 0);
+        regions.insert("audiocpu", snd);
+    }
     let mut chips: Vec<Vec<u8>> = spec.roms.iter().map(|r| vec![0u8; r.size as usize]).collect();
     for region in spec.regions {
         let zeros = vec![0u8; region.size];

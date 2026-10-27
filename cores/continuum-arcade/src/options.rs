@@ -421,6 +421,11 @@ mod tests {
                 crate::sets::Board::Dkong(..) => ["IN0", "IN1", "IN2", "DSW0"],
             };
             for &(port, mask, value) in set.factory {
+                // King & Balloon's FAKE port (service and speech switches, read through IN0 bit
+                // 6) is the board's own, at the factory setting (galaxian.rs).
+                if port == "FAKE" {
+                    continue;
+                }
                 let i = tags
                     .iter()
                     .position(|&t| t == port)

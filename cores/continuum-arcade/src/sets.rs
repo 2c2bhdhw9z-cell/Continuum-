@@ -160,6 +160,7 @@ fn headline(board: Board) -> &'static str {
         Board::Galaxian(G::Konami(Konami::Frogger), ..) => "Frogger",
         Board::Galaxian(G::Konami(Konami::Turtles), ..) => "Amidar",
         Board::Galaxian(G::JumpBug { .. }, ..) => "Jump Bug",
+        Board::Galaxian(G::KingBalloon, ..) => "Galaxian",
         Board::Galaxian(G::Konami(_), ..) => "Scramble",
         Board::Dkong(dkong::Variant::DonkeyKong) => "Donkey Kong",
         Board::Dkong(dkong::Variant::DonkeyKongJr) => "Donkey Kong Jr.",

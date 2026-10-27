@@ -128,6 +128,17 @@ every one of 475,200 samples (`tests/jumpbug_sound.rs`). MAME marks these sets' 
 and play as MAME does. The Brazilian boards without the AY are left out (MAME says they have no
 sound), as is Olimpic Bug (its colours are marked wrong).
 
+### King & Balloon (2 sets, second round)
+
+`kingball` King & Balloon (US) and `kingballj` (Japan) (item A2): Moon Cresta's board without stars
+and with a speech board, a second Z80 at 2.5 MHz playing its samples through a 4-bit DAC, told what
+to say through a latch. The picture matches MAME 0.289 on all 130 frames of our `kingball` program.
+**The speech is an approximation**: cArcade runs the speech CPU on its own clock with each command
+reaching it when the main CPU sent it, where MAME interleaves the two CPUs its own way, so the DAC's
+changes land within a sample or two of MAME's; against MAME's recording of our `kbspeech` program
+they correlate at 0.78 and agree in size within 3% (`tests/kingball_sound.rs`). IN1's noise bit,
+random in MAME, is a shift register here.
+
 ### Konami's Scramble family (42 sets)
 
 - On Scramble (16): `scramble` Scramble; `scrambles` Scramble (Stern Electronics, set 1);
