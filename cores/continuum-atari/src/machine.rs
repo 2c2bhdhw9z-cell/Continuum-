@@ -60,6 +60,18 @@ impl Region {
     }
 }
 
+/// What is plugged into a controller port.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PortKind {
+    /// Atari's two-button ProLine joystick (a one-button 2600 stick reads the same way).
+    #[default]
+    Joystick,
+    /// The light gun (port 1): its sensor on INPT4, its trigger on the stick's up line.
+    LightGun,
+    /// A pair of paddles: their knobs on the TIA's INPT0-3, their buttons on the stick lines.
+    Paddles,
+}
+
 /// The controls, as the hardware sees them.
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
 pub struct Input {
@@ -72,15 +84,22 @@ pub struct Input {
     pub pause: bool,
     /// Difficulty switches: true is A ("advanced", the right position), false is B.
     pub difficulty_a: [bool; 2],
+    /// Where the light gun points: the line and the MARIA clock in that line the beam is at
+    /// when it passes the spot, or None when it points off the picture.
+    pub gun: Option<(u32, u32)>,
+    pub trigger: bool,
+    /// The four paddle knobs, 0 to 255 (port 1's two, then port 2's).
+    pub paddles: [u8; 4],
+    /// The paddles' buttons.
+    pub paddle_buttons: [bool; 4],
 }
 
 /// The parts of the machine the processor reaches through its bus.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Sys {
     pub region: Region,
-    /// RAM chip at $1800 and the one at $2000.
-    pub ram1: Vec<u8>,
-    pub ram2: Vec<u8>,
+    /// The two 2 KB RAM chips, one after the other: $1800-$1FFF, then $2000-$27FF.
+    pub ram: Vec<u8>,
     pub riot: Riot,
     pub tia: TiaSound,
     pub maria: Maria,
@@ -104,6 +123,12 @@ pub struct Sys {
     pub input: Input,
     p1_one_button: bool,
     p2_one_button: bool,
+    pub ports: [PortKind; 2],
+    /// The paddles' capacitors: held empty while VBLANK's bit 7 is set, charging from when it
+    /// clears (MARIA clocks).
+    paddle_grounded: bool,
+    paddle_start: u64,
+    line_start: u64,
     /// Slow 1.19 MHz cycles for the TIA and the RIOT, as the real board has.
     pub slow_io: bool,
     // ---- sound ----
@@ -120,11 +145,13 @@ pub struct Sys {
     mix_tia: u64,
     mix_pokey: u64,
     mix_from: u64,
-    /// Output samples (TIA level average, POKEY level average), one per `out_period` clocks.
+    /// Output samples (TIA level average, POKEY level average), `out_rate` a second.
     #[serde(skip)]
     pub out: Vec<(f32, f32)>,
+    /// When the next output sample ends, in MARIA clocks times `out_rate`.
     out_next: u64,
-    pub out_period: u64,
+    out_last: u64,
+    pub out_rate: u64,
     /// Every TIA sound step's level (for the tests against MAME), when switched on.
     #[serde(skip)]
     pub tia_log: Option<Vec<u8>>,
@@ -135,8 +162,7 @@ impl Sys {
         let lines = region.lines();
         let mut s = Sys {
             region,
-            ram1: vec![0; 0x800],
-            ram2: vec![0; 0x800],
+            ram: vec![0; 0x1000],
             riot: Riot::default(),
             tia: TiaSound::default(),
             maria: Maria::default(),
@@ -156,6 +182,10 @@ impl Sys {
             input: Input::default(),
             p1_one_button: true,
             p2_one_button: true,
+            ports: [PortKind::Joystick; 2],
+            paddle_grounded: false,
+            paddle_start: 0,
+            line_start: 0,
             slow_io: false,
             tia_num: 228,
             tia_den: 1,
@@ -168,7 +198,8 @@ impl Sys {
             mix_from: 0,
             out: Vec::new(),
             out_next: 0,
-            out_period: 0,
+            out_last: 0,
+            out_rate: 48_000,
             tia_log: None,
         };
         s.set_output_rate(48_000);
@@ -188,10 +219,12 @@ impl Sys {
         self.tia_next = (self.now + 1) * den;
     }
 
+    /// Output samples a second: each one averages the sound over its stretch of MARIA clocks,
+    /// the stretches 149 or 150 clocks long so a second holds exactly `hz` of them.
     pub fn set_output_rate(&mut self, hz: u64) {
-        // Whole MARIA clocks per output sample; the frame's sample count follows from it.
-        self.out_period = (self.region.maria_hz() / hz).max(1);
-        self.out_next = self.now + self.out_period;
+        self.out_rate = hz.max(1);
+        self.out_last = self.now;
+        self.out_next = self.now * self.out_rate + self.region.maria_hz();
     }
 
     fn bios_enabled(&self) -> bool {
@@ -205,7 +238,8 @@ impl Sys {
         loop {
             let tia_at = self.tia_next.div_ceil(self.tia_den);
             let pokey_at = if self.cart.has_pokey() { self.pokey_next } else { u64::MAX };
-            let next = tia_at.min(pokey_at).min(self.out_next);
+            let out_at = self.out_next.div_ceil(self.out_rate);
+            let next = tia_at.min(pokey_at).min(out_at);
             if next > t {
                 break;
             }
@@ -221,12 +255,13 @@ impl Sys {
                 self.pokey_level = self.cart.clock_pokeys();
                 self.pokey_next += CYCLE;
             }
-            if next == self.out_next {
-                let p = self.out_period as f32;
+            if next == out_at {
+                let p = (out_at - self.out_last).max(1) as f32;
                 self.out.push((self.mix_tia as f32 / p, self.mix_pokey as f32 / p));
                 self.mix_tia = 0;
                 self.mix_pokey = 0;
-                self.out_next += self.out_period;
+                self.out_last = out_at;
+                self.out_next += self.region.maria_hz();
             }
         }
         self.mix_to(t);
@@ -267,6 +302,7 @@ impl Sys {
     fn start_line(&mut self) {
         let at = self.next_line;
         self.sound_to(at);
+        self.line_start = at;
         self.line += 1;
         let lines = self.region.lines();
         if self.line >= lines {
@@ -316,10 +352,10 @@ impl Sys {
     /// What MARIA's DMA reads: memory without side effects.
     fn dma_peek(&self, addr: u16) -> u8 {
         match addr {
-            0x0040..=0x00FF | 0x0140..=0x01FF => self.ram2[(addr & 0x1FF) as usize],
+            0x0040..=0x00FF | 0x0140..=0x01FF => self.ram[0x800 + (addr & 0x1FF) as usize],
             0x0480..=0x04FF | 0x0580..=0x05FF => self.riot.ram[(addr & 0x7F) as usize],
-            0x1800..=0x1FFF => self.ram1[(addr - 0x1800) as usize],
-            0x2000..=0x27FF => self.ram2[(addr - 0x2000) as usize],
+            0x1800..=0x1FFF => self.ram[(addr - 0x1800) as usize],
+            0x2000..=0x27FF => self.ram[(addr - 0x1800) as usize],
             0x4000..=0xFFFF => {
                 if addr >= 0xC000 && self.bios_enabled() {
                     self.bios_read(addr)
@@ -354,14 +390,41 @@ impl Sys {
         addr & !0x0160 & 0xFF80 == 0x0280 && addr < 0x0400
     }
 
+    /// A paddle's capacitor is charged once the time since VBLANK let it go passes its knob
+    /// (about 97 processor cycles a step, as the 7800 community's a7800 measures it).
+    fn paddle_charged(&self, i: usize) -> bool {
+        if self.paddle_grounded {
+            return false;
+        }
+        let steps = (self.now - self.paddle_start) / (97 * CYCLE);
+        steps > self.input.paddles[i] as u64
+    }
+
+    /// The light gun's sensor sees the beam when it passes within eight dots of where it aims.
+    fn gun_lit(&self) -> bool {
+        let Some((line, clock)) = self.input.gun else { return false };
+        let beam = ((self.now - self.line_start) / 2) as i64;
+        let dx = beam - (clock / 2) as i64;
+        let dy = self.line as i64 - line as i64;
+        dx * dx + dy * dy < 64
+    }
+
     fn tia_read(&self, offset: u8) -> u8 {
         let b = &self.input.buttons;
+        let paddles = |port: usize| self.ports[port] == PortKind::Paddles;
+        let bit = |on: bool| (on as u8) << 7;
         match offset & 0x0F {
             0x00..=0x07 => 0x00,
-            0x08 => (b[0][1] as u8) << 7,
-            0x09 => (b[0][0] as u8) << 7,
-            0x0A => (b[1][1] as u8) << 7,
-            0x0B => (b[1][0] as u8) << 7,
+            0x08 if paddles(0) => bit(self.paddle_charged(0)),
+            0x09 if paddles(0) => bit(self.paddle_charged(1)),
+            0x0A if paddles(1) => bit(self.paddle_charged(2)),
+            0x0B if paddles(1) => bit(self.paddle_charged(3)),
+            0x08 => bit(b[0][1]),
+            0x09 => bit(b[0][0]),
+            0x0A => bit(b[1][1]),
+            0x0B => bit(b[1][0]),
+            0x0C if self.ports[0] == PortKind::LightGun => bit(!self.gun_lit()),
+            0x0C if paddles(0) => 0x80,
             0x0C => {
                 if (b[0][0] || b[0][1]) && self.p1_one_button {
                     0x00
@@ -369,6 +432,7 @@ impl Sys {
                     0x80
                 }
             }
+            0x0D if paddles(1) => 0x80,
             0x0D => {
                 if (b[1][0] || b[1][1]) && self.p2_one_button {
                     0x00
@@ -385,6 +449,14 @@ impl Sys {
             // INPTCTRL answers every TIA address until it locks itself.
             self.ctrl_lock = v & 0x01 != 0;
             self.ctrl_reg = v;
+        } else if offset & 0x1F == 0x01 {
+            // VBLANK: bit 7 holds the paddles' capacitors empty; letting go starts their count.
+            if v & 0x80 != 0 {
+                self.paddle_grounded = true;
+            } else if self.paddle_grounded {
+                self.paddle_grounded = false;
+                self.paddle_start = self.now;
+            }
         }
         self.sound_to(self.now);
         self.tia.write(offset, v);
@@ -392,15 +464,35 @@ impl Sys {
 
     fn pa_in(&self) -> u8 {
         let mut v = 0xFF;
-        for (p, d) in self.input.dirs.iter().enumerate() {
+        for p in 0..2 {
             let shift = if p == 0 { 4 } else { 0 };
-            for (i, &on) in d.iter().enumerate() {
-                if on {
-                    v &= !(1 << (shift + i));
+            match self.ports[p] {
+                PortKind::Joystick => {
+                    for (i, &on) in self.input.dirs[p].iter().enumerate() {
+                        if on {
+                            v &= !(1 << (shift + i));
+                        }
+                    }
+                }
+                PortKind::LightGun => {
+                    // The gun's trigger reads high on the stick's up line while pulled, low
+                    // otherwise; its other lines read high.
+                    v &= !(0x01 << shift);
+                    if self.input.trigger {
+                        v |= 1 << shift;
+                    }
+                }
+                PortKind::Paddles => {
+                    // The two paddles' buttons, on the stick's right and left lines.
+                    if self.input.paddle_buttons[2 * p] {
+                        v &= !(0x08 << shift);
+                    }
+                    if self.input.paddle_buttons[2 * p + 1] {
+                        v &= !(0x04 << shift);
+                    }
                 }
             }
         }
-        // Opposite directions at once can't happen on a real stick.
         v
     }
 
@@ -435,14 +527,14 @@ impl Sys {
         match addr {
             0x0000..=0x001F | 0x0100..=0x011F | 0x0200..=0x021F | 0x0300..=0x031F => self.tia_read(addr as u8),
             0x0020..=0x003F | 0x0120..=0x013F | 0x0220..=0x023F | 0x0320..=0x033F => self.maria.read(addr as u8),
-            0x0040..=0x00FF | 0x0140..=0x01FF => self.ram2[(addr & 0x1FF) as usize],
+            0x0040..=0x00FF | 0x0140..=0x01FF => self.ram[0x800 + (addr & 0x1FF) as usize],
             0x0400..=0x047F => {
                 self.sound_to(self.now);
                 self.cart.read_04xx(addr).unwrap_or(0)
             }
             0x0480..=0x04FF | 0x0580..=0x05FF => self.riot.ram[(addr & 0x7F) as usize],
-            0x1800..=0x1FFF => self.ram1[(addr - 0x1800) as usize],
-            0x2000..=0x27FF => self.ram2[(addr - 0x2000) as usize],
+            0x1800..=0x1FFF => self.ram[(addr - 0x1800) as usize],
+            0x2000..=0x27FF => self.ram[(addr - 0x1800) as usize],
             0x4000..=0xFFFF => {
                 if addr >= 0xC000 && self.bios_enabled() {
                     self.bios_read(addr)
@@ -469,14 +561,14 @@ impl Sys {
                     self.halted = true;
                 }
             }
-            0x0040..=0x00FF | 0x0140..=0x01FF => self.ram2[(addr & 0x1FF) as usize] = v,
+            0x0040..=0x00FF | 0x0140..=0x01FF => self.ram[0x800 + (addr & 0x1FF) as usize] = v,
             0x0400..=0x047F => {
                 self.sound_to(self.now);
                 self.cart.write_04xx(addr, v);
             }
             0x0480..=0x04FF | 0x0580..=0x05FF => self.riot.ram[(addr & 0x7F) as usize] = v,
-            0x1800..=0x1FFF => self.ram1[(addr - 0x1800) as usize] = v,
-            0x2000..=0x27FF => self.ram2[(addr - 0x2000) as usize] = v,
+            0x1800..=0x1FFF => self.ram[(addr - 0x1800) as usize] = v,
+            0x2000..=0x27FF => self.ram[(addr - 0x1800) as usize] = v,
             0x4000..=0xFFFF => {
                 if addr < 0x8000 && self.cart.has_pokey() {
                     self.sound_to(self.now);
