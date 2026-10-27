@@ -82,6 +82,10 @@ pub enum Variant {
     /// Konami's boards: two 8255 PPIs for the controls and the sound board, the sound board of
     /// their own (`konami_sound`), and each its memory map and picture.
     Konami(Konami),
+    /// Pisces and the games on its board: Galaxian's, with the coin lockout latch (6002h) wired
+    /// to a graphics bank instead, choosing which half of ROMs twice the size shows. Batman Part 2
+    /// (`batman2`) banks only tiles 80h-FFh, and its sprites are always in the upper half.
+    Pisces { batman2: bool },
 }
 
 /// Konami's boards, by their memory map and picture (MAME's scramble, theend, scobra, frogger and
@@ -567,7 +571,7 @@ struct View<'a> {
 fn read_board(hw: &Hw, rom: &Rom, addr: u16) -> u8 {
     let a = usize::from(addr);
     match hw.variant {
-        Variant::Galaxian => match a {
+        Variant::Galaxian | Variant::Pisces { .. } => match a {
             0x0000..=0x3FFF => rom.program[a],
             0x4000..=0x47FF => hw.ram[a & 0x3FF],
             0x5000..=0x57FF => hw.vram[a & 0x3FF],
@@ -748,7 +752,7 @@ fn konami_decode(k: Konami, addr: u16) -> Decoded {
 impl Bus for View<'_> {
     fn read(&mut self, addr: u16) -> u8 {
         let watchdog = match self.hw.variant {
-            Variant::Galaxian => (0x7800..=0x7FFF).contains(&addr),
+            Variant::Galaxian | Variant::Pisces { .. } => (0x7800..=0x7FFF).contains(&addr),
             Variant::MoonCresta { .. } => (0xB800..=0xBFFF).contains(&addr),
             Variant::Konami(k) => konami_decode(k, addr) == Decoded::Watchdog,
         };
@@ -814,12 +818,13 @@ enum Effect {
 fn decode_write(variant: Variant, addr: u16) -> Effect {
     let a = usize::from(addr);
     match variant {
-        Variant::Galaxian => match a {
+        Variant::Galaxian | Variant::Pisces { .. } => match a {
             0x4000..=0x47FF => Effect::Ram(a & 0x3FF),
             0x5000..=0x57FF => Effect::Video(a & 0x3FF),
             0x5800..=0x5FFF => Effect::Object(a & 0xFF),
             0x6000..=0x67FF => match a & 7 {
                 0 | 1 => Effect::Lamp(a & 1),
+                2 if variant != Variant::Galaxian => Effect::GfxBank(0),
                 2 => Effect::CoinLock,
                 3 => Effect::CoinCounter(0),
                 n => Effect::Lfo(n - 4),
@@ -1689,6 +1694,11 @@ fn extend_tile(hw: &Hw, code: &mut u16, colour: &mut u8) {
             *code = (*code & 0x3F) | u16::from(g[0]) << 6 | u16::from(g[1]) << 7 | 0x100;
         }
     }
+    match hw.variant {
+        Variant::Pisces { batman2: false } => *code |= u16::from(hw.gfxbank[0]) << 8,
+        Variant::Pisces { batman2: true } if *code & 0x80 != 0 => *code |= u16::from(hw.gfxbank[0]) << 8,
+        _ => {}
+    }
 }
 
 /// Frogger's colour bits are wired one place round: bit 0 is the top one.
@@ -1705,6 +1715,11 @@ fn extend_sprite(hw: &Hw, code: &mut u16, colour: &mut u8) {
         if g[2] != 0 && *code & 0x30 == 0x20 {
             *code = (*code & 0x0F) | u16::from(g[0]) << 4 | u16::from(g[1]) << 5 | 0x40;
         }
+    }
+    match hw.variant {
+        Variant::Pisces { batman2: false } => *code |= u16::from(hw.gfxbank[0]) << 6,
+        Variant::Pisces { batman2: true } => *code += 0x40,
+        _ => {}
     }
 }
 

@@ -615,7 +615,11 @@ fn the_galaxian_family_plays_through_the_entry_points() {
         assert!(load(&zip), "{name}: {}", last_log_line());
         // The board as the core runs it: the set's ports at rest, with the factory switches.
         let spec = continuum_arcade::sets::find(set).unwrap();
-        let mut board = Galaxian::new(variant, Rotation::Rot90, &roms).unwrap();
+        let rotation = match spec.board {
+            continuum_arcade::sets::Board::Galaxian(_, r, _) => r,
+            _ => Rotation::Rot90,
+        };
+        let mut board = Galaxian::new(variant, rotation, &roms).unwrap();
         let p = spec.rest;
         board.set_ports(continuum_arcade::galaxian::Ports { in0: p[0], in1: p[1], in2: p[2], in3: p[3] });
         OUT.lock().unwrap().samples.clear();

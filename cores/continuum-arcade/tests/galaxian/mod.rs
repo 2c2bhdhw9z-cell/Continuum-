@@ -98,6 +98,22 @@ pub fn cases() -> Vec<Case> {
             events: vec![],
         },
         Case {
+            name: "pisces",
+            program: "pisces",
+            set: "pisces",
+            variant: Variant::Pisces { batman2: false },
+            frames: 130,
+            events: vec![],
+        },
+        Case {
+            name: "batman2",
+            program: "pisces",
+            set: "batman2",
+            variant: Variant::Pisces { batman2: true },
+            frames: 130,
+            events: vec![],
+        },
+        Case {
             name: "mooncrst-encrypted",
             program: "mooncrst",
             set: "mooncrst",
@@ -257,9 +273,39 @@ pub fn files(case: &Case) -> Vec<(String, Vec<u8>)> {
             split(&["mcs_b", "mcs_d", "mcs_a", "mcs_c"], &gfx);
             f.push(("mmi6331.6l".into(), palette));
         }
-        other => panic!("no layout for set {other}"),
+        _ => return generic_files(case),
     }
     f
+}
+
+/// Any other set: the program and graphics laid out the way the set list says its chips load
+/// (the program at 0000h, the graphics as the board's ROMs, the colour PROM).
+fn generic_files(case: &Case) -> Vec<(String, Vec<u8>)> {
+    use continuum_arcade::sets::{self, Op};
+    let spec = sets::find(case.set).unwrap_or_else(|| panic!("{} isn't in the set list", case.set));
+    let mut regions = std::collections::HashMap::new();
+    let size = |tag: &str| spec.regions.iter().find(|r| r.tag == tag).map_or(0, |r| r.size);
+    let mut cpu = program_file(&format!("{}.bin", case.program));
+    cpu.resize(size("maincpu"), 0);
+    let mut gfx = program_file("gfx.bin");
+    if size("gfx1") == 0x1000 {
+        // Galaxian's half-size ROMs: the first 2 KB of each plane.
+        gfx = [&gfx[..0x800], &gfx[0x1000..0x1800]].concat();
+    }
+    regions.insert("maincpu", cpu);
+    regions.insert("gfx1", gfx);
+    regions.insert("proms", program_file("palette.bin"));
+    let mut chips: Vec<Vec<u8>> = spec.roms.iter().map(|r| vec![0u8; r.size as usize]).collect();
+    for region in spec.regions {
+        let zeros = vec![0u8; region.size];
+        let bytes = regions.get(region.tag).unwrap_or(&zeros);
+        for op in region.ops {
+            if let Op::Load { rom, at, from, len } = *op {
+                chips[rom][from..from + len].copy_from_slice(&bytes[at..at + len]);
+            }
+        }
+    }
+    spec.roms.iter().zip(chips).map(|(r, d)| (r.name.to_string(), d)).collect()
 }
 
 /// The same files in the board's regions (where MAME's set loads each one).
@@ -293,7 +339,17 @@ pub fn roms(case: &Case) -> Roms {
             cat(&["mcs_b", "mcs_d", "mcs_a", "mcs_c"]),
             get("mmi6331.6l"),
         ),
-        other => panic!("no layout for set {other}"),
+        _ => {
+            // Through the set list, as the app loads it.
+            use continuum_arcade::sets::{self, Archive};
+            use continuum_arcade::zip::{write_stored, Zip};
+            let refs: Vec<(&str, &[u8])> = files.iter().map(|(n, d)| (n.as_str(), d.as_slice())).collect();
+            let zip = Zip::parse(write_stored(&refs)).unwrap();
+            let found = sets::identify(Archive { zip, stem: case.set.into() }, &|_| None)
+                .unwrap_or_else(|e| panic!("{}: {}", case.name, e.line()));
+            let regions = found.regions().unwrap();
+            return found.galaxian_roms(&regions, 0);
+        }
     };
     program.resize(0x4000, 0);
     Roms {
@@ -307,8 +363,12 @@ pub fn roms(case: &Case) -> Roms {
 
 /// Runs `case` on cArcade's board: each frame's picture, upright, 0x00RRGGBB.
 pub fn run_ours(case: &Case) -> Vec<Vec<u32>> {
-    let mut board =
-        Galaxian::new(case.variant, Rotation::Rot90, &roms(case)).expect("the test set loads");
+    // The set's own monitor rotation (Batman Part 2's is the other way).
+    let rotation = match continuum_arcade::sets::find(case.set).map(|s| s.board) {
+        Some(continuum_arcade::sets::Board::Galaxian(_, r, _)) => r,
+        _ => Rotation::Rot90,
+    };
+    let mut board = Galaxian::new(case.variant, rotation, &roms(case)).expect("the test set loads");
     let mut ports = default_ports();
     let mut out = Vec::new();
     for frame in 1..=case.frames {

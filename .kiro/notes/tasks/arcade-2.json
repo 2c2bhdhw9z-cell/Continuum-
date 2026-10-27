@@ -25,7 +25,8 @@
       "id": "A2",
       "done": false,
       "title": "Galaxian driver: Jump Bug, Pisces, King & Balloon and the other near-boards",
-      "detail": "Jump Bug (graphics banks, an AY-3-8910 we already have), Pisces (extended graphics bank), King & Balloon (its speech board), and others in galaxian.cpp that are small steps from the boards we have."
+      "detail": "Jump Bug (graphics banks, an AY-3-8910 we already have), Pisces (extended graphics bank), King & Balloon (its speech board), and others in galaxian.cpp that are small steps from the boards we have.",
+      "progress": "Pisces' board in (22 sets: Pisces, UniWar S, Gingateikoku, Phoenix Part 2, Batman Part 2, Lady Bug bootleg...), galaxian::Variant::Pisces, matching MAME on all frames (tests/references/galaxian/pisces.txt, batman2.txt). The Galaxian harness (tests/galaxian/mod.rs) now lays out any set from the set list (generic_files). Next: Jump Bug (jumpbug/jumpbugbrf machines: no watchdog, AY-3-8910 at 5800h/5900h, Scramble's shots, blue background with stars kept out of the status area, 5 bank latches), King & Balloon (its speech Z80 and 4-bit DAC)."
     },
     {
       "id": "A3",

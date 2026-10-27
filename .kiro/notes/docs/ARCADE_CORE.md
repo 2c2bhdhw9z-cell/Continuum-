@@ -110,6 +110,13 @@ programs matched MAME 0.289 on every frame ("How the second round's Pac-Man boar
   bootleg, set 2); `mooncrsl` Cresta Mundo (Spanish bootleg of Moon Cresta); `mooncrecm` Moon Cresta
   (Centromatic Spanish bootleg); `stera` Steraranger (bootleg of Moon Cresta).
 
+### Pisces' board (22 sets, second round)
+
+Galaxian's board with the coin lockout latch wired to a graphics bank (item A2): `pisces` Pisces; `piscesb` Pisces (bootleg); `omni` Omni; `supershp` Super Ship; `uniwars` UniWar S; `uniwarsa` UniWar S (bootleg); `mltiwars` Multi Wars (bootleg of UniWar S); `gteikoku` Gingateikoku no Gyakushu; `gteikokub` Gingateikoku no Gyakushu (bootleg set 1); `gteikokub2` Gingateikoku no Gyakushu (bootleg set 2); `gteikokub3` Gingateikoku no Gyakushu (bootleg set 3); `spacbatt` Space Battle (bootleg set 1); `spacbat2` Space Battle (bootleg set 2); `spacempr` Space Empire (bootleg); `skyraidr` Sky Raider (bootleg of UniWar S); `galemp` Galaxy Empire (bootleg?); `asideral` Ataque Sideral (Spanish bootleg of UniWar S); `pajaroes` Pajaro del Espacio (Spanish bootleg of UniWar S); `vueloesp` Vuelo Espacial (Spanish bootleg of UniWar S); `phoenxp2` Phoenix Part 2; `batman2` Batman Part 2; `ladybugg` Lady Bug (bootleg on Galaxian hardware, unencrypted). Our
+`pisces` program (the bank through ten values, all tile codes, sprites on both halves, the flips)
+matches MAME 0.289 on all 130 frames on Pisces' board and on Batman Part 2's (which banks only the
+upper tiles, its monitor turned the other way).
+
 ### Konami's Scramble family (42 sets)
 
 - On Scramble (16): `scramble` Scramble; `scrambles` Scramble (Stern Electronics, set 1);

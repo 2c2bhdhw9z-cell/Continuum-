@@ -147,7 +147,12 @@ GALAXIAN_MACHINES = {
     ("scobra", "init_scobra"): "Variant::Konami(Konami::SuperCobra)",
     ("frogger", "init_frogger"): "Variant::Konami(Konami::Frogger)",
     ("turtles", "init_turtles"): "Variant::Konami(Konami::Turtles)",
+    # Second round: Pisces' board (Galaxian's with a graphics bank), of the pisces_state class.
+    ("pisces", "init_pisces"): "Variant::Pisces { batman2: false }",
+    ("pisces", "init_batman2"): "Variant::Pisces { batman2: true }",
 }
+# The class each machine's sets must be of (galaxian_state unless named here).
+GALAXIAN_CLASSES = {("pisces", "init_pisces"): "pisces_state", ("pisces", "init_batman2"): "pisces_state"}
 GALAXIAN_BAD_FLAGS = ("NOT_WORKING", "WRONG_COLORS", "IMPERFECT", "UNEMULATED", "NO_SOUND", "NO_COCKTAIL")
 GALAXIAN_REGIONS = {"maincpu", "gfx1", "proms", "audiocpu"}
 
@@ -410,7 +415,8 @@ def galaxian_sets(src_dir, mame, machines, out, families):
     count = 0
     for name, mach_fn, init, cls, rot, flags, inp in galaxian_games(text):
         variant = GALAXIAN_MACHINES.get((mach_fn, init))
-        if variant is None or cls != "galaxian_state" or any(b in flags for b in GALAXIAN_BAD_FLAGS):
+        if variant is None or cls != GALAXIAN_CLASSES.get((mach_fn, init), "galaxian_state") \
+                or any(b in flags for b in GALAXIAN_BAD_FLAGS):
             continue
         mach = machines.get(name)
         if mach is None or name not in blocks:

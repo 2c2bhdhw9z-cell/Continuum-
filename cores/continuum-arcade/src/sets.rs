@@ -156,7 +156,7 @@ fn headline(board: Board) -> &'static str {
     use galaxian::{Konami, Variant as G};
     match board {
         Board::Pacman(..) => "Pac-Man, Ms. Pac-Man",
-        Board::Galaxian(G::Galaxian | G::MoonCresta { .. }, ..) => "Galaxian",
+        Board::Galaxian(G::Galaxian | G::MoonCresta { .. } | G::Pisces { .. }, ..) => "Galaxian",
         Board::Galaxian(G::Konami(Konami::Frogger), ..) => "Frogger",
         Board::Galaxian(G::Konami(Konami::Turtles), ..) => "Amidar",
         Board::Galaxian(G::Konami(_), ..) => "Scramble",
