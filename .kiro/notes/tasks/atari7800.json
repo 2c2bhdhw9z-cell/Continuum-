@@ -1,0 +1,71 @@
+{
+  "complete": false,
+  "title": "cAtari: Continuum's own Atari 7800 emulator, replacing ProSystem (owner, 27 October 2026: 'Then do the Atari 7800.')",
+  "why": "The owner's order of 25 October: after cBoy and cGear, build the next easiest core, as good as the outside emulator it replaces and with more settings. Asked which is next easiest, the answer was Pokemon Mini first and the Atari 7800 a close second with better value (our own 6502 then serves the 2600, 5200, Lynx, NES and PC Engine); the owner chose the 7800, and had subagents start the Pokemon Mini (cMini, tasks/pokemini.json, in its own clone /projects/sandbox/.scratch/pokemini-work) at the same time.",
+  "names": "App name cAtari (working name; the owner can rename it). Crate cores/continuum-atari, crate continuum_atari, core id continuum_atari, library continuum_atari_libretro_ios.dylib, option prefix catari_. The name covers more than the 7800 on purpose: the real 7800 plays 2600 cartridges, and the same 6502 is the start of the other Atari consoles.",
+  "rules": [
+    "Our own Rust, GPL-3.0-only like cBoy, cGear and cArcade. Read Atari's documents, the chips' data sheets and how MAME 0.289's a7800 driver and ProSystem behave; never copy code.",
+    "NEVER fetch or commit a commercial ROM or the 7800 BIOS. Test with SingleStepTests, Klaus Dormann's test, and our own programs (assembled in scratch), openly licensed homebrew only, fetched into scratch.",
+    "The game starts straight away with no BIOS (ProSystem does too). The player's own 7800 BIOS, when it is in the system folder, can play its Atari logo first (a setting). No made-up startup picture.",
+    "In the app it is a second choice next to ProSystem (ProSystem stays the default until the owner has seen cAtari work on his phone).",
+    "Push to master after every green piece, every commit [skip ci]; ONE build when cAtari and cMini are both done. Never edit native/ios/build-engine.sh or .github/workflows/.",
+    "Green before every push: cargo test --release in cores/continuum-atari; when touching the app wiring, the checks in HANDOFF.md 'How to check work before pushing'.",
+    "Reference MAME: /projects/sandbox/.scratch/mame/mame-mame0289/arcaderef (has a7800 and a7800p since 27 October; .kiro/notes/wip/tools/mame-READY.txt). Its a7800 needs a BIOS file: give it our own stand-in."
+  ],
+  "items": [
+    {
+      "id": "A1",
+      "done": true,
+      "title": "The 6502 (Atari's SALLY), every bus cycle",
+      "result": "src/m6502.rs: every opcode including the undocumented ones and decimal mode, each cycle's read or write in the chip's order, NMI and IRQ polled where the real chip polls them. All 2,560,000 SingleStepTests cases match cycle for cycle (tests/m6502_singlestep.rs) and Klaus Dormann's functional test passes (tests/m6502_functional.rs)."
+    },
+    {
+      "id": "A2",
+      "done": false,
+      "title": "Settings inventory",
+      "detail": "Every setting of ProSystem (libretro, the app's current core), a7800 (the standalone, MAME-based), MAME's a7800, BizHawk's A7800Hawk, js7800 and EMU7800, generated as CORE_OPTIONS_STANDARD.md says, in .kiro/notes/docs/A7800_OPTIONS_INVENTORY.md; each planned, app or n/a."
+    },
+    {
+      "id": "A3",
+      "done": false,
+      "title": "The 7800 itself",
+      "detail": "Memory map and mirrors, the slow cycles for TIA and RIOT, INPTCTRL and its lock, the BIOS when there is one, the RIOT (timers, ports, RAM), the TIA (sound, buttons, paddles), MARIA (DMA with its cycle costs halting the processor, the display list list and display lists, all six read modes, holey DMA, character mode, kangaroo mode, the DLI's NMI, WSYNC), NTSC and PAL, the palettes."
+    },
+    {
+      "id": "A4",
+      "done": false,
+      "title": "Cartridges",
+      "detail": ".a78 headers (v1 to v4), headerless .bin, every bank-switching scheme ProSystem and a7800 play (SuperGame with its RAM and bank-6 variants, Absolute, Activision, Souper, BankSet), POKEY on the cartridge, cartridge RAM, the High Score Cartridge (the player's own HSC file), SaveKey/AtariVox saves."
+    },
+    {
+      "id": "A5",
+      "done": false,
+      "title": "Controls",
+      "detail": "Two-button ProLine joysticks and one-button 2600 joysticks, Pause, Select, Reset and the two difficulty switches, the light gun games, paddles."
+    },
+    {
+      "id": "A6",
+      "done": false,
+      "title": "The libretro core",
+      "detail": "Entry points, settings (catari_), save states, memory for cheats and RetroAchievements, battery saves, picture, sound."
+    },
+    {
+      "id": "A7",
+      "done": false,
+      "title": "Proved against MAME 0.289",
+      "detail": "Our own 7800 test programs run on cAtari and MAME's a7800: the processor's trace, every frame, the sound; pinned in tests/references so the tests run without MAME."
+    },
+    {
+      "id": "A8",
+      "done": false,
+      "title": "In the app",
+      "detail": "Second choice next to ProSystem: CoreSpec, coreChoices, build-core.sh recipe, project.yml, not-in-ios-yml.txt, check-core-cache.sh, engine frontend test, touch controls."
+    },
+    {
+      "id": "A9",
+      "done": false,
+      "title": "Write-up and the one build",
+      "detail": "ATARI7800_CORE.md, STATUS.md, TESTING.md, HANDOFF.md; then the one build with cMini, check the .ipa, the link and phone steps."
+    }
+  ]
+}
