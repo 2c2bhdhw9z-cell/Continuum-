@@ -478,10 +478,10 @@ unsafe fn read_controls(core: &mut Core, input: InputFn) {
     i.select = pressed(input, 0, JOY_SELECT);
     i.pause = pressed(input, 0, JOY_START);
     let lr = [pressed(input, 0, JOY_L), pressed(input, 0, JOY_R)];
-    for k in 0..2 {
+    for (k, &down) in lr.iter().enumerate() {
         if s.difficulty_hold {
-            core.switches[k] = !lr[k] && s.difficulty_a[k];
-        } else if lr[k] && !core.held[k] {
+            core.switches[k] = !down && s.difficulty_a[k];
+        } else if down && !core.held[k] {
             core.switches[k] = !core.switches[k];
         }
     }
@@ -520,7 +520,7 @@ unsafe fn read_controls(core: &mut Core, input: InputFn) {
             // The beam passes the spot (dot, row) about 95 processor half-cycles' worth of MARIA
             // dots after the line starts, as a7800's calibration has it.
             let line = core.first_line + row as u32;
-            let clock = ((dot as u32 + 190) % 454) as u32;
+            let clock = (dot as u32 + 190) % 454;
             (line, clock)
         });
     }

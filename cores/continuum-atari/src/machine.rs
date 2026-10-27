@@ -173,6 +173,13 @@ pub struct Sys {
     /// Every TIA sound step's level (for the tests against MAME), when switched on.
     #[serde(skip)]
     pub tia_log: Option<Vec<u8>>,
+    /// Every POKEY clock's level (the four channels added), likewise.
+    #[serde(skip)]
+    pub pokey_log: Option<Vec<u8>>,
+    /// Every write to a POKEY, likewise: (the first POKEY clock that sees it, MARIA clock of
+    /// the write, address, value).
+    #[serde(skip)]
+    pub pokey_writes: Option<Vec<(u64, u64, u16, u8)>>,
 }
 
 impl Sys {
@@ -219,6 +226,8 @@ impl Sys {
             out_last: 0,
             out_rate: 48_000,
             tia_log: None,
+            pokey_log: None,
+            pokey_writes: None,
         };
         s.set_output_rate(48_000);
         if s.bios.is_none() {
@@ -271,6 +280,9 @@ impl Sys {
             }
             if next == pokey_at {
                 self.pokey_level = self.cart.clock_pokeys();
+                if let Some(log) = self.pokey_log.as_mut() {
+                    log.push(self.pokey_level);
+                }
                 self.pokey_next += CYCLE;
             }
             if next == out_at {
@@ -283,6 +295,19 @@ impl Sys {
             }
         }
         self.mix_to(t);
+    }
+
+    /// Before the processor reads or writes POKEY: its clocks up to the one this cycle starts
+    /// (that one already sees a write), as on MAME 0.289.
+    fn pokey_sync(&mut self) {
+        self.sound_to(self.now.saturating_sub(1));
+    }
+
+    fn log_pokey_write(&mut self, addr: u16, v: u8) {
+        let (clock, now) = (self.pokey_next / CYCLE, self.now);
+        if let Some(log) = self.pokey_writes.as_mut() {
+            log.push((clock, now, addr, v));
+        }
     }
 
     fn mix_to(&mut self, t: u64) {
@@ -551,7 +576,7 @@ impl Sys {
             0x0020..=0x003F | 0x0120..=0x013F | 0x0220..=0x023F | 0x0320..=0x033F => self.maria.read(addr as u8),
             0x0040..=0x00FF | 0x0140..=0x01FF => self.ram[0x800 + (addr & 0x1FF) as usize],
             0x0400..=0x047F => {
-                self.sound_to(self.now);
+                self.pokey_sync();
                 self.cart.read_04xx(addr).unwrap_or(0)
             }
             0x0480..=0x04FF | 0x0580..=0x05FF => self.riot.ram[(addr & 0x7F) as usize],
@@ -562,7 +587,7 @@ impl Sys {
                     self.bios_read(addr)
                 } else {
                     if addr < 0x8000 && self.cart.has_pokey() {
-                        self.sound_to(self.now);
+                        self.pokey_sync();
                     }
                     self.cart.read(addr)
                 }
@@ -585,15 +610,20 @@ impl Sys {
             }
             0x0040..=0x00FF | 0x0140..=0x01FF => self.ram[0x800 + (addr & 0x1FF) as usize] = v,
             0x0400..=0x047F => {
-                self.sound_to(self.now);
-                self.cart.write_04xx(addr, v);
+                self.pokey_sync();
+                if self.cart.write_04xx(addr, v) {
+                    self.log_pokey_write(addr, v);
+                }
             }
             0x0480..=0x04FF | 0x0580..=0x05FF => self.riot.ram[(addr & 0x7F) as usize] = v,
             0x1800..=0x1FFF => self.ram[(addr - 0x1800) as usize] = v,
             0x2000..=0x27FF => self.ram[(addr - 0x1800) as usize] = v,
             0x4000..=0xFFFF => {
                 if addr < 0x8000 && self.cart.has_pokey() {
-                    self.sound_to(self.now);
+                    self.pokey_sync();
+                    if self.cart.pokey_at_4000() {
+                        self.log_pokey_write(addr, v);
+                    }
                 }
                 self.cart.write(addr, v);
             }
@@ -630,9 +660,8 @@ impl Bus for Sys {
         self.now += len;
     }
 
-    fn irq(&self) -> bool {
-        self.cart.irq()
-    }
+    // Nothing on the 7800 drives the processor's IRQ line (the trait's default): the cartridge
+    // POKEY's isn't connected (see pokey.rs).
 
     fn take_nmi(&mut self) -> bool {
         std::mem::take(&mut self.nmi_edge)

@@ -7,7 +7,11 @@
 //! 4, 5, 9 and 17-bit polynomial counters step every clock; each channel counts up from its
 //! AUDF's complement on its clock (1.79 MHz, 64 kHz or 15 kHz) and, a few clocks after it wraps
 //! (its "borrow"), steps its output by the source AUDC picks; channels 1+2 and 3+4 can join into
-//! 16-bit counters, and channels 3 and 4 can act as high-pass filters on 1 and 2.
+//! 16-bit counters, channels 3 and 4 can act as high-pass filters on 1 and 2, and SKCTL's
+//! two-tone mode ties channels 1 and 2 together.
+//!
+//! Its interrupt line isn't connected to the processor, as on MAME, the a7800 emulator and
+//! ProSystem (no cartridge is known to use it); a program can still poll IRQST.
 
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +36,11 @@ const IRQ_TIMR1: u8 = 0x01;
 const IRQ_TIMR2: u8 = 0x02;
 const IRQ_TIMR4: u8 = 0x04;
 const IRQ_SEROC: u8 = 0x08;
+
+const SK_RESET: u8 = 0x03;
+const SK_TWOTONE: u8 = 0x08;
+const SK_ASYNC: u8 = 0x10;
+const SK_BREAK: u8 = 0x80;
 
 /// The four polynomial sequences, made once.
 struct Polys {
@@ -140,7 +149,7 @@ impl Default for Pokey {
 
 impl Pokey {
     fn running(&self) -> bool {
-        self.skctl & 0x03 != 0
+        self.skctl & SK_RESET != 0
     }
 
     /// A channel's counter steps; when it wraps, its borrow happens `delay` clocks later.
@@ -205,16 +214,21 @@ impl Pokey {
             } else if base {
                 self.inc(0, 1);
             }
-            if self.audctl & CH3_HICLK != 0 {
-                self.inc(2, if self.audctl & CH34_JOINED != 0 { 7 } else { 4 });
-            } else if base {
-                self.inc(2, 1);
+            // In asynchronous serial mode channels 3 and 4 wait for a start bit, and nothing is
+            // plugged into a cartridge POKEY's serial input, so they stand still.
+            let wait34 = self.skctl & SK_ASYNC != 0;
+            if !wait34 {
+                if self.audctl & CH3_HICLK != 0 {
+                    self.inc(2, if self.audctl & CH34_JOINED != 0 { 7 } else { 4 });
+                } else if base {
+                    self.inc(2, 1);
+                }
             }
             if base {
                 if self.audctl & CH12_JOINED == 0 {
                     self.inc(1, 1);
                 }
-                if self.audctl & CH34_JOINED == 0 {
+                if self.audctl & CH34_JOINED == 0 && !wait34 {
                     self.inc(3, 1);
                 }
             }
@@ -244,11 +258,21 @@ impl Pokey {
                 self.ch[1].filter = 1;
             }
         }
+        // Two-tone mode (the cassette's tones; music players use it as a filter): channel 2's
+        // borrow restarts channel 1, and with the serial output idle and no break, channel 1's
+        // restarts channel 2.
+        let two_tone = self.skctl & SK_TWOTONE != 0;
+        if two_tone && self.ch[1].borrow == 1 {
+            self.ch[0].reset();
+        }
         if self.borrowed(0) {
             if self.audctl & CH12_JOINED != 0 {
                 self.inc(1, 1);
             } else {
                 self.ch[0].reset();
+                if two_tone && self.skctl & SK_BREAK == 0 {
+                    self.ch[1].reset();
+                }
             }
             self.process(0);
         }
@@ -321,8 +345,11 @@ impl Pokey {
                 self.irqen = v;
             }
             0x0F => {
+                if v == self.skctl {
+                    return;
+                }
                 self.skctl = v;
-                if v & 0x03 == 0 {
+                if v & SK_RESET == 0 {
                     self.irqen = 0;
                     self.irqst &= IRQ_SEROC;
                     self.p4 = 0;
@@ -332,13 +359,12 @@ impl Pokey {
                     self.cnt28 = 0;
                     self.cnt114 = 0;
                 }
+                if v & SK_ASYNC != 0 {
+                    self.ch[2].reset();
+                    self.ch[3].reset();
+                }
             }
             _ => {}
         }
-    }
-
-    /// The IRQ line (a timer interrupt that is enabled and pending).
-    pub fn irq(&self) -> bool {
-        self.irqst & self.irqen & !IRQ_SEROC != 0
     }
 }

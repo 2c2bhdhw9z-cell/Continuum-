@@ -187,6 +187,25 @@ def sound(case, program, frames):
     print(f"{case}: {count} samples")
 
 
+# (case, program, frames): POKEY's sound. MAME can't record at POKEY's 1,789,772 Hz, so it records
+# at 894,887 Hz through its resampler; this only makes the recording (mame-<case>/<case>.wav).
+# tests/pokey_mame.rs checks our POKEY against it and writes tests/references/<case>.txt:
+#     MAME_POKEY=.../mame-pokey/pokey.wav WRITE_REF=1 cargo test --release --test pokey_mame
+POKEY_SOUND = [
+    ("pokey", "pokey", 210),
+]
+
+
+def pokey_sound(case, program, frames):
+    work = os.path.abspath(f"mame-{case}")
+    os.makedirs(work, exist_ok=True)
+    lua = ("sub = emu.add_machine_frame_notifier(function() "
+           f"if manager.machine.screens[':screen']:frame_number() >= {frames} + 2 then manager.machine:exit() end end)\n")
+    a78.run_mame(work, a78.cartridge(program), lua, frames // 50 + 5,
+                 extra=("-samplerate", "894887", "-wavwrite", f"{case}.wav"))
+    print(f"{case}: {os.path.join(work, case + '.wav')}")
+
+
 def main():
     wanted = sys.argv[1:]
     for case, program, frames, events in CASES:
@@ -195,6 +214,9 @@ def main():
     for case, program, frames in SOUND:
         if not wanted or case in wanted:
             sound(case, program, frames)
+    for case, program, frames in POKEY_SOUND:
+        if not wanted or case in wanted:
+            pokey_sound(case, program, frames)
 
 
 if __name__ == "__main__":

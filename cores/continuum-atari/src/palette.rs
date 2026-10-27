@@ -60,9 +60,8 @@ mod tests {
         assert_eq!(p[0x0F], 0xFFFFFF);
         assert_eq!(p[0x07], 0x777777);
         let g = build(Preset::Grey, 100, 100);
-        for c in 0..256 {
-            let v = g[c] & 0xFF;
-            assert_eq!(g[c], v * 0x010101, "colour {c:02x} is grey");
+        for (c, &rgb) in g.iter().enumerate() {
+            assert_eq!(rgb, (rgb & 0xFF) * 0x010101, "colour {c:02x} is grey");
         }
     }
 

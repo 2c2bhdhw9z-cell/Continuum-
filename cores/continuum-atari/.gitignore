@@ -1,2 +1,3 @@
 /target/
 /test-suites/
+__pycache__/

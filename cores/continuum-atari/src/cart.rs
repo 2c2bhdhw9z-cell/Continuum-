@@ -465,8 +465,8 @@ impl Cart {
         self.pokey.is_some() || self.pokey450.is_some()
     }
 
-    pub fn irq(&self) -> bool {
-        self.pokey.as_ref().is_some_and(|p| p.irq()) || self.pokey450.as_ref().is_some_and(|p| p.irq())
+    pub fn pokey_at_4000(&self) -> bool {
+        self.pokey.is_some()
     }
 
     pub fn rom(&self) -> &[u8] {

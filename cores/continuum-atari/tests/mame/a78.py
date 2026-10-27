@@ -78,10 +78,16 @@ BANKS = {
 }
 
 
+# Test programs on other boards without bank switching: their mapper words.
+MAPPERS = {
+    "pokey": 0x0001,  # a POKEY at $4000
+}
+
+
 def cartridge(name):
     """The .a78 for a test program: the bank-switching ones built round their code."""
     if name not in BANKS:
-        return a78(program(name))
+        return a78(program(name), mapper=MAPPERS.get(name, 0))
     size, mapper, at = BANKS[name]
     rom = bytearray()
     for k in range(size // 0x4000):
