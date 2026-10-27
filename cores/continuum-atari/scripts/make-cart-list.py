@@ -13,26 +13,26 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 
+# MAME's board name: (cAtari's kind of bank switching, POKEYs: bit 0 at $4000, bit 1 at $0450).
 KINDS = {
-    "a78_rom": "Rom",
-    "a78_pokey": "RomPokey",
-    "a78_sg": "Sg",
-    "a78_sg_pokey": "SgPokey",
-    "a78_sg_ram": "SgRam",
-    "a78_sg9": "Sg9",
-    "a78_mram": "Mram",
-    "a78_abs": "Absolute",
-    "a78_act": "Activision",
-    "a78_hsc": "Rom",  # the High Score Cartridge itself: never a game
-    "a78_xboard": "XBoard",
-    "a78_xm": "Xm",
-    "a78_megacart": "MegaCart",
-    "a78_versa": "Versa",
-    "a78_p450_t0": "RomP450",
-    "a78_p450_t1": "RomPokeyP450",
-    "a78_p450_t6": "SgRamP450",
-    "a78_p450_ta": "Sg9P450",
-    "a78_p450_vb": "VersaP450",
+    "a78_rom": ("Rom", 0),
+    "a78_pokey": ("Rom", 1),
+    "a78_sg": ("Sg", 0),
+    "a78_sg_pokey": ("Sg", 1),
+    "a78_sg_ram": ("SgRam", 0),
+    "a78_sg9": ("Sg9", 0),
+    "a78_mram": ("Mram", 0),
+    "a78_abs": ("Absolute", 0),
+    "a78_act": ("Activision", 0),
+    "a78_xboard": ("XBoard", 0),
+    "a78_xm": ("Xm", 0),
+    "a78_megacart": ("MegaCart", 0),
+    "a78_versa": ("Versa", 0),
+    "a78_p450_t0": ("Rom", 2),
+    "a78_p450_t1": ("Rom", 3),
+    "a78_p450_t6": ("SgRam", 2),
+    "a78_p450_ta": ("Sg9", 2),
+    "a78_p450_vb": ("Versa", 2),
 }
 
 
@@ -52,9 +52,9 @@ def main():
             slot = feats.get("slot", "a78_rom")
             if slot == "a78_hsc":
                 continue
-            kind = KINDS.get(slot)
-            if kind is None:
+            if slot not in KINDS:
                 raise SystemExit(f"{name}: unknown slot {slot}")
+            kind = KINDS[slot]
             gun = feats.get("peripheral") == "lightgun"
             for area in part.findall("dataarea"):
                 if area.get("name") != "rom":
@@ -74,12 +74,14 @@ def main():
     out.append("")
     out.append("use crate::cart::Kind;")
     out.append("")
-    out.append("/// A known cartridge: the CRC-32 and size of its contents (no header), its board, whether")
-    out.append("/// it is a PAL game, whether it is played with the light gun, MAME's short name, its title.")
+    out.append("/// A known cartridge: the CRC-32 and size of its contents (no header), its board and POKEYs")
+    out.append("/// (bit 0 at $4000, bit 1 at $0450), whether it is a PAL game, whether it is played with the")
+    out.append("/// light gun, MAME's short name, its title.")
     out.append("pub struct Known {")
     out.append("    pub crc: u32,")
     out.append("    pub size: u32,")
     out.append("    pub kind: Kind,")
+    out.append("    pub pokeys: u8,")
     out.append("    pub pal: bool,")
     out.append("    pub light_gun: bool,")
     out.append("    pub name: &'static str,")
@@ -93,8 +95,8 @@ def main():
         seen.add((crc, size))
         title = desc.replace("\\", "\\\\").replace('"', '\\"')
         out.append(
-            f'    Known {{ crc: 0x{crc:08x}, size: 0x{size:x}, kind: Kind::{kind}, pal: {str(pal).lower()}, '
-            f'light_gun: {str(gun).lower()}, name: "{name}", title: "{title}" }},'
+            f'    Known {{ crc: 0x{crc:08x}, size: 0x{size:x}, kind: Kind::{kind[0]}, pokeys: {kind[1]}, '
+            f'pal: {str(pal).lower()}, light_gun: {str(gun).lower()}, name: "{name}", title: "{title}" }},'
         )
     out.append("];")
     here = os.path.dirname(os.path.abspath(__file__))

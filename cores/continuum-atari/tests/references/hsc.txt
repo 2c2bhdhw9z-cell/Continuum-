@@ -1,0 +1,16 @@
+# MAME 0.289's a7800 running test-programs/hsc.asm with our stand-in BIOS, made by
+# tests/mame/make_refs.py: each frame's MARIA colour values (320 x 224), FNV-1a 64.
+program hsc
+hsc
+frame 0 320x224 c5e18ac6f2dc0325
+frame 1 320x224 c5e18ac6f2dc0325
+frame 2 320x224 c5e18ac6f2dc0325
+frame 3 320x224 c5e18ac6f2dc0325
+frame 4 320x224 c5e18ac6f2dc0325
+frame 5 320x224 c5e18ac6f2dc0325
+frame 6 320x224 78bfbecdaa16e605
+frame 7 320x224 0ac220d1fdc14ea5
+frame 8 320x224 f8f2b0ba300ad305
+frame 9 320x224 c407d3694c693645
+frame 10 320x224 7a4315280fc7eec5
+frame 11 320x224 0d7d616e5b3582e5

@@ -49,7 +49,11 @@ CASES = [
     ("banks_sgram", "banks_sgram", 20, []),
     ("banks_abs", "banks_abs", 20, []),
     ("banks_act", "banks_act", 20, []),
+    ("hsc", "hsc", 12, []),
 ]
+
+# The cases played with the High Score Cartridge between the console and the cartridge.
+HSC = {"hsc"}
 
 
 def png_rgb(path):
@@ -122,7 +126,7 @@ def run(case, program, frames, events):
         f"  if k >= {frames} + 2 then manager.machine:exit() end\n"
         "end)"
     )
-    log = a78.run_mame(work, a78.cartridge(program), "\n".join(lua) + "\n", frames // 50 + 5)
+    log = a78.run_mame(work, a78.cartridge(program), "\n".join(lua) + "\n", frames // 50 + 5, hsc=case in HSC)
     if "LUA ERROR" in log or "Error" in log and "CHECKSUM" not in log.upper():
         print(log)
     palette = {}
@@ -143,6 +147,8 @@ def run(case, program, frames, events):
         f.write(f"# MAME 0.289's a7800 running test-programs/{program}.asm with our stand-in BIOS, made by\n")
         f.write("# tests/mame/make_refs.py: each frame's MARIA colour values (320 x 224), FNV-1a 64.\n")
         f.write(f"program {program}\n")
+        if case in HSC:
+            f.write("hsc\n")
         for (fr, tag, mask, value) in events:
             f.write(f"event {fr} {tag} {mask} {value}\n")
         for k, (w, h, hh) in enumerate(hashes):
@@ -156,8 +162,9 @@ SOUND = [
     ("sound", "sound", 400),
 ]
 BLOCK = 4096
-# MAME's recording starts this many samples before the machine's first sound step.
-MAME_LEAD = 24
+# MAME's recording starts this many samples before the machine's first sound step (tests/tia_mame.rs
+# starts our TIA's sound clock where MAME's second sample is).
+MAME_LEAD = 1
 
 
 def sound(case, program, frames):

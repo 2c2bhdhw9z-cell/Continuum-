@@ -735,15 +735,16 @@ enum CoreCatalog {
 
     /// Atari 7800. cAtari: this project's own Atari 7800 emulator, written from scratch in Rust
     /// (cores/continuum-atari), a choice next to ProSystem, which stays the default. It reads the
-    /// same BIOS file names as ProSystem (optional: it starts games without one). The picture is
-    /// 224 lines on NTSC, 260 on PAL, more with "Whole picture"; the core reports the shape
+    /// same BIOS file names as ProSystem (optional: it starts games without one), and the player's
+    /// own High Score Cartridge file, highscre.bin (optional too). The picture is 224 lines on
+    /// NTSC, 260 on PAL, more with "Whole picture"; the core reports the shape
     /// (`phonePictureAspect` below asks it). OPTIONAL in the .ipa.
     static let continuumAtari = CoreSpec(
         coreId: "continuum_atari", displayName: "cAtari (Atari 7800)",
         systems: ["atari7800"], library: "continuum_atari_libretro_ios.dylib",
         width: 320, height: 224, maxWidth: 320, maxHeight: 292,
         aspectRatio: 4.0 / 3.0, fps: 7_159_090.0 / (454.0 * 263.0), sampleRate: 48000, pixelFormat: 1,
-        priority: 0, biosNames: ["7800 BIOS (U).rom", "7800 BIOS (E).rom"]
+        priority: 0, biosNames: ["7800 BIOS (U).rom", "7800 BIOS (E).rom", "highscre.bin"]
     )
 
     /// GameCube. Continuum's own GameCube emulator, written from scratch in Rust

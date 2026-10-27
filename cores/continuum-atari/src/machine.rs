@@ -12,11 +12,15 @@
 //! $200 and $300), the two 2 KB RAM chips at $1800 and $2000 (the second also showing at $40-$FF
 //! and $140-$1FF), the RIOT's ports at $280 and its RAM at $480, the cartridge from $4000, and the
 //! console's BIOS over $C000-$FFFF until the INPTCTRL register switches it out and locks itself.
+//! Some cartridges answer lower down too (a second POKEY at $0440, $0450 or $0800, a 52 KB
+//! BankSet image from $3000), and so does the High Score Cartridge ($1000-$17FF and
+//! $3000-$3FFF) when the player has one.
 
 use crate::cart::Cart;
 use crate::m6502::{Bus, M6502};
 use crate::maria::Maria;
 use crate::riot::Riot;
+use crate::savekey::{self, SaveKey};
 use crate::tia::TiaSound;
 use serde::{Deserialize, Serialize};
 
@@ -55,6 +59,12 @@ impl Region {
             Region::Pal => (35, 35 + 228 + 32),
         }
     }
+    /// Where a frame starts: the line after the picture, where the TV's vertical blank begins.
+    /// The console is switched on there and every frame runs from there, as on MAME 0.289 (its
+    /// screen starts in that line).
+    pub fn frame_start(self) -> u32 {
+        self.visible().1
+    }
     pub fn fps(self) -> f64 {
         self.maria_hz() as f64 / (LINE_CLOCKS as f64 * self.lines() as f64)
     }
@@ -70,6 +80,8 @@ pub enum PortKind {
     LightGun,
     /// A pair of paddles: their knobs on the TIA's INPT0-3, their buttons on the stick lines.
     Paddles,
+    /// A SaveKey or AtariVox (port 2): 32 KB of EEPROM on the stick's left and right lines.
+    SaveKey,
 }
 
 /// The controls, as the hardware sees them.
@@ -124,6 +136,15 @@ pub struct Sys {
     pub cart: Cart,
     #[serde(skip)]
     pub bios: Option<Vec<u8>>,
+    /// Memory that keeps without power, what the app saves for the game: the High Score
+    /// Cartridge's 2 KB of RAM (first, when it is plugged in), then the SaveKey's 32 KB.
+    pub battery: Vec<u8>,
+    /// The High Score Cartridge's ROM (the player's own file) when it is plugged in, between
+    /// the console and the game: at $3000-$3FFF, its RAM at $1000-$17FF.
+    #[serde(skip)]
+    pub hsc_rom: Option<Vec<u8>>,
+    pub savekey: Option<SaveKey>,
+    savekey_at: usize,
     pub ctrl_lock: bool,
     pub ctrl_reg: u8,
     /// Now, in MARIA clocks since power-on.
@@ -193,10 +214,14 @@ impl Sys {
             maria: Maria::default(),
             cart,
             bios,
+            battery: Vec::new(),
+            hsc_rom: None,
+            savekey: None,
+            savekey_at: 0,
             ctrl_lock: false,
             ctrl_reg: 0,
             now: 0,
-            line: 0,
+            line: region.frame_start(),
             next_line: LINE_CLOCKS,
             dma_due: Some(DMA_START),
             halted: false,
@@ -238,12 +263,14 @@ impl Sys {
         s
     }
 
-    /// Sets the TIA's sound clock (MARIA clocks per step, as a fraction). The real board's is
-    /// exactly 228; MAME 0.289 rounds the TIA's clock to whole hertz, which the tests copy.
-    pub fn set_tia_period(&mut self, num: u64, den: u64) {
+    /// Sets the TIA's sound clock (MARIA clocks per step, as a fraction) and when its next step
+    /// comes (`first` MARIA clocks from now). The real board's period is exactly 228, and the
+    /// TIA's sound clock has no fixed phase against MARIA's; MAME 0.289 rounds the TIA's clock to
+    /// whole hertz, which the tests copy along with the phase MAME's writes land at.
+    pub fn set_tia_period(&mut self, num: u64, den: u64, first: u64) {
         self.tia_num = num;
         self.tia_den = den;
-        self.tia_next = (self.now + 1) * den;
+        self.tia_next = (self.now + first) * den;
     }
 
     /// Output samples a second: each one averages the sound over its stretch of MARIA clocks,
@@ -252,6 +279,50 @@ impl Sys {
         self.out_rate = hz.max(1);
         self.out_last = self.now;
         self.out_next = self.now * self.out_rate + self.region.maria_hz();
+    }
+
+    /// Plugs the High Score Cartridge in with the player's own 4 KB ROM. Its RAM starts as all
+    /// $FF (as MAME and the a7800 emulator have a new one) until the app puts the saved one back.
+    pub fn plug_hsc(&mut self, rom: Vec<u8>) {
+        if self.hsc_rom.is_none() {
+            let mut b = vec![0xFF; 0x800];
+            b.extend_from_slice(&self.battery);
+            self.battery = b;
+            if self.savekey.is_some() {
+                self.savekey_at += 0x800;
+            }
+        }
+        self.hsc_rom = Some(rom);
+    }
+
+    /// Plugs a SaveKey into the second port (an erased one, all $FF, until the app puts the
+    /// saved one back).
+    pub fn plug_savekey(&mut self) {
+        if self.savekey.is_none() {
+            self.savekey_at = self.battery.len();
+            self.battery.extend(std::iter::repeat_n(0xFF, savekey::SIZE));
+            self.savekey = Some(SaveKey::default());
+        }
+        self.ports[1] = PortKind::SaveKey;
+    }
+
+    /// The High Score Cartridge's answer at `addr`, if it is plugged in and `addr` is its.
+    fn hsc_peek(&self, addr: u16) -> Option<u8> {
+        let rom = self.hsc_rom.as_ref()?;
+        match addr {
+            0x1000..=0x17FF => Some(self.battery[(addr & 0x7FF) as usize]),
+            0x3000..=0x3FFF => Some(rom.get((addr & 0xFFF) as usize).copied().unwrap_or(0xFF)),
+            _ => None,
+        }
+    }
+
+    /// The console's drive on port A changed: a SaveKey sees its two lines.
+    fn update_savekey(&mut self) {
+        if let Some(k) = self.savekey.as_mut() {
+            let drive = self.riot.pa_drive();
+            let at = self.savekey_at;
+            k.lines(drive & 0x08 != 0, drive & 0x04 != 0, &mut self.battery[at..at + savekey::SIZE]);
+        }
     }
 
     fn bios_enabled(&self) -> bool {
@@ -354,6 +425,8 @@ impl Sys {
         let lines = self.region.lines();
         if self.line >= lines {
             self.line = 0;
+        }
+        if self.line == self.region.frame_start() {
             self.frame_done = true;
             self.frames += 1;
         }
@@ -400,6 +473,9 @@ impl Sys {
     fn dma_peek(&self, addr: u16) -> u8 {
         match addr {
             0x0040..=0x00FF | 0x0140..=0x01FF => self.ram[0x800 + (addr & 0x1FF) as usize],
+            0x0400..=0x047F | 0x0800..=0x17FF | 0x3000..=0x3FFF => {
+                self.cart.peek_low(addr, true).or_else(|| self.hsc_peek(addr)).unwrap_or(0)
+            }
             0x0480..=0x04FF | 0x0580..=0x05FF => self.riot.ram[(addr & 0x7F) as usize],
             0x1800..=0x1FFF => self.ram[(addr - 0x1800) as usize],
             0x2000..=0x27FF => self.ram[(addr - 0x1800) as usize],
@@ -407,7 +483,7 @@ impl Sys {
                 if addr >= 0xC000 && self.bios_enabled() {
                     self.bios_read(addr)
                 } else {
-                    self.cart.peek(addr)
+                    self.cart.maria_peek(addr)
                 }
             }
             _ => 0,
@@ -538,6 +614,12 @@ impl Sys {
                         v &= !(0x04 << shift);
                     }
                 }
+                PortKind::SaveKey => {
+                    // SDA, on the left line, low while the EEPROM pulls it; SCL reads high.
+                    if self.savekey.as_ref().is_some_and(|k| !k.sda_out()) {
+                        v &= !(0x04 << shift);
+                    }
+                }
             }
         }
         v
@@ -575,9 +657,14 @@ impl Sys {
             0x0000..=0x001F | 0x0100..=0x011F | 0x0200..=0x021F | 0x0300..=0x031F => self.tia_read(addr as u8),
             0x0020..=0x003F | 0x0120..=0x013F | 0x0220..=0x023F | 0x0320..=0x033F => self.maria.read(addr as u8),
             0x0040..=0x00FF | 0x0140..=0x01FF => self.ram[0x800 + (addr & 0x1FF) as usize],
-            0x0400..=0x047F => {
-                self.pokey_sync();
-                self.cart.read_04xx(addr).unwrap_or(0)
+            0x0400..=0x047F | 0x0800..=0x17FF | 0x3000..=0x3FFF => {
+                if self.cart.has_pokey() {
+                    self.pokey_sync();
+                }
+                match self.cart.read_low(addr) {
+                    Some(v) => v,
+                    None => self.hsc_peek(addr).unwrap_or(0),
+                }
             }
             0x0480..=0x04FF | 0x0580..=0x05FF => self.riot.ram[(addr & 0x7F) as usize],
             0x1800..=0x1FFF => self.ram[(addr - 0x1800) as usize],
@@ -609,10 +696,18 @@ impl Sys {
                 }
             }
             0x0040..=0x00FF | 0x0140..=0x01FF => self.ram[0x800 + (addr & 0x1FF) as usize] = v,
-            0x0400..=0x047F => {
-                self.pokey_sync();
-                if self.cart.write_04xx(addr, v) {
-                    self.log_pokey_write(addr, v);
+            0x0400..=0x047F | 0x0800..=0x17FF | 0x3000..=0x3FFF => {
+                if self.cart.has_pokey() {
+                    self.pokey_sync();
+                }
+                match self.cart.write_low(addr, v) {
+                    Some(true) => self.log_pokey_write(addr, v),
+                    Some(false) => {}
+                    None => {
+                        if self.hsc_rom.is_some() && (0x1000..0x1800).contains(&addr) {
+                            self.battery[(addr & 0x7FF) as usize] = v;
+                        }
+                    }
                 }
             }
             0x0480..=0x04FF | 0x0580..=0x05FF => self.riot.ram[(addr & 0x7F) as usize] = v,
@@ -621,15 +716,15 @@ impl Sys {
             0x4000..=0xFFFF => {
                 if addr < 0x8000 && self.cart.has_pokey() {
                     self.pokey_sync();
-                    if self.cart.pokey_at_4000() {
-                        self.log_pokey_write(addr, v);
-                    }
                 }
-                self.cart.write(addr, v);
+                if self.cart.write(addr, v) {
+                    self.log_pokey_write(addr, v);
+                }
             }
             a if Self::riot_io(a) => {
                 self.riot.write_io(a, v, self.now);
                 self.update_buttons_mode();
+                self.update_savekey();
             }
             _ => {}
         }

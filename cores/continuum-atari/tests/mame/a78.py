@@ -32,14 +32,25 @@ def program(name):
     return open(os.path.join(PROGRAMS, name + ".bin"), "rb").read()
 
 
-def run_mame(work, cart, lua, seconds, extra=(), pal=False):
+def hsc_rom():
+    """Our stand-in for the High Score Cartridge's 4 KB ROM: byte i is i * 7 + i / 256."""
+    return bytes((i * 7 + (i >> 8)) & 0xFF for i in range(0x1000))
+
+
+def run_mame(work, cart, lua, seconds, extra=(), pal=False, hsc=False):
     """Runs MAME's a7800 (a7800p for PAL) in `work` with the cartridge and a Lua script; returns
     MAME's log. The stand-in BIOS goes in under the real BIOS's name: MAME runs it after warning
-    that its checksum is wrong."""
+    that its checksum is wrong. With `hsc`, the cartridge goes into MAME's High Score Cartridge
+    (its software list's "hiscore", with our stand-in ROM under the real one's name, and fresh
+    RAM each run)."""
     mame = os.environ["MAME"]
     machine = "a7800p" if pal else "a7800"
     roms = os.path.join(work, "roms", machine)
     os.makedirs(roms, exist_ok=True)
+    nvram = os.path.join(work, "nvram")
+    if os.path.isdir(nvram):
+        import shutil
+        shutil.rmtree(nvram)
     bios = program("bios")
     if pal:
         # The PAL console's BIOS is 16 KB at $C000; ours at the top of it.
@@ -51,8 +62,15 @@ def run_mame(work, cart, lua, seconds, extra=(), pal=False):
     lua_path = os.path.join(work, "run.lua")
     open(lua_path, "w").write(lua)
     env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
+    carts = ["-cart", cart_path]
+    if hsc:
+        os.makedirs(os.path.join(roms, "hiscore"), exist_ok=True)
+        open(os.path.join(roms, "hiscore", "highscre.bin"), "wb").write(hsc_rom())
+        # MAME's software lists (hash/), beside the binary in its source tree, or MAME_HASH.
+        hashes = os.environ.get("MAME_HASH", os.path.join(os.path.dirname(os.path.abspath(mame)), "hash"))
+        carts = ["-hashpath", hashes, "-cart", "hiscore", "-cart2", cart_path]
     out = subprocess.run(
-        [mame, machine, "-rompath", os.path.join(work, "roms"), "-cart", cart_path,
+        [mame, machine, "-rompath", os.path.join(work, "roms"), *carts,
          "-video", "none", "-sound", "none", "-nothrottle", "-skip_gameinfo",
          "-cfg_directory", os.path.join(work, "cfg"), "-nvram_directory", os.path.join(work, "nvram"),
          "-snapshot_directory", os.path.join(work, "snap"), "-seconds_to_run", str(seconds),

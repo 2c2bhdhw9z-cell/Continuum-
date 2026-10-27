@@ -1,19 +1,19 @@
 # MAME 0.289's a7800 playing test-programs/sound.asm's TIA sound at 31,399 Hz, made by
-# tests/mame/make_refs.py: the levels (0-30) after its 24-sample lead, FNV-1a 64 of each 4096.
+# tests/mame/make_refs.py: the levels (0-30) after its 1-sample lead, FNV-1a 64 of each 4096.
 program sound
 frames 400
 samples 204800
-block 0 863673cbd9cea5a3
-block 1 f3b85214e20b32e4
-block 2 426db46b25662843
-block 3 caed4bd6a546e5b3
-block 4 fd62b71fb6a6cbe8
-block 5 38bef4d4d96a5e3c
-block 6 7cd3a1bcb9261fa1
-block 7 2576b801d5824f15
-block 8 3ea6c9ed328dbc71
-block 9 2d63d9522b76d438
-block 10 9efe3b6875d8d89d
+block 0 906d19d4fc96c716
+block 1 82915206acc43e71
+block 2 37af642887383635
+block 3 3cc81837fcd3bf3f
+block 4 8a9b10b743601603
+block 5 a596fa162255db1c
+block 6 bde8c5115d103959
+block 7 394364c5a7dfaeba
+block 8 77e70d073481923c
+block 9 6e3d56e0797a88fb
+block 10 c5950aafcc539121
 block 11 b93a0c83ce3b6325
 block 12 b93a0c83ce3b6325
 block 13 b93a0c83ce3b6325

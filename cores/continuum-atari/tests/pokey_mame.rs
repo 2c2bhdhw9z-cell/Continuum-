@@ -185,9 +185,8 @@ fn pokey_sounds_as_on_mame() {
         assert!(data.iter().step_by(2).all(|&v| v == 0), "the TIA stays silent");
         let mame: Vec<i16> = data.iter().skip(1).step_by(2).copied().collect();
         let lofi = Lofi::new();
-        // MAME's console starts its program twelve lines later than ours (as the TIA's test
-        // finds, 24 of its samples): line the clocks up where the sound starts, then to the clock
-        // on its first tenth of a second.
+        // Line the clocks up where the sound starts, then to the clock on its first tenth of a
+        // second (MAME's console is a clock behind ours here, from its slower processor).
         let first = mame.iter().position(|&v| v != 0).expect("MAME's recording has sound") as u64;
         let ours_first = levels.iter().position(|&v| v != 0).expect("our POKEY plays") as i64;
         let guess = ours_first - (first * FS / FT) as i64;
@@ -219,7 +218,7 @@ fn pokey_sounds_as_on_mame() {
         let differ = ours.iter().zip(&levels).filter(|(a, b)| a != b).count();
         eprintln!(
             "{} writes, {moved} of them moved to MAME's clocks ({differ} of {} clocks change); MAME's console \
-             {} clocks behind ours; {checked} of its samples checked, {} differ by more than {TOLERANCE}; \
+             {} clock(s) behind ours; {checked} of its samples checked, {} differ by more than {TOLERANCE}; \
              the largest difference {} (sample {})",
             writes.len(),
             levels.len(),

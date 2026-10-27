@@ -10,7 +10,7 @@ fn main() {
     h.extend(rom);
     let bios = std::fs::read(&a[2]).unwrap();
     let mut m = Atari7800::new(Cart::load(&h).unwrap(), Region::Ntsc, Some(bios));
-    m.sys.set_tia_period(7_159_090, 31_399);
+    m.sys.set_tia_period(7_159_090, 31_399, 197);
     m.sys.tia_log = Some(Vec::new());
     let frames: u32 = a[3].parse().unwrap();
     for _ in 0..frames {

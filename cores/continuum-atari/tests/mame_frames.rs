@@ -92,10 +92,12 @@ fn check(case: &str) {
     let mut program = String::new();
     let mut want = Vec::new();
     let mut events: Vec<(usize, String, u32, u32)> = Vec::new();
+    let mut hsc = false;
     for line in text.lines() {
         let w: Vec<&str> = line.split_whitespace().collect();
         match w.first() {
             Some(&"program") => program = w[1].to_string(),
+            Some(&"hsc") => hsc = true,
             Some(&"frame") => want.push(u64::from_str_radix(w[3], 16).unwrap()),
             Some(&"event") => events.push((
                 w[1].parse().unwrap(),
@@ -109,12 +111,17 @@ fn check(case: &str) {
     let bios = std::fs::read(crate_dir().join("test-programs/bios.bin")).unwrap();
     let cart = Cart::load(&cartridge(&program)).unwrap();
     let mut m = Atari7800::new(cart, Region::Ntsc, Some(bios));
+    if hsc {
+        // Our stand-in for the High Score Cartridge's ROM, as tests/mame/a78.py makes it.
+        m.sys.plug_hsc((0..0x1000usize).map(|i| (i * 7 + (i >> 8)) as u8).collect());
+    }
     let (first, end) = Region::Ntsc.visible();
     for (k, &h) in want.iter().enumerate() {
-        // MAME shows a change made in its frame callback k two frames later (a difficulty switch
-        // three); here it is made before frame k + 1 (k + 2) runs.
+        // MAME's frame callback k comes as frame k ends, and MAME reads a change made there as
+        // frame k + 1 ends (a difficulty switch a frame later still): here it is made before
+        // frame k + 2 (k + 3) runs.
         let switch = |tag: &str, mask: u32| tag == ":CONSOLE" && mask >= 0x40;
-        for (_, tag, mask, value) in events.iter().filter(|e| e.0 + if switch(&e.1, e.2) { 2 } else { 1 } == k) {
+        for (_, tag, mask, value) in events.iter().filter(|e| e.0 + if switch(&e.1, e.2) { 3 } else { 2 } == k) {
             apply(&mut m.sys.input, tag, *mask, *value);
         }
         m.run_frame();
@@ -178,4 +185,9 @@ fn banks_abs_matches_mame() {
 #[test]
 fn banks_act_matches_mame() {
     check("banks_act");
+}
+
+#[test]
+fn the_high_score_cartridge_matches_mame() {
+    check("hsc");
 }

@@ -34,8 +34,12 @@ fn the_tia_sounds_as_on_mame_sample_for_sample() {
     h.extend(rom);
     let bios = std::fs::read(format!("{dir}/test-programs/bios.bin")).unwrap();
     let mut m = Atari7800::new(Cart::load(&h).unwrap(), Region::Ntsc, Some(bios));
-    // MAME clocks the TIA at a whole number of hertz, 31,399; the board's own is 31,399.5.
-    m.sys.set_tia_period(7_159_090, 31_399);
+    // MAME clocks the TIA at a whole number of hertz, 31,399 (the board's own is 31,399.5), and
+    // it takes a write about 30 of MARIA's clocks after the processor makes it, its processor
+    // also drifting against MARIA by up to 13 over the test (MAME rounds both clocks to whole
+    // hertz). Every sample matches with our first sound step 190 to 205 clocks in, against
+    // MAME's second sample: 197.
+    m.sys.set_tia_period(7_159_090, 31_399, 197);
     m.sys.tia_log = Some(Vec::new());
     for _ in 0..frames {
         m.run_frame();

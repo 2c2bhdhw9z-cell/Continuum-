@@ -80,6 +80,9 @@ const SPECS: &[Spec] = &[
     (c"system", c"catari_bios", c"Console start-up screen",
      c"Plays the Atari logo first if you have the console's BIOS file. Changes apply at the next start.",
      OFF_ON, c"off"),
+    (c"system", c"catari_hsc", c"High Score Cartridge",
+     c"Keeps high scores in the games made for it. Needs your own highscre.bin with the BIOS files.",
+     &[(c"auto", c"Auto"), (c"on", c"Every game"), (c"off", c"Off")], c"auto"),
     (c"system", c"catari_slow_io", c"Slow chip access",
      c"The console slows down to talk to its sound and controller chips; light gun games need it.",
      &[(c"auto", c"Auto (light gun games)"), (c"on", c"Always, like the console"), (c"off", c"Never")], c"auto"),
@@ -110,8 +113,9 @@ const SPECS: &[Spec] = &[
     (c"input", c"catari_port1", c"Controller 1",
      c"Auto picks the light gun or paddles for the games made for them. Changes apply at the next start.",
      &[(c"auto", c"Auto"), (c"joystick", c"Joystick"), (c"lightgun", c"Light gun"), (c"paddles", c"Paddles")], c"auto"),
-    (c"input", c"catari_port2", c"Controller 2", c"Changes apply at the next start.",
-     &[(c"auto", c"Auto"), (c"joystick", c"Joystick"), (c"paddles", c"Paddles")], c"auto"),
+    (c"input", c"catari_port2", c"Controller 2",
+     c"Auto plugs a SaveKey in for the games that keep scores on one. Changes apply at the next start.",
+     &[(c"auto", c"Auto"), (c"joystick", c"Joystick"), (c"paddles", c"Paddles"), (c"savekey", c"SaveKey or AtariVox")], c"auto"),
     (c"input", c"catari_dual_stick", c"Dual-stick games",
      c"Puts player 2's stick on your right stick, for Robotron: 2084 and the like.", OFF_ON, c"off"),
     (c"input", c"catari_left_difficulty", c"Left difficulty switch", c"", AB, c"a"),
@@ -136,6 +140,15 @@ pub enum Port {
     Joystick,
     LightGun,
     Paddles,
+    SaveKey,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hsc {
+    /// For the games whose header asks for it.
+    Auto,
+    On,
+    Off,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -149,6 +162,7 @@ pub enum SlowIo {
 pub struct Settings {
     pub region: Option<bool>,
     pub bios: bool,
+    pub hsc: Hsc,
     pub slow_io: SlowIo,
     pub palette: crate::palette::Preset,
     pub saturation: u8,
@@ -176,6 +190,7 @@ impl Default for Settings {
         Settings {
             region: None,
             bios: false,
+            hsc: Hsc::Auto,
             slow_io: SlowIo::Auto,
             palette: crate::palette::Preset::Atari,
             saturation: 100,
@@ -212,6 +227,11 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
         _ => None,
     };
     s.bios = on(c"catari_bios", false);
+    s.hsc = match get(c"catari_hsc").as_deref() {
+        Some("on") => Hsc::On,
+        Some("off") => Hsc::Off,
+        _ => Hsc::Auto,
+    };
     s.slow_io = match get(c"catari_slow_io").as_deref() {
         Some("on") => SlowIo::On,
         Some("off") => SlowIo::Off,
@@ -248,11 +268,15 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
         Some("joystick") => Port::Joystick,
         Some("lightgun") => Port::LightGun,
         Some("paddles") => Port::Paddles,
+        Some("savekey") => Port::SaveKey,
         _ => Port::Auto,
     };
     s.ports = [port(c"catari_port1"), port(c"catari_port2")];
     if s.ports[1] == Port::LightGun {
         s.ports[1] = Port::Auto;
+    }
+    if s.ports[0] == Port::SaveKey {
+        s.ports[0] = Port::Auto;
     }
     s.dual_stick = on(c"catari_dual_stick", false);
     s.difficulty_a = [

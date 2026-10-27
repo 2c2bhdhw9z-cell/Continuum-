@@ -12,7 +12,7 @@ use std::sync::Mutex;
 
 use crate::cart::Cart;
 use crate::machine::{Atari7800, PortKind, Region};
-use crate::options::{Port, Settings, SlowIo};
+use crate::options::{Hsc, Port, Settings, SlowIo};
 
 #[repr(C)]
 pub struct RetroSystemInfo {
@@ -178,6 +178,20 @@ unsafe fn read_bios(env: EnvFn, pal: bool) -> Option<Vec<u8>> {
     None
 }
 
+/// The High Score Cartridge's ROM, the player's own (4 KB), from the system folder under the
+/// names MAME and the 7800 emulators use.
+unsafe fn read_hsc(env: EnvFn) -> Option<Vec<u8>> {
+    let dir = system_dir(env)?;
+    for n in ["highscre.bin", "hiscore.rom", "highscore.rom", "HSC.ROM"] {
+        if let Ok(b) = std::fs::read(dir.join(n)) {
+            if b.len() == 0x1000 {
+                return Some(b);
+            }
+        }
+    }
+    None
+}
+
 #[no_mangle]
 pub extern "C" fn retro_api_version() -> u32 {
     1
@@ -320,9 +334,13 @@ fn port_kind(p: Port, cart: &Cart, port: usize) -> PortKind {
         Port::LightGun if port == 0 => PortKind::LightGun,
         Port::LightGun => PortKind::Joystick,
         Port::Paddles => PortKind::Paddles,
+        Port::SaveKey if port == 1 => PortKind::SaveKey,
+        Port::SaveKey => PortKind::Joystick,
         Port::Auto => match cart.info.controllers[port] {
             2 if port == 0 => PortKind::LightGun,
             3 => PortKind::Paddles,
+            10 if port == 1 => PortKind::SaveKey,
+            _ if port == 1 && cart.info.save_device == 2 => PortKind::SaveKey,
             _ if port == 0 && cart.info.light_gun => PortKind::LightGun,
             _ => PortKind::Joystick,
         },
@@ -339,8 +357,21 @@ unsafe fn machine(data: &[u8], s: &Settings, env: Option<EnvFn>) -> Option<Box<A
         _ => None,
     };
     let ports = [port_kind(s.ports[0], &cart, 0), port_kind(s.ports[1], &cart, 1)];
+    let wants_hsc = match s.hsc {
+        Hsc::On => true,
+        Hsc::Off => false,
+        Hsc::Auto => cart.info.save_device == 1,
+    };
     let mut m = Box::new(Atari7800::new(cart, region, bios));
     m.sys.ports = ports;
+    if let (Some(e), true) = (env, wants_hsc) {
+        if let Some(rom) = read_hsc(e) {
+            m.sys.plug_hsc(rom);
+        }
+    }
+    if ports[1] == PortKind::SaveKey {
+        m.sys.plug_savekey();
+    }
     m.sys.slow_io = match s.slow_io {
         SlowIo::On => true,
         SlowIo::Off => false,
@@ -430,6 +461,14 @@ pub extern "C" fn retro_reset() {
             fresh.sys.ports = ports;
             fresh.sys.slow_io = slow;
             fresh.sys.set_output_rate(rate as u64);
+            // What keeps without power stays plugged in and kept.
+            if let Some(rom) = m.sys.hsc_rom.take() {
+                fresh.sys.plug_hsc(rom);
+            }
+            if m.sys.savekey.is_some() {
+                fresh.sys.plug_savekey();
+            }
+            fresh.sys.battery = std::mem::take(&mut m.sys.battery);
             // Keep the RAM where the app was told it is.
             fresh.sys.ram = std::mem::take(&mut m.sys.ram);
             fresh.sys.ram.iter_mut().for_each(|b| *b = 0);
@@ -557,6 +596,7 @@ pub unsafe extern "C" fn retro_run() {
             // The ones that say "next start" keep their values until then.
             s.region = core.at_start.region;
             s.bios = core.at_start.bios;
+            s.hsc = core.at_start.hsc;
             s.overscan = core.at_start.overscan;
             s.sound_rate = core.at_start.sound_rate;
             s.ports = core.at_start.ports;
@@ -678,18 +718,25 @@ pub unsafe extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> 
     let Ok(mut c) = CORE.lock() else { return false };
     let Some(core) = c.as_mut() else { return false };
     let m = &mut core.m;
-    if new.sys.ram.len() != m.sys.ram.len() || new.sys.riot.ram.len() != m.sys.riot.ram.len() || new.sys.cart.ram.len() != m.sys.cart.ram.len() {
+    if new.sys.ram.len() != m.sys.ram.len()
+        || new.sys.riot.ram.len() != m.sys.riot.ram.len()
+        || new.sys.cart.ram.len() != m.sys.cart.ram.len()
+        || new.sys.battery.len() != m.sys.battery.len()
+    {
         return false;
     }
     // The memory the app was told about stays where it is: copy into it.
     m.sys.ram.copy_from_slice(&new.sys.ram);
     m.sys.riot.ram.copy_from_slice(&new.sys.riot.ram);
     m.sys.cart.ram.copy_from_slice(&new.sys.cart.ram);
+    m.sys.battery.copy_from_slice(&new.sys.battery);
     new.sys.ram = std::mem::take(&mut m.sys.ram);
     new.sys.riot.ram = std::mem::take(&mut m.sys.riot.ram);
     new.sys.cart.ram = std::mem::take(&mut m.sys.cart.ram);
+    new.sys.battery = std::mem::take(&mut m.sys.battery);
     new.sys.cart.restore_rom(&m.sys.cart);
     new.sys.bios = m.sys.bios.take();
+    new.sys.hsc_rom = m.sys.hsc_rom.take();
     new.sys.out = Vec::new();
     **m = new;
     core.apply();
@@ -707,7 +754,8 @@ pub extern "C" fn retro_get_memory_data(id: u32) -> *mut c_void {
     let Some(core) = c.as_mut() else { return std::ptr::null_mut() };
     match id {
         MEMORY_SYSTEM_RAM => core.m.sys.ram.as_mut_ptr() as *mut c_void,
-        MEMORY_SAVE_RAM => std::ptr::null_mut(),
+        // The High Score Cartridge's RAM and the SaveKey's memory, when they are plugged in.
+        MEMORY_SAVE_RAM if !core.m.sys.battery.is_empty() => core.m.sys.battery.as_mut_ptr() as *mut c_void,
         _ => std::ptr::null_mut(),
     }
 }
@@ -718,6 +766,7 @@ pub extern "C" fn retro_get_memory_size(id: u32) -> usize {
     let Some(core) = c.as_ref() else { return 0 };
     match id {
         MEMORY_SYSTEM_RAM => core.m.sys.ram.len(),
+        MEMORY_SAVE_RAM => core.m.sys.battery.len(),
         _ => 0,
     }
 }

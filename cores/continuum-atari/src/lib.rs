@@ -13,4 +13,5 @@ pub mod options;
 pub mod palette;
 pub mod pokey;
 pub mod riot;
+pub mod savekey;
 pub mod tia;

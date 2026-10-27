@@ -99,6 +99,11 @@ impl Riot {
         (self.pb_out & self.pb_ddr) | !self.pb_ddr
     }
 
+    /// Port A likewise (the joystick ports: a SaveKey on the second listens to two of them).
+    pub fn pa_drive(&self) -> u8 {
+        (self.pa_out & self.pa_ddr) | !self.pa_ddr
+    }
+
     pub fn read_io(&mut self, offset: u16, now: u64, pa_in: u8, pb_in: u8) -> u8 {
         let o = offset & 0x1F;
         let t = now / TICK;
