@@ -21,6 +21,7 @@ import a78  # noqa: E402
 CASES = [
     ("zones", "zones", 120, []),
     ("dma", "dma", 60, []),
+    ("modes", "modes", 70, []),
 ]
 
 

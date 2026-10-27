@@ -79,3 +79,8 @@ fn zones_matches_mame() {
 fn dma_matches_mame() {
     check("dma");
 }
+
+#[test]
+fn modes_matches_mame() {
+    check("modes");
+}
