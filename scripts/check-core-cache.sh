@@ -341,6 +341,9 @@ check "the GameCube core (continuum_gc, no pin) is never reused" not_cached cont
 echo "not a real dylib" > "$LIB/continuum_sms_libretro_ios.dylib"
 echo "continuum_sms   pinned fp:$(fp continuum_sms)" >> "$MANIFEST"
 check "cGear (continuum_sms, no pin) is never reused" not_cached continuum_sms
+echo "not a real dylib" > "$LIB/continuum_atari_libretro_ios.dylib"
+echo "continuum_atari   pinned fp:$(fp continuum_atari)" >> "$MANIFEST"
+check "cAtari (continuum_atari, no pin) is never reused" not_cached continuum_atari
 unset CONTINUUM_CORE_CACHE
 
 # 8. Every patch belongs to a core, so every patch is in some core's fingerprint.
@@ -396,6 +399,8 @@ check "build_ios_continuum_arcade_core is in continuum_arcade's recipe" \
   contains "$(slice continuum_arcade)" "build_ios_continuum_arcade_core() {"
 check "build_ios_continuum_sms_core is in continuum_sms's recipe" \
   contains "$(slice continuum_sms)" "build_ios_continuum_sms_core() {"
+check "build_ios_continuum_atari_core is in continuum_atari's recipe" \
+  contains "$(slice continuum_atari)" "build_ios_continuum_atari_core() {"
 check "build_ios_continuum_gc_core is in continuum_gc's recipe" \
   contains "$(slice continuum_gc)" "build_ios_continuum_gc_core() {"
 
@@ -610,8 +615,8 @@ build_ios_continuum_fake_core() {
   fi
   # recipe-end: continuum_fake' \
   && replace_line \
-    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms)' \
-    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms continuum_fake)'
+    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms continuum_atari)' \
+    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms continuum_atari continuum_fake)'
 }
 reset_copy
 check "adding a core (its regions and its name in a list) moves no other core's fingerprint" \
@@ -623,9 +628,9 @@ check "with the added core, alone and all at once still agree" agree
 reset_copy
 check "a list wrapped onto a second line still lands in the lists region" nothing_moves \
   replace_line \
-    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms)' \
+    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms continuum_atari)' \
     'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit
-                    continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms)'
+                    continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms continuum_atari)'
 remove_stella() {
   drop_lines "recipe-start: stella2023" && drop_lines "recipe-end: stella2023" \
     && CCC_FROM='    stella2023)' awk '
@@ -646,8 +651,8 @@ reset_copy
 check "moving a core from the optional list to the required one moves no fingerprint" nothing_moves \
   eval 'replace_line "           mednafen_pce_fast stella2023 parallel_n64 azahar ppsspp)" \
           "           mednafen_pce_fast stella2023 parallel_n64 azahar ppsspp flycast)" \
-        && replace_line "IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms)" \
-          "IOS_OPTIONAL_CORES=(pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms)"'
+        && replace_line "IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms continuum_atari)" \
+          "IOS_OPTIONAL_CORES=(pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms continuum_atari)"'
 
 # What still counts: a line bash runs, anywhere in the shared part, moves every core.
 reset_copy
@@ -810,7 +815,7 @@ check "an array that is not a list of cores in the lists region fails closed" gu
   "not in IOS_CORE_LIST_NAMES" insert_before '# not-a-build-input-end: lists' 'IOS_REQUIRED_EXTRA=(retro_run)'
 check "an expansion inside a list of cores fails closed" guard "something other than array assignments" \
   replace_line \
-    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms)' \
+    'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms continuum_atari)' \
     'IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade $(echo continuum_gc))'
 check "lists of cores outside the lists region fail closed" guard "inside a not-a-build-input: lists region" \
   eval 'delete_line "# not-a-build-input-start: lists" && delete_line "# not-a-build-input-end: lists"'

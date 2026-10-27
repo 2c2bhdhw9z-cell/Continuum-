@@ -45,21 +45,24 @@
     },
     {
       "id": "A6",
-      "done": false,
+      "done": true,
       "title": "The libretro core",
-      "detail": "Entry points, settings (catari_), save states, memory for cheats and RetroAchievements, battery saves, picture, sound."
+      "detail": "Entry points, settings (catari_), save states, memory for cheats and RetroAchievements, battery saves, picture, sound.",
+      "result": "src/libretro.rs and src/options.rs: the entry points, 25 settings (catari_), save states that keep the RAM where the app was told it is, reset, the memory map for achievements and 4 KB of RAM for cheats; tests/libretro.rs plays the test game through them (picture, 48 kHz sound to the sample, save state, reset, live colour change)."
     },
     {
       "id": "A7",
       "done": false,
       "title": "Proved against MAME 0.289",
-      "detail": "Our own 7800 test programs run on cAtari and MAME's a7800: the processor's trace, every frame, the sound; pinned in tests/references so the tests run without MAME."
+      "detail": "Our own 7800 test programs run on cAtari and MAME's a7800: the processor's trace, every frame, the sound; pinned in tests/references so the tests run without MAME.",
+      "progress": "zones (120 frames) and dma (60 frames, the processor counting its own cycles under every kind of DMA load) match MAME 0.289 dot for dot (tests/mame_frames.rs, references made by tests/mame/make_refs.py). The RIOT is proved against Stella instead (tests/riot_stella.rs): MAME reads INTIM 2-3 lower from its clock arithmetic rounding down. Still to do: picture modes (160B, 320A-D, character mode, holey DMA, kangaroo), inputs, bank switching, TIA and POKEY sound."
     },
     {
       "id": "A8",
-      "done": false,
+      "done": true,
       "title": "In the app",
-      "detail": "Second choice next to ProSystem: CoreSpec, coreChoices, build-core.sh recipe, project.yml, not-in-ios-yml.txt, check-core-cache.sh, engine frontend test, touch controls."
+      "detail": "Second choice next to ProSystem: CoreSpec, coreChoices, build-core.sh recipe, project.yml, not-in-ios-yml.txt, check-core-cache.sh, engine frontend test, touch controls.",
+      "result": "Second choice for the 7800 next to ProSystem (ContinuumApp.swift CoreSpec continuumAtari, coreChoices[.atari7800], its picture shape from the core), its own regions in scripts/build-core.sh, project.yml, not-in-ios-yml.txt, check-core-cache.sh (229 checks pass); crates/emulator-bridge/tests/catari_frontend.rs opens it through the app engine. The app touch layout for the 7800 already matches its buttons (ProSystem layout)."
     },
     {
       "id": "A9",

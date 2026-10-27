@@ -798,6 +798,11 @@ targets:
         embed: true
         link: false
         codeSign: false
+      # Atari 7800, cAtari (this project's own Rust core, cores/continuum-atari).
+      - framework: build/lib/continuum_atari_libretro_ios.dylib
+        embed: true
+        link: false
+        codeSign: false
       # GameCube, this project's own Rust core (cores/continuum-gc), experimental and hidden.
       - framework: build/lib/continuum_gc_libretro_ios.dylib
         embed: true

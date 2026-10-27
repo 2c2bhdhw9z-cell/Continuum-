@@ -733,6 +733,19 @@ enum CoreCatalog {
         priority: 0, biosNames: []
     )
 
+    /// Atari 7800. cAtari: this project's own Atari 7800 emulator, written from scratch in Rust
+    /// (cores/continuum-atari), a choice next to ProSystem, which stays the default. It reads the
+    /// same BIOS file names as ProSystem (optional: it starts games without one). The picture is
+    /// 224 lines on NTSC, 260 on PAL, more with "Whole picture"; the core reports the shape
+    /// (`phonePictureAspect` below asks it). OPTIONAL in the .ipa.
+    static let continuumAtari = CoreSpec(
+        coreId: "continuum_atari", displayName: "cAtari (Atari 7800)",
+        systems: ["atari7800"], library: "continuum_atari_libretro_ios.dylib",
+        width: 320, height: 224, maxWidth: 320, maxHeight: 292,
+        aspectRatio: 4.0 / 3.0, fps: 7_159_090.0 / (454.0 * 263.0), sampleRate: 48000, pixelFormat: 1,
+        priority: 0, biosNames: ["7800 BIOS (U).rom", "7800 BIOS (E).rom"]
+    )
+
     /// GameCube. Continuum's own GameCube emulator, written from scratch in Rust
     /// (cores/continuum-gc). EXPERIMENTAL: hidden until unlocked (GameCubeUnlock.swift), and
     /// OPTIONAL in the .ipa. Uses JIT when the phone has it, its fast interpreter otherwise.
@@ -751,7 +764,7 @@ enum CoreCatalog {
         mednafenWswan, mednafenNgp, mednafenPce, mednafenSupergrafx, puae, viceX64sc,
         dosboxPure, prboom, virtualJaguar, handy, prosystem, a5200,
         pokemini, mednafenVb, yabause, mednafenSaturn, flycast, continuumSymbian,
-        continuumGb, continuumArcade, continuumGc, continuumSms,
+        continuumGb, continuumArcade, continuumGc, continuumSms, continuumAtari,
     ]
 
     /// The fourteen cores every build must carry, by id: IOS_CORES in scripts/build-core.sh, and the
@@ -1110,6 +1123,7 @@ enum CoreCatalog {
         .sms: [gearsystem.coreId, continuumSms.coreId],
         .gg: [gearsystem.coreId, continuumSms.coreId],
         .sg1000: [gearsystem.coreId, continuumSms.coreId],
+        .atari7800: [prosystem.coreId, continuumAtari.coreId],
     ]
 
     /// Every core that can run a system: the curated order in `coreChoices` (default first), then
@@ -5446,6 +5460,11 @@ final class EngineHost: ObservableObject {
         // cGear is one core for three machines too: a Master System picture is 4:3 (or 31:24 with
         // its left column cut off), a Game Gear's 10:9. The core says which.
         if spec.coreId == CoreCatalog.continuumSms.coreId,
+           let reported = engine.corePictureAspect(), reported > 0 {
+            aspect = reported
+        }
+        // cAtari's shape changes with the TV system and its "Whole picture" setting; it says which.
+        if spec.coreId == CoreCatalog.continuumAtari.coreId,
            let reported = engine.corePictureAspect(), reported > 0 {
             aspect = reported
         }

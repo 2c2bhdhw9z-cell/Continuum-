@@ -5,3 +5,4 @@
 continuum_arcade_libretro_ios.dylib
 continuum_gc_libretro_ios.dylib
 continuum_sms_libretro_ios.dylib
+continuum_atari_libretro_ios.dylib
