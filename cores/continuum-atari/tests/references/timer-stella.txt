@@ -1,0 +1,3 @@
+# The RIOT timer checks (test-programs/timer_body.inc) on Stella's 2600 (stella2023
+# ba52c43, the app's pin), made by tests/stella/stella_riot.py: values+0 to values+13.
+values 10 06 01 f7 00 80 97 97 01 01 f6 ef 00 24

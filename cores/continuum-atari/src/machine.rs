@@ -276,23 +276,27 @@ impl Sys {
         }
     }
 
-    /// Everything due before a processor cycle that starts at `self.now`: new lines, MARIA's
-    /// DMA, and waiting out a halt.
-    fn catch_up(&mut self) {
+    /// Everything due before the processor's next cycle, which starts at `self.now`: new lines,
+    /// MARIA's DMA, and waiting out a halt. A cycle runs before an event only if it is over by the
+    /// time the event comes (it can't be cut in two), the way MAME's scheduler runs a processor.
+    fn catch_up(&mut self, len: u64) {
         loop {
-            if self.now >= self.next_line {
+            if self.now + len > self.next_line {
                 self.start_line();
                 continue;
             }
             if let Some(at) = self.dma_due {
-                if self.now >= at {
+                if self.now + len > at {
                     self.dma_due = None;
                     self.dma(at);
                     continue;
                 }
             }
             if self.halted {
-                self.now = self.next_line;
+                // The processor's clock keeps its own beat while it waits: it starts again on
+                // its last beat before the line begins.
+                let wait = self.next_line - self.now;
+                self.now += wait - wait % CYCLE;
                 continue;
             }
             break;
@@ -337,10 +341,10 @@ impl Sys {
         if res.overrun {
             self.halted = true;
         } else if res.cycles > 0 && !self.halted {
-            let resume = at + (res.cycles as u64).div_ceil(4) * CYCLE;
-            if resume > self.now {
-                self.now = resume;
-            }
+            // The processor loses that many of its own cycles, rounded up: MARIA lets go of it on
+            // the beat of the processor's clock it stopped it on.
+            let _ = at;
+            self.now += (res.cycles as u64).div_ceil(4) * CYCLE;
         }
         if res.nmi {
             self.nmi_edge = true;
@@ -594,16 +598,18 @@ impl Sys {
 
 impl Bus for Sys {
     fn read(&mut self, addr: u16) -> u8 {
-        self.catch_up();
+        let len = self.cycle_len(addr);
+        self.catch_up(len);
         let v = self.read_mem(addr);
-        self.now += self.cycle_len(addr);
+        self.now += len;
         v
     }
 
     fn write(&mut self, addr: u16, value: u8) {
-        self.catch_up();
+        let len = self.cycle_len(addr);
+        self.catch_up(len);
         self.write_mem(addr, value);
-        self.now += self.cycle_len(addr);
+        self.now += len;
     }
 
     fn irq(&self) -> bool {
