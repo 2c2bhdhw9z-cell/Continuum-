@@ -437,31 +437,41 @@ fn a_7z_set_plays_as_its_zip_does() {
         .unwrap_or_else(|_| PathBuf::from("/projects/sandbox/.scratch/7zip/7zz"));
     let dir = work_dir("sevenz");
     let archive = dir.join("pacman.7z");
+    let mut archives = vec![fixture.clone()];
     if sz.is_file() {
+        // A fresh one from the real 7-Zip as well (CARCADE_WRITE_FIXTURES=1 makes it the
+        // committed one).
         let src = dir.join("files");
         std::fs::create_dir_all(&src).unwrap();
         for (n, d) in files(&case) {
             std::fs::write(src.join(n), d).unwrap();
         }
-        let _ = std::fs::remove_file(&fixture);
+        let fresh = dir.join("fresh.7z");
+        let _ = std::fs::remove_file(&fresh);
         let st = std::process::Command::new(&sz)
             .current_dir(&src)
             .args(["a", "-bd", "-y", "-m0=lzma2", "-mx=9"])
-            .arg(&fixture)
+            .arg(&fresh)
             .arg(".")
             .output()
             .unwrap();
         assert!(st.status.success());
+        if std::env::var("CARCADE_WRITE_FIXTURES").is_ok_and(|v| v == "1") {
+            std::fs::copy(&fresh, &fixture).unwrap();
+        }
+        archives.push(fresh);
     }
-    std::fs::copy(&fixture, &archive).unwrap();
-    frontend();
-    assert!(load(&archive), "pacman.7z: {}", last_log_line());
-    let want = read_reference(&case);
-    let got = run(case.frames);
-    for (i, (_, _, frame)) in got.iter().enumerate() {
-        assert_eq!(video_hash(frame), want[i].0, "pacman.7z: frame {} differs from MAME's", i + 1);
+    for from in archives {
+        std::fs::copy(&from, &archive).unwrap();
+        frontend();
+        assert!(load(&archive), "{}: {}", from.display(), last_log_line());
+        let want = read_reference(&case);
+        let got = run(case.frames);
+        for (i, (_, _, frame)) in got.iter().enumerate() {
+            assert_eq!(video_hash(frame), want[i].0, "{}: frame {} differs from MAME's", from.display(), i + 1);
+        }
+        retro_unload_game();
     }
-    retro_unload_game();
     // A 7z that isn't one: the sentence names the kind of file the player has.
     let broken = dir.join("broken.7z");
     let mut d = std::fs::read(&fixture).unwrap();
