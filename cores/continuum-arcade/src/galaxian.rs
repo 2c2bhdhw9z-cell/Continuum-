@@ -27,6 +27,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::ay8910::{Ay8910, NoPorts};
 use crate::galaxian_sound::{self, GalaxianSound, Mixer};
 use crate::i8255::{I8255, Outputs};
 use crate::konami_sound::{self, KonamiSound};
@@ -86,6 +87,11 @@ pub enum Variant {
     /// to a graphics bank instead, choosing which half of ROMs twice the size shows. Batman Part 2
     /// (`batman2`) banks only tiles 80h-FFh, and its sprites are always in the upper half.
     Pisces { batman2: bool },
+    /// Jump Bug's board: Galaxian's video moved and extended (2 KB of RAM, 32 KB of program, five
+    /// graphics bank latches over 768 tiles), Scramble's shots, no watchdog and no Galaxian sound
+    /// circuit; an AY-3-8910 at 5800h/5900h (`ay`, missing on the Brazilian boards), and a
+    /// protection ROM at B000h that answers a few addresses.
+    JumpBug { ay: bool },
 }
 
 /// Konami's boards, by their memory map and picture (MAME's scramble, theend, scobra, frogger and
@@ -206,6 +212,10 @@ struct Hw {
     konami_events: Vec<(i128, konami_sound::Event)>,
     /// The 48 kHz samples the sound board has made and the frame hasn't handed out yet.
     konami_out: Vec<i16>,
+    /// Jump Bug's AY-3-8910, and this frame's writes to it: (when, the address latch or data,
+    /// the value).
+    ay: Option<Ay8910>,
+    ay_events: Vec<(u64, bool, u8)>,
     /// The stars' blink counter on Scramble's boards (a 555 that steps it every 0.8316 s, from
     /// each reset on), as it stood at the last reset, and when that was.
     blinks_at_reset: u32,
@@ -533,6 +543,8 @@ impl Hw {
             konami: None,
             konami_events: Vec::new(),
             konami_out: Vec::new(),
+            ay: (variant == Variant::JumpBug { ay: true }).then(Ay8910::new),
+            ay_events: Vec::new(),
             blinks_at_reset: 0,
             reset_at: 0,
             protection_bits: 0,
@@ -581,6 +593,25 @@ fn read_board(hw: &Hw, rom: &Rom, addr: u16) -> u8 {
             0x6800..=0x6FFF => hw.ports.in1,
             0x7000..=0x77FF => hw.ports.in2,
             // 7800h is the watchdog; nothing drives the bus there or anywhere unmapped.
+            _ => 0xFF,
+        },
+        // Jump Bug: unmapped reads are FFh (MAME's map sets them high).
+        Variant::JumpBug { .. } => match a {
+            0x0000..=0x3FFF | 0x8000..=0xAFFF => rom.program[a],
+            0x4000..=0x47FF => hw.ram[a & 0x7FF],
+            0x4800..=0x4FFF => hw.vram[a & 0x3FF],
+            0x5000..=0x57FF => hw.objram[a & 0xFF],
+            0x6000..=0x67FF => hw.ports.in0,
+            0x6800..=0x6FFF => hw.ports.in1,
+            0x7000..=0x77FF => hw.ports.in2,
+            // The protection: a few addresses answer, the rest read FFh.
+            0xB000..=0xBFFF => match a - 0xB000 {
+                0x114 => 0x4F,
+                0x118 => 0xD3,
+                0x214 => 0xCF,
+                0x235 => 0x02,
+                _ => 0xFF,
+            },
             _ => 0xFF,
         },
         Variant::MoonCresta { .. } => match a {
@@ -753,6 +784,8 @@ impl Bus for View<'_> {
     fn read(&mut self, addr: u16) -> u8 {
         let watchdog = match self.hw.variant {
             Variant::Galaxian | Variant::Pisces { .. } => (0x7800..=0x7FFF).contains(&addr),
+            // No watchdog on Jump Bug's board.
+            Variant::JumpBug { .. } => false,
             Variant::MoonCresta { .. } => (0xB800..=0xBFFF).contains(&addr),
             Variant::Konami(k) => konami_decode(k, addr) == Decoded::Watchdog,
         };
@@ -809,6 +842,9 @@ enum Effect {
     Lfo(usize),
     Sound(usize),
     Pitch,
+    /// Jump Bug's AY-3-8910: its address latch, its data.
+    AyAddress,
+    AyData,
     /// Konami's boards.
     Background,
     BackgroundRgb(usize),
@@ -838,6 +874,26 @@ fn decode_write(variant: Variant, addr: u16) -> Effect {
                 _ => Effect::None,
             },
             0x7800..=0x7FFF => Effect::Pitch,
+            _ => Effect::None,
+        },
+        Variant::JumpBug { ay } => match a {
+            0x4000..=0x47FF => Effect::Ram(a & 0x7FF),
+            0x4800..=0x4FFF => Effect::Video(a & 0x3FF),
+            0x5000..=0x57FF => Effect::Object(a & 0xFF),
+            0x5800..=0x58FF if ay => Effect::AyData,
+            0x5900..=0x59FF if ay => Effect::AyAddress,
+            0x6000..=0x67FF => match a & 7 {
+                n @ 2..=6 => Effect::GfxBank(n - 2),
+                _ => Effect::None,
+            },
+            0x7000..=0x77FF => match a & 7 {
+                1 => Effect::NmiEnable,
+                2 => Effect::CoinCounter(0),
+                4 => Effect::Stars,
+                6 => Effect::FlipX,
+                7 => Effect::FlipY,
+                _ => Effect::None,
+            },
             _ => Effect::None,
         },
         Variant::MoonCresta { .. } => match a {
@@ -1045,6 +1101,51 @@ impl Galaxian {
         self.turn_upright();
     }
 
+    /// Jump Bug's sound: its AY-3-8910, clocked at 1.536 MHz, makes a sample every 8 of its clocks,
+    /// 192 kHz, one per 16 CPU cycles; each write lands on the samples that start at or after it.
+    /// The three channels are mixed the way MAME's model of the board's output turns each level
+    /// into a voltage (measured from MAME, tests/ay8910/jumpbug.mame), each channel's rise above
+    /// silence added; every sample comes within 2 of MAME's (tests/jumpbug_sound.rs).
+    fn make_ay_sound(&mut self) {
+        const FIXED: [i32; 16] = [
+            -6144, -6032, -5999, -5955, -5886, -5786, -5664, -5364, -5181, -4568, -3962, -3246,
+            -2272, -1239, 348, 2048,
+        ];
+        const ENVELOPE: [i32; 16] = [
+            -6144, -6070, -6036, -5991, -5923, -5823, -5700, -5398, -5215, -4598, -3990, -3271,
+            -2292, -1254, 340, 2048,
+        ];
+        let mut events = std::mem::take(&mut self.hw.ay_events);
+        events.sort_by_key(|e| e.0);
+        let mut next = events.iter().peekable();
+        self.raw.clear();
+        for n in 0..RAW_SAMPLES_PER_FRAME as u64 {
+            let at = self.hw.frame_start + n * CYCLES_PER_SAMPLE;
+            let mut v = 0i32;
+            if let Some(ay) = self.hw.ay.as_mut() {
+                while let Some(&&(_, address, val)) = next.peek().filter(|e| e.0 <= at) {
+                    if address {
+                        ay.write_address(val);
+                    } else {
+                        ay.write_data(val, &mut NoPorts);
+                    }
+                    next.next();
+                }
+                let levels = ay.tick();
+                for (ch, &l) in levels.iter().enumerate() {
+                    let table = if ay.regs[8 + ch] & 0x10 != 0 { &ENVELOPE } else { &FIXED };
+                    v += table[usize::from(l & 0x0F)] - table[0];
+                }
+            }
+            self.raw.push(v.clamp(-32768, 32767) as i16);
+        }
+        self.audio.clear();
+        for c in self.raw.chunks_exact(4) {
+            let sum: i32 = c.iter().map(|&s| i32::from(s)).sum();
+            self.audio.push((sum / 4) as i16);
+        }
+    }
+
     /// Konami's sound board runs up to this frame's VBLANK, taking in what the main board sent.
     fn run_sound_board(&mut self, trace: Option<konami_sound::Trace>) {
         let vblank = i128::from(self.hw.frames + 1) * AS_PER_FRAME;
@@ -1067,6 +1168,10 @@ impl Galaxian {
 
     /// The frame's sound: each latch change applies to the samples that start at or after it.
     fn make_sound(&mut self) {
+        if let Variant::JumpBug { .. } = self.hw.variant {
+            self.make_ay_sound();
+            return;
+        }
         let events = std::mem::take(&mut self.hw.sound_events);
         let mut next = events.iter().peekable();
         self.raw.clear();
@@ -1284,6 +1389,8 @@ impl Galaxian {
                 self.hw.sound.pitch = val;
                 self.hw.sound_events.push((at, self.hw.sound));
             }
+            Effect::AyAddress => self.hw.ay_events.push((at, true, val)),
+            Effect::AyData => self.hw.ay_events.push((at, false, val)),
             Effect::Background => {
                 if self.hw.background != bit {
                     self.catch_up(at);
@@ -1375,7 +1482,9 @@ impl Galaxian {
             self.hw.nmi_line = true;
             self.cpu.nmi();
         }
-        self.hw.watchdog -= 1;
+        // Jump Bug's board has no watchdog.
+        let counts = !matches!(self.hw.variant, Variant::JumpBug { .. });
+        self.hw.watchdog -= u8::from(counts);
         if self.hw.watchdog == 0 {
             // The reset cuts into the instruction running at VBLANK where the CPU stopped for
             // VBLANK, and that instruction's later writes never happen. The Z80's clock carries on
@@ -1464,6 +1573,16 @@ impl Galaxian {
             Variant::Konami(Konami::Turtles) => {
                 let [r, g, b] = hw.background_rgb.map(u32::from);
                 out.fill((r * 0x55) << 16 | (g * 0x47) << 8 | (b * 0x55));
+            }
+            // Jump Bug: black (its blue background has no switch on this board), and Galaxian's
+            // stars kept out of the status area (the last 24 dots of the raster).
+            Variant::JumpBug { .. } => {
+                out.fill(0);
+                if hw.stars_enabled {
+                    let offs = hw.star_origin.wrapping_add(y as u32 * 512);
+                    let (field, _) = out.split_at_mut(232 * 3);
+                    stars_row(field, &rom.stars, &rom.star_rgb, y, offs, 0xFF);
+                }
             }
             // The others: black, and the stars when they're on.
             _ => {
@@ -1578,7 +1697,9 @@ impl Galaxian {
                 let x = 255 - i32::from(shots[w * 4 + 3]);
                 let (dots, colour) = match hw.variant {
                     // Scramble's boards: only "shells", yellow, two dots from FAh.
-                    Variant::Konami(Konami::Scramble | Konami::SuperCobra) => (x - 6..x - 4, MISSILE),
+                    Variant::Konami(Konami::Scramble | Konami::SuperCobra) | Variant::JumpBug { .. } => {
+                        (x - 6..x - 4, MISSILE)
+                    }
                     // The End: Galaxian's, with blue and green swapped.
                     Variant::Konami(Konami::TheEnd) => {
                         (x - 4..x, colour & 0xFF0000 | (colour & 0xFF) << 8 | (colour >> 8 & 0xFF))
@@ -1694,6 +1815,12 @@ fn extend_tile(hw: &Hw, code: &mut u16, colour: &mut u8) {
             *code = (*code & 0x3F) | u16::from(g[0]) << 6 | u16::from(g[1]) << 7 | 0x100;
         }
     }
+    if let Variant::JumpBug { .. } = hw.variant {
+        let g = &hw.gfxbank;
+        if *code & 0xC0 == 0x80 && g[2] & 1 != 0 {
+            *code += 128 + (u16::from(g[0] & 1) << 6) + (u16::from(g[1] & 1) << 7) + (u16::from(!g[4] & 1) << 8);
+        }
+    }
     match hw.variant {
         Variant::Pisces { batman2: false } => *code |= u16::from(hw.gfxbank[0]) << 8,
         Variant::Pisces { batman2: true } if *code & 0x80 != 0 => *code |= u16::from(hw.gfxbank[0]) << 8,
@@ -1716,6 +1843,12 @@ fn extend_sprite(hw: &Hw, code: &mut u16, colour: &mut u8) {
             *code = (*code & 0x0F) | u16::from(g[0]) << 4 | u16::from(g[1]) << 5 | 0x40;
         }
     }
+    if let Variant::JumpBug { .. } = hw.variant {
+        let g = &hw.gfxbank;
+        if *code & 0x30 == 0x20 && g[2] & 1 != 0 {
+            *code += 32 + (u16::from(g[0] & 1) << 4) + (u16::from(g[1] & 1) << 5) + (u16::from(!g[4] & 1) << 6);
+        }
+    }
     match hw.variant {
         Variant::Pisces { batman2: false } => *code |= u16::from(hw.gfxbank[0]) << 6,
         Variant::Pisces { batman2: true } => *code += 0x40,
@@ -1730,7 +1863,8 @@ fn extend_sprite(hw: &Hw, code: &mut u16, colour: &mut u8) {
 fn stars_row(out: &mut [u32], stars: &[u8], rgb: &[u32; 64], y: usize, offs: u32, mask: u8) {
     let mut offs = (offs % STAR_PERIOD) as usize;
     let period = STAR_PERIOD as usize;
-    for x in 0..256 {
+    // As many dots as the row is given (Jump Bug's stop short of the status area).
+    for x in 0..out.len() / 3 {
         let shown = (y ^ (x >> 3)) & 1 != 0;
         let s = stars[offs];
         offs = if offs + 1 >= period { 0 } else { offs + 1 };

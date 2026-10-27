@@ -159,6 +159,7 @@ fn headline(board: Board) -> &'static str {
         Board::Galaxian(G::Galaxian | G::MoonCresta { .. } | G::Pisces { .. }, ..) => "Galaxian",
         Board::Galaxian(G::Konami(Konami::Frogger), ..) => "Frogger",
         Board::Galaxian(G::Konami(Konami::Turtles), ..) => "Amidar",
+        Board::Galaxian(G::JumpBug { .. }, ..) => "Jump Bug",
         Board::Galaxian(G::Konami(_), ..) => "Scramble",
         Board::Dkong(dkong::Variant::DonkeyKong) => "Donkey Kong",
         Board::Dkong(dkong::Variant::DonkeyKongJr) => "Donkey Kong Jr.",
@@ -167,7 +168,7 @@ fn headline(board: Board) -> &'static str {
 
 /// The order the boards are named in.
 const HEADLINES: &[&str] =
-    &["Pac-Man, Ms. Pac-Man", "Galaxian", "Scramble", "Frogger", "Amidar", "Donkey Kong", "Donkey Kong Jr."];
+    &["Pac-Man, Ms. Pac-Man", "Galaxian", "Scramble", "Frogger", "Amidar", "Jump Bug", "Donkey Kong", "Donkey Kong Jr."];
 
 /// What a player reads when cArcade doesn't know a game, built from the boards it plays.
 pub fn plays_now() -> String {

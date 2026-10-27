@@ -114,6 +114,14 @@ pub fn cases() -> Vec<Case> {
             events: vec![],
         },
         Case {
+            name: "jumpbug",
+            program: "jumpbug",
+            set: "jumpbug",
+            variant: Variant::JumpBug { ay: true },
+            frames: 130,
+            events: vec![],
+        },
+        Case {
             name: "mooncrst-encrypted",
             program: "mooncrst",
             set: "mooncrst",
@@ -291,6 +299,16 @@ fn generic_files(case: &Case) -> Vec<(String, Vec<u8>)> {
     if size("gfx1") == 0x1000 {
         // Galaxian's half-size ROMs: the first 2 KB of each plane.
         gfx = [&gfx[..0x800], &gfx[0x1000..0x1800]].concat();
+    }
+    if size("gfx1") == 0x3000 {
+        // Jump Bug's 768 tiles: each plane's 4 KB, then 2 KB more of a pattern of its own (the
+        // plane's first 2 KB, each byte turned and mixed with its address), so every bank shows
+        // something different.
+        let more = |plane: &[u8]| -> Vec<u8> {
+            (0..0x800).map(|i| plane[i].rotate_left(3) ^ (i as u8).wrapping_mul(29)).collect()
+        };
+        let (hi, lo) = gfx.split_at(0x1000);
+        gfx = [hi, &more(hi), lo, &more(lo)].concat();
     }
     regions.insert("maincpu", cpu);
     regions.insert("gfx1", gfx);

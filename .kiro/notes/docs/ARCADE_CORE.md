@@ -117,6 +117,17 @@ Galaxian's board with the coin lockout latch wired to a graphics bank (item A2):
 matches MAME 0.289 on all 130 frames on Pisces' board and on Batman Part 2's (which banks only the
 upper tiles, its monitor turned the other way).
 
+### Jump Bug's board (3 sets, second round)
+
+`jumpbug` Jump Bug, `jumpbugb` Jump Bug (bootleg), `levers` Levers (item A2): Galaxian's video moved
+and extended (five bank latches over 768 tiles), Scramble's shots, its stars kept out of the status
+area, an AY-3-8910, the protection ROM's answers, and no watchdog. The `jumpbug` program matches
+MAME 0.289 on all 130 frames, and its sound (two tones and the noise) comes within 2 of MAME's on
+every one of 475,200 samples (`tests/jumpbug_sound.rs`). MAME marks these sets' sound as not exact
+(the real board's AY clock isn't confirmed); they're taken anyway, as the owner asked for Jump Bug,
+and play as MAME does. The Brazilian boards without the AY are left out (MAME says they have no
+sound), as is Olimpic Bug (its colours are marked wrong).
+
 ### Konami's Scramble family (42 sets)
 
 - On Scramble (16): `scramble` Scramble; `scrambles` Scramble (Stern Electronics, set 1);

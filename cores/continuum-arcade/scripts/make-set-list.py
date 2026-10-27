@@ -150,7 +150,13 @@ GALAXIAN_MACHINES = {
     # Second round: Pisces' board (Galaxian's with a graphics bank), of the pisces_state class.
     ("pisces", "init_pisces"): "Variant::Pisces { batman2: false }",
     ("pisces", "init_batman2"): "Variant::Pisces { batman2: true }",
+    # Jump Bug's board, with its AY-3-8910 or without (the Brazilian boards).
+    ("jumpbug", "init_jumpbug"): "Variant::JumpBug { ay: true }",
+    ("jumpbugbrf", "init_jumpbug"): "Variant::JumpBug { ay: false }",
 }
+# Flags allowed for a machine anyway. MAME marks Jump Bug's sound imperfect because the AY's clock
+# on the real board isn't confirmed; cArcade plays it as MAME does (owner's list, 26 October 2026).
+GALAXIAN_FLAGS_OK = {("jumpbug", "init_jumpbug"): ("IMPERFECT_SOUND",)}
 # The class each machine's sets must be of (galaxian_state unless named here).
 GALAXIAN_CLASSES = {("pisces", "init_pisces"): "pisces_state", ("pisces", "init_batman2"): "pisces_state"}
 GALAXIAN_BAD_FLAGS = ("NOT_WORKING", "WRONG_COLORS", "IMPERFECT", "UNEMULATED", "NO_SOUND", "NO_COCKTAIL")
@@ -415,8 +421,12 @@ def galaxian_sets(src_dir, mame, machines, out, families):
     count = 0
     for name, mach_fn, init, cls, rot, flags, inp in galaxian_games(text):
         variant = GALAXIAN_MACHINES.get((mach_fn, init))
-        if variant is None or cls != GALAXIAN_CLASSES.get((mach_fn, init), "galaxian_state") \
-                or any(b in flags for b in GALAXIAN_BAD_FLAGS):
+        ok = GALAXIAN_FLAGS_OK.get((mach_fn, init), ())
+        bad = [b for b in GALAXIAN_BAD_FLAGS if b in flags and not any(b in o for o in ok)]
+        # IMPERFECT matches IMPERFECT_SOUND too: count it only where another IMPERFECT_ flag is.
+        if ok and bad == ["IMPERFECT"] and all(f"IMPERFECT_{k}" not in flags for k in ("GRAPHICS", "COLORS")):
+            bad = []
+        if variant is None or cls != GALAXIAN_CLASSES.get((mach_fn, init), "galaxian_state") or bad:
             continue
         mach = machines.get(name)
         if mach is None or name not in blocks:
@@ -430,7 +440,8 @@ def galaxian_sets(src_dir, mame, machines, out, families):
         tags = {r["tag"] for r in regions}
         sizes = {r["tag"]: r["size"] for r in regions}
         konami = "Konami" in variant
-        if not tags <= GALAXIAN_REGIONS or "gfx1" not in tags or sizes["gfx1"] not in (0x1000, 0x2000) \
+        gfx_sizes = (0x1000, 0x2000, 0x3000) if "JumpBug" in variant else (0x1000, 0x2000)
+        if not tags <= GALAXIAN_REGIONS or "gfx1" not in tags or sizes["gfx1"] not in gfx_sizes \
                 or ("audiocpu" in tags) != konami or sizes.get("proms") != 0x20:
             print(f"  skipped {name}: regions {sorted(sizes.items())} aren't the board's")
             continue
