@@ -150,11 +150,51 @@ def run(case, program, frames, events):
     print(f"{case}: {frames} frames")
 
 
+# (case, program, frames): the TIA's sound, recorded at the chip's own rate (MAME's 31,399 Hz),
+# where MAME's recording is the TIA's level times 1024 with nothing in between.
+SOUND = [
+    ("sound", "sound", 400),
+]
+BLOCK = 4096
+# MAME's recording starts this many samples before the machine's first sound step.
+MAME_LEAD = 24
+
+
+def sound(case, program, frames):
+    work = os.path.abspath(f"mame-{case}")
+    os.makedirs(work, exist_ok=True)
+    lua = ("sub = emu.add_machine_frame_notifier(function() "
+           f"if manager.machine.screens[':screen']:frame_number() >= {frames} then manager.machine:exit() end end)\n")
+    a78.run_mame(work, a78.cartridge(program), lua, frames // 50 + 5,
+                 extra=("-samplerate", "31399", "-wavwrite", "sound.wav"))
+    d = open(os.path.join(work, "sound.wav"), "rb").read()
+    j = d.find(b"data")
+    n = struct.unpack("<I", d[j + 4:j + 8])[0]
+    raw = struct.unpack(f"<{n // 2}h", d[j + 8:j + 8 + n])
+    assert all(v % 1024 == 0 for v in raw), "MAME's recording is the TIA's levels, untouched"
+    levels = bytes(v // 1024 for v in raw)[MAME_LEAD:]
+    # Only whole blocks, and not the last one (the recording stops part-way through a frame).
+    count = (len(levels) // BLOCK - 1) * BLOCK
+    ref = os.path.join(a78.CRATE, "tests", "references", f"{case}.txt")
+    with open(ref, "w") as f:
+        f.write(f"# MAME 0.289's a7800 playing test-programs/{program}.asm's TIA sound at 31,399 Hz, made by\n")
+        f.write(f"# tests/mame/make_refs.py: the levels (0-30) after its {MAME_LEAD}-sample lead, FNV-1a 64 of each {BLOCK}.\n")
+        f.write(f"program {program}\nframes {frames}\nsamples {count}\n")
+        for k in range(0, count, BLOCK):
+            f.write(f"block {k // BLOCK} {fnv(levels[k:k + BLOCK]):016x}\n")
+    if os.environ.get("KEEP"):
+        open(os.path.join(work, "levels.bin"), "wb").write(levels)
+    print(f"{case}: {count} samples")
+
+
 def main():
     wanted = sys.argv[1:]
     for case, program, frames, events in CASES:
         if not wanted or case in wanted:
             run(case, program, frames, events)
+    for case, program, frames in SOUND:
+        if not wanted or case in wanted:
+            sound(case, program, frames)
 
 
 if __name__ == "__main__":
