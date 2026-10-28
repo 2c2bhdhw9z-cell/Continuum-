@@ -316,6 +316,13 @@ pub fn migration_candidates(core_id: &str, ext: &str, content_name: &str, suppor
             let stem = Path::new(content_name).file_stem().map(|s| s.to_string_lossy().into_owned());
             stem.filter(|s| !s.is_empty()).map(|s| vec![support_dir.join(format!("{s}.sav"))]).unwrap_or_default()
         }
+        // PokeMini writes its 8 KiB EEPROM beside the other support files as <game>.eep instead
+        // of exposing libretro save RAM. cMini exposes save RAM, so its first load imports that
+        // exact payload and leaves the old file untouched.
+        ("continuum_mini", "min") => {
+            let stem = Path::new(content_name).file_stem().map(|s| s.to_string_lossy().into_owned());
+            stem.filter(|s| !s.is_empty()).map(|s| vec![support_dir.join(format!("{s}.eep"))]).unwrap_or_default()
+        }
         // The Sega CD before the swap: one backup RAM per region in the system folder.
         ("blastem", "cue" | "chd" | "iso" | "m3u") => {
             ["scd_U.brm", "scd_E.brm", "scd_J.brm"].iter().map(|n| support_dir.join(n)).collect()
@@ -617,6 +624,10 @@ mod tests {
             vec![PathBuf::from("/support/Zelda (USA).sav")]
         );
         assert_eq!(migration_candidates("fceumm", "NES", "a.nes", dir), vec![PathBuf::from("/support/a.sav")]);
+        assert_eq!(
+            migration_candidates("continuum_mini", "min", "Pokémon Race.min", dir),
+            vec![PathBuf::from("/support/Pokémon Race.eep")]
+        );
         assert_eq!(
             migration_candidates("blastem", "cue", "Sonic CD.cue", dir),
             ["scd_U.brm", "scd_E.brm", "scd_J.brm"].map(|n| dir.join(n)).to_vec()

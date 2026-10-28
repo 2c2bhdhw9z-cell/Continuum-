@@ -645,6 +645,16 @@ enum CoreCatalog {
         priority: 0, biosNames: ["bios.min"]
     )
 
+    /// Pokémon Mini. cMini is Continuum's own Rust emulator and the second choice; PokeMini
+    /// remains first and therefore remains the default.
+    static let continuumMini = CoreSpec(
+        coreId: "continuum_mini", displayName: "cMini (Pokémon Mini)",
+        systems: ["pokemini"], library: "continuum_mini_libretro_ios.dylib",
+        width: 96, height: 64, maxWidth: 576, maxHeight: 384,
+        aspectRatio: 1.5, fps: 72.0, sampleRate: 44100, pixelFormat: 1,
+        priority: 0, biosNames: ["bios.min"]
+    )
+
     /// Virtual Boy. The default 3D mode is anaglyph in one 384x224 frame.
     static let mednafenVb = CoreSpec(
         coreId: "mednafen_vb", displayName: "Beetle VB (Virtual Boy)",
@@ -764,7 +774,7 @@ enum CoreCatalog {
         mednafenPceFast, stella, parallelN64, azahar, ppsspp,
         mednafenWswan, mednafenNgp, mednafenPce, mednafenSupergrafx, puae, viceX64sc,
         dosboxPure, prboom, virtualJaguar, handy, prosystem, a5200,
-        pokemini, mednafenVb, yabause, mednafenSaturn, flycast, continuumSymbian,
+        pokemini, continuumMini, mednafenVb, yabause, mednafenSaturn, flycast, continuumSymbian,
         continuumGb, continuumArcade, continuumGc, continuumSms, continuumAtari,
     ]
 
@@ -1125,6 +1135,7 @@ enum CoreCatalog {
         .gg: [gearsystem.coreId, continuumSms.coreId],
         .sg1000: [gearsystem.coreId, continuumSms.coreId],
         .atari7800: [prosystem.coreId, continuumAtari.coreId],
+        .pokemini: [pokemini.coreId, continuumMini.coreId],
     ]
 
     /// Every core that can run a system: the curated order in `coreChoices` (default first), then

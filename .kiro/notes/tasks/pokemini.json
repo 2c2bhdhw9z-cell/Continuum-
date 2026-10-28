@@ -1,0 +1,15 @@
+{
+  "complete": false,
+  "title": "cMini: Continuum's own Pokémon Mini emulator",
+  "names": "cMini / continuum_mini / continuum_mini_libretro_ios.dylib / cmini_",
+  "default": "PokeMini remains first and default; cMini is second.",
+  "items": [
+    {"id":"P1","done":true,"title":"Settings inventory","result":"PMINI_OPTIONS_INVENTORY.md records PokeMini's 13 settings and cMini's two hardware-backed additions."},
+    {"id":"P2","done":true,"title":"MINX and machine","result":"Standalone Rust crate with cycle-accounted MINX, memory map, interrupts, timers, PRC, direct LCD, PWM/piezo audio, EEPROM, controls, shock, rumble and infrared."},
+    {"id":"P3","done":true,"title":"Libretro behavior","result":"Video, audio, input, options, 8192-byte PokeMini-compatible save RAM, tagged states, achievements memory and real/direct BIOS starts."},
+    {"id":"P4","done":true,"title":"Reference proof","result":"MAME 0.289 and cMini ran the original stand-in and reached the same RAM marker; the reference runner also checked register, timer, PRC, frame, audio, EEPROM and replay evidence. Scratch frontend runs opened the stand-in on cMini and PokeMini."},
+    {"id":"P5","done":true,"title":"App and build integration","result":"Optional unpinned Cargo core, cache checker coverage, Xcode embed, CI-name exemption, CoreCatalog descriptor and second Pokémon Mini choice."},
+    {"id":"P6","done":false,"title":"Phone proof","result":"Needs the later single batch iPhone build with cAtari; PokeMini stays default meanwhile."}
+  ],
+  "limitations": ["No iOS SDK is available locally; phone behavior is not marked Done.", "Commercial games and a commercial bios.min were not obtained or used."]
+}

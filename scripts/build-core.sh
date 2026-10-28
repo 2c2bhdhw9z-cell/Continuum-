@@ -101,7 +101,7 @@ IOS_CORES=(fceumm mesen2 mgba bsnes gearsystem blastem pcsx_rearmed mednafen_psx
 # flycast (Dreamcast) is built here, not fetched: the libretro iOS buildbot's flycast contains the
 # ARM64 dynarec and refuses to run without JIT. Interpreter only (TARGET_NO_REC); see its
 # ios_core_config entry. It has built green and shipped in every IPA since build 119.
-IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms continuum_atari)
+IOS_OPTIONAL_CORES=(flycast pcsx_rearmed_jit parallel_n64_jit flycast_jit continuum_symbian continuum_gb continuum_arcade continuum_gc continuum_sms continuum_atari continuum_mini)
 # not-a-build-input-end: lists
 
 # THE JIT BUILDS (pcsx_rearmed_jit, parallel_n64_jit, flycast_jit). Same source and pin as the
@@ -624,6 +624,17 @@ ios_core_config() {
       IOS_DISPLAY="Atari 7800, cAtari (own Rust core), optional"
       ;;
     # recipe-end: continuum_atari
+    # recipe-start: continuum_mini
+    continuum_mini)
+      # Pokémon Mini. cMini: this project's own Rust core, with PokeMini kept as the default.
+      # OPTIONAL: a failure leaves the .ipa without it and does not affect other cores.
+      IOS_REPO=""
+      IOS_PIN=""
+      IOS_DYLIB_NAME="continuum_mini_libretro_ios.dylib"
+      IOS_KIND="cargo-continuum-mini"
+      IOS_DISPLAY="Pokémon Mini, cMini (own Rust core), optional"
+      ;;
+    # recipe-end: continuum_mini
     # recipe-start: continuum_gc
     continuum_gc)
       # GameCube (Wii later). This project's own GameCube emulator, written in Rust in
@@ -1157,6 +1168,21 @@ build_ios_continuum_atari_core() {
   ios_stage_dylib "$built" "$IOS_DYLIB_NAME"
 }
 # recipe-end: continuum_atari
+
+# recipe-start: continuum_mini
+# cMini (cores/continuum-mini): a plain Rust libretro dylib, rebuilt on every iOS build.
+build_ios_continuum_mini_core() {
+  local core="$1"
+  local crate="$ROOT/cores/continuum-mini"
+  echo "==> building $core ($IOS_DISPLAY)"
+  ( cd "$crate" && rustup target add aarch64-apple-ios >/dev/null \
+      && IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-15.0}" \
+         cargo build --release --target aarch64-apple-ios )
+  local built="$crate/target/aarch64-apple-ios/release/libcontinuum_mini.dylib"
+  [[ -f "$built" ]] || { echo "error: $core: cargo produced no $built" >&2; exit 1; }
+  ios_stage_dylib "$built" "$IOS_DYLIB_NAME"
+}
+# recipe-end: continuum_mini
 
 # recipe-start: continuum_gc
 # The GameCube core (cores/continuum-gc): a plain cargo cdylib for aarch64-apple-ios on the
@@ -1940,6 +1966,12 @@ build_ios_core() {
     return
   fi
   # recipe-end: continuum_atari
+  # recipe-start: continuum_mini
+  if [[ "$IOS_KIND" == "cargo-continuum-mini" ]]; then
+    build_ios_continuum_mini_core "$core"
+    return
+  fi
+  # recipe-end: continuum_mini
   # recipe-start: continuum_gc
   if [[ "$IOS_KIND" == "cargo-continuum-gc" ]]; then
     build_ios_continuum_gc_core "$core"
