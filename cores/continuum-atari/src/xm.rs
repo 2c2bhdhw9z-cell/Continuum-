@@ -33,11 +33,14 @@ pub struct Xm {
     pub pokey: Pokey,
     pub ym: Ym2151,
     cntrl: [u8; 5],
+    /// The YM2151 is the cartridge's own, always there at $0460 (no module to switch it on).
+    #[serde(default)]
+    pub ym_always: bool,
 }
 
 impl Default for Xm {
     fn default() -> Xm {
-        Xm { ram: vec![0; RAM], pokey: Pokey::default(), ym: Ym2151::default(), cntrl: [0; 5] }
+        Xm { ram: vec![0; RAM], pokey: Pokey::default(), ym: Ym2151::default(), cntrl: [0; 5], ym_always: false }
     }
 }
 
@@ -101,7 +104,7 @@ impl Xm {
     pub fn low_kind(&self, addr: u16) -> Low {
         match addr {
             0x0450..=0x045F if self.cntrl[0] & 0x10 != 0 => Low::Pokey,
-            0x0460..=0x0461 if self.cntrl[0] & 0x80 != 0 => Low::Ym,
+            0x0460..=0x0461 if self.cntrl[0] & 0x80 != 0 || self.ym_always => Low::Ym,
             0x0470 => Low::Cntrl(0),
             0x0471 => Low::Cntrl(3),
             0x0472 => Low::Cntrl(4),
@@ -149,6 +152,11 @@ impl Xm {
             Low::Cntrl(_) => Some(0xFF),
             _ => None,
         }
+    }
+
+    /// The YM2151's interrupt output at `now`.
+    pub fn ym_irq(&mut self, now: u64) -> bool {
+        self.ym.status(now) & 0x03 != 0
     }
 
     /// The POKEY's level this clock (0 to 60), for the mix.

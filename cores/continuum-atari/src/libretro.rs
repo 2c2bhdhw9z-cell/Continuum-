@@ -681,7 +681,8 @@ pub unsafe extern "C" fn retro_run() {
     let a = if s.lowpass { s.lowpass_level as f32 / 100.0 } else { 0.0 };
     core.audio.clear();
     for sm in core.m.sys.out.drain(..) {
-        let mono = sm.tia * tia + sm.pokey * pokey;
+        // A Covox is cartridge sound too: at full swing it is as loud as one POKEY.
+        let mono = sm.tia * tia + (sm.pokey + sm.covox * 30.0 / 128.0) * pokey;
         let x = [(mono + sm.ym.0 * ym) * master, (mono + sm.ym.1 * ym) * master];
         for (k, &x) in x.iter().enumerate() {
             // Take the steady offset out (the TIA's and POKEY's output only swings one way), as

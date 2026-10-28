@@ -10,8 +10,9 @@
 //! 16-bit counters, channels 3 and 4 can act as high-pass filters on 1 and 2, and SKCTL's
 //! two-tone mode ties channels 1 and 2 together.
 //!
-//! Its interrupt line isn't connected to the processor, as on MAME, the a7800 emulator and
-//! ProSystem (no cartridge is known to use it); a program can still poll IRQST.
+//! Its interrupt line reaches the processor only on the cartridges whose header says it is
+//! wired (the community's version 3 and 4 headers have the bits); otherwise, as on MAME and
+//! ProSystem, a program can still poll IRQST.
 
 use serde::{Deserialize, Serialize};
 
@@ -366,5 +367,11 @@ impl Pokey {
             }
             _ => {}
         }
+    }
+
+    /// The chip's IRQ output: an enabled interrupt is pending. Only a cartridge whose header says
+    /// so connects it to the processor.
+    pub fn irq(&self) -> bool {
+        self.irqst & self.irqen != 0
     }
 }

@@ -16,8 +16,9 @@ use serde::{Deserialize, Serialize};
 pub trait Bus {
     fn read(&mut self, addr: u16) -> u8;
     fn write(&mut self, addr: u16, value: u8);
-    /// The IRQ line after the cycle that just ran (level, true = asserted).
-    fn irq(&self) -> bool {
+    /// The IRQ line after the cycle that just ran (level, true = asserted). It may bring a chip
+    /// up to the moment first, so it takes the bus mutably.
+    fn irq(&mut self) -> bool {
         false
     }
     /// True once for each new assertion (falling edge) of NMI since the last call.

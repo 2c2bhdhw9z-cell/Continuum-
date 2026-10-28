@@ -82,6 +82,8 @@ pub struct Sample {
     pub pokey: f32,
     /// The XM's YM2151, left and right, -32768 to 32767.
     pub ym: (f32, f32),
+    /// A cartridge's Covox, -128 to 127.
+    pub covox: f32,
 }
 
 /// What is plugged into a controller port.
@@ -208,6 +210,7 @@ pub struct Sys {
     mix_tia: u64,
     mix_pokey: u64,
     mix_ym: (i64, i64),
+    mix_covox: u64,
     mix_from: u64,
     /// Output samples, `out_rate` a second: the TIA's average level (0-30), the POKEYs' (0-60 each)
     /// and the YM2151's two sides (-32768 to 32767).
@@ -286,6 +289,7 @@ impl Sys {
             mix_tia: 0,
             mix_pokey: 0,
             mix_ym: (0, 0),
+            mix_covox: 0,
             mix_from: 0,
             out: Vec::new(),
             out_next: 0,
@@ -347,10 +351,14 @@ impl Sys {
     }
 
     /// Plugs the XM expansion module in, with the game on top of it. Its High Score part keeps
-    /// its scores in the console's battery memory, as the plain cartridge does.
+    /// its scores in the console's battery memory, as the plain cartridge does. A cartridge that
+    /// carries a YM2151 at $0460 itself (its header says so, and not the module) gets the chip
+    /// switched on from the start.
     pub fn plug_xm(&mut self, hsc_rom: Option<Vec<u8>>) {
         if self.xm.is_none() {
-            self.xm = Some(Xm::default());
+            let mut x = Xm::default();
+            x.ym_always = self.cart.info.ym_on_cart;
+            self.xm = Some(x);
         }
         if let Some(rom) = hsc_rom {
             self.plug_hsc(rom);
@@ -452,7 +460,9 @@ impl Sys {
                     tia: self.mix_tia as f32 / p,
                     pokey: self.mix_pokey as f32 / p,
                     ym: (self.mix_ym.0 as f32 / p, self.mix_ym.1 as f32 / p),
+                    covox: if self.cart.covox.is_some() { self.mix_covox as f32 / p - 128.0 } else { 0.0 },
                 });
+                self.mix_covox = 0;
                 self.mix_tia = 0;
                 self.mix_pokey = 0;
                 self.mix_ym = (0, 0);
@@ -477,7 +487,7 @@ impl Sys {
 
     /// Brings the sound chips up to the processor's cycle before a read or write of one of them.
     fn chip_sync(&mut self, addr: u16) {
-        if self.is_ym(addr) {
+        if self.is_ym(addr) || (addr == 0x0430 && self.cart.covox.is_some()) {
             self.sound_to(self.now);
         } else if self.has_pokey() {
             self.pokey_sync();
@@ -496,6 +506,9 @@ impl Sys {
             let dt = t - self.mix_from;
             self.mix_tia += self.tia_level as u64 * dt;
             self.mix_pokey += self.pokey_level as u64 * dt;
+            if let Some(c) = self.cart.covox {
+                self.mix_covox += c as u64 * dt;
+            }
             self.mix_ym.0 += self.ym_level.0 as i64 * dt as i64;
             self.mix_ym.1 += self.ym_level.1 as i64 * dt as i64;
             self.mix_from = t;
@@ -892,8 +905,21 @@ impl Bus for Sys {
         self.now += len;
     }
 
-    // Nothing on the 7800 drives the processor's IRQ line (the trait's default): the cartridge
-    // POKEY's isn't connected (see pokey.rs).
+    /// The 7800 itself drives nothing onto the processor's IRQ line; a cartridge whose header says
+    /// so connects its POKEY's or its YM2151's interrupt to it.
+    fn irq(&mut self) -> bool {
+        let wired = self.cart.info.irq;
+        if wired == 0 {
+            return false;
+        }
+        // The chips' timers run on in between, so bring them up to this cycle first.
+        let now = self.now;
+        self.sound_to(now);
+        if self.cart.irq() {
+            return true;
+        }
+        wired & crate::cart::IRQ_YM != 0 && self.xm.as_mut().is_some_and(|x| x.ym_irq(now))
+    }
 
     fn take_nmi(&mut self) -> bool {
         std::mem::take(&mut self.nmi_edge)

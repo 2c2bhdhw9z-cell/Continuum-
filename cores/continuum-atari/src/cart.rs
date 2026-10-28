@@ -65,19 +65,27 @@ impl Kind {
     }
 }
 
-/// Where a cartridge's POKEYs are: one at $4000 (`at_4000`), and one low in memory
-/// (`low`: $0440, $0450 or $0800). Bit 0 of `bits` in the known list is $4000, bit 1 $0450.
+/// Where a cartridge's POKEYs are: one at $4000 (`at_4000`), one low in memory (`low`: $0440,
+/// $0450 or $0800), and on the dual boards a second at $0440 beside the one at $0450 (`dual`).
+/// Bit 0 of `bits` in the known list is $4000, bit 1 $0450.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pokeys {
     pub at_4000: bool,
     pub low: Option<u16>,
+    pub dual: bool,
 }
 
 impl Pokeys {
     pub const fn from_bits(bits: u8) -> Pokeys {
-        Pokeys { at_4000: bits & 1 != 0, low: if bits & 2 != 0 { Some(0x0450) } else { None } }
+        Pokeys { at_4000: bits & 1 != 0, low: if bits & 2 != 0 { Some(0x0450) } else { None }, dual: false }
     }
 }
+
+/// The interrupts a cartridge wires to the processor (the header says): the first POKEY's, the
+/// second's (at $0440) and the YM2151's.
+pub const IRQ_POKEY1: u8 = 1;
+pub const IRQ_POKEY2: u8 = 2;
+pub const IRQ_YM: u8 = 4;
 
 /// What the header or the known-cartridge list says about a game.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -94,6 +102,12 @@ pub struct Info {
     pub from_header: bool,
     /// The game wants the XM expansion module (the header's expansion byte, or a YM2151 on it).
     pub xm: bool,
+    /// The YM2151 is on the cartridge itself, not in the module.
+    pub ym_on_cart: bool,
+    /// Which sound chips' interrupts reach the processor (IRQ_POKEY1, IRQ_POKEY2, IRQ_YM).
+    pub irq: u8,
+    /// A Covox (an 8-bit sample player) at $0430.
+    pub covox: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -114,6 +128,12 @@ pub struct Cart {
     /// The second POKEY, at `pokey2_at`.
     pub pokey2: Option<Pokey>,
     pokey2_at: u16,
+    /// The dual boards' other POKEY, at $0440.
+    #[serde(default)]
+    pub pokey3: Option<Pokey>,
+    /// The Covox's level, when there is one.
+    #[serde(default)]
+    pub covox: Option<u8>,
     /// The Souper board's registers: character banks A and B, mode, RAM pages for $6000 and
     /// $7000.
     souper: [u8; 5],
@@ -156,8 +176,12 @@ fn board_from_v4(mapper: u8, options: u8, audio: u8, len: usize) -> (Kind, Pokey
                 Kind::Versa
             }
         }
-        (1, 5, false) => Kind::Sg9,
+        // Option 4 is ROM at $4000 (the nine-bank board), 5 bank 6 there (the usual one).
+        (1, 4, false) => Kind::Sg9,
         (1, _, false) => Kind::Sg,
+        // A board without bank switching but with 16 KB of RAM at $4000 plays as SuperGame's
+        // RAM board: its ROM sits at $8000-$FFFF either way.
+        (0, 1, false) => Kind::SgRam,
         (1, 1 | 6, true) => Kind::BankSetSgRam,
         (1, _, true) => Kind::BankSetSg,
         (_, 1 | 6, true) => Kind::BankSetRam,
@@ -167,15 +191,15 @@ fn board_from_v4(mapper: u8, options: u8, audio: u8, len: usize) -> (Kind, Pokey
     };
     // The sound byte's low three bits say where a POKEY is: 1 $0440, 2 $0450, 3 both, 4 $0800,
     // 5 $4000.
-    let (at_4000, low) = match audio & 7 {
-        1 => (false, Some(0x0440)),
-        2 => (false, Some(0x0450)),
-        3 => (false, Some(0x0440)),
-        4 => (false, Some(0x0800)),
-        5 => (true, None),
-        _ => (false, None),
+    let (at_4000, low, dual) = match audio & 7 {
+        1 => (false, Some(0x0440), false),
+        2 => (false, Some(0x0450), false),
+        3 => (false, Some(0x0450), true),
+        4 => (false, Some(0x0800), false),
+        5 => (true, None, false),
+        _ => (false, None, false),
     };
-    let pokeys = Pokeys { at_4000: at_4000 && matches!(kind, Kind::Rom | Kind::Sg | Kind::BankSet), low };
+    let pokeys = Pokeys { at_4000: at_4000 && matches!(kind, Kind::Rom | Kind::Sg | Kind::BankSet), low, dual };
     (kind, pokeys, !kind.bankset(), audio & 0x08 != 0)
 }
 
@@ -196,10 +220,14 @@ fn board_from_mapper(mut head: u16, len: usize) -> (Kind, Pokeys, bool) {
     if head & 0xFF00 == 0x0200 && head & 0xFF != 0 {
         head &= 0xFF00;
     }
-    let mut pokeys = Pokeys { at_4000: head & 0x0001 != 0, low: None };
-    // The second POKEY: $0800 before $0440 before $0450, as ProSystem picks.
+    let mut pokeys = Pokeys { at_4000: head & 0x0001 != 0, low: None, dual: false };
+    // The second POKEY: $0800 before $0440 before $0450, as ProSystem picks; $0450 and $0440
+    // both is the dual-POKEY board.
     if head & 0x8000 != 0 {
         pokeys.low = Some(0x0800);
+    } else if head & 0x0440 == 0x0440 {
+        pokeys.low = Some(0x0450);
+        pokeys.dual = true;
     } else if head & 0x0400 != 0 {
         pokeys.low = Some(0x0440);
     } else if head & 0x0040 != 0 {
@@ -289,6 +317,21 @@ impl Cart {
                 (k, p, r, ym)
             };
             info.xm = ym || head[63] == 1;
+            info.ym_on_cart = ym && head[63] != 1;
+            // The interrupts: a version 4 header's byte 69 (bit 0 the first POKEY, 1 the second,
+            // 2 the YM2151), or the older byte 62 (bits 0, 1 and 4 the first POKEY at $4000,
+            // $0450 or $0800, bit 2 the one at $0440, bit 3 the YM2151).
+            info.irq = if head[0] >= 4 && head[69] != 0 && head[69] != 0xFF {
+                head[69] & 7
+            } else if head[62] != 0xFF {
+                let b = head[62];
+                (if b & 0x13 != 0 { IRQ_POKEY1 } else { 0 })
+                    | (if b & 0x04 != 0 { IRQ_POKEY2 } else { 0 })
+                    | (if b & 0x08 != 0 { IRQ_YM } else { 0 })
+            } else {
+                0
+            };
+            info.covox = head[0] >= 4 && head[67] != 0xFF && head[67] & 0x10 != 0;
             (kind, pokeys, reads, rom)
         } else {
             let crc = crc32(data);
@@ -360,6 +403,8 @@ impl Cart {
             pokey_reads,
             pokey2: pokeys.low.map(|_| Pokey::default()),
             pokey2_at: pokeys.low.unwrap_or(0),
+            pokey3: pokeys.dual.then(Pokey::default),
+            covox: info.covox.then_some(0x80),
             souper: [0; 5],
             rom,
             info,
@@ -681,6 +726,12 @@ impl Cart {
     /// Whether the cartridge answers at `addr` below $4000: the second POKEY ($0440-$044F,
     /// $0450-$045F, or all of $0800-$0FFF), or a 52 KB BankSet image ($3000-$3FFF).
     fn low_kind(&self, addr: u16) -> Low {
+        if self.pokey3.is_some() && (0x0440..0x0450).contains(&addr) {
+            return Low::Pokey3;
+        }
+        if self.covox.is_some() && addr == 0x0430 {
+            return Low::Covox;
+        }
         if self.pokey2.is_some() {
             let hit = match self.pokey2_at {
                 0x0800 => (0x0800..0x1000).contains(&addr),
@@ -700,6 +751,7 @@ impl Cart {
     pub fn read_low(&mut self, addr: u16) -> Option<u8> {
         match self.low_kind(addr) {
             Low::Pokey => self.pokey2.as_mut().map(|p| p.read(addr as u8)),
+            Low::Pokey3 => self.pokey3.as_mut().map(|p| p.read(addr as u8)),
             _ => self.peek_low(addr, false),
         }
     }
@@ -708,7 +760,7 @@ impl Cart {
     pub fn peek_low(&self, addr: u16, maria: bool) -> Option<u8> {
         match self.low_kind(addr) {
             Low::None => None,
-            Low::Pokey => Some(0xFF),
+            Low::Pokey | Low::Pokey3 | Low::Covox => Some(0xFF),
             Low::BankSet => Some(self.side_at(maria as usize, (addr as u32 - self.base_rom) as usize)),
         }
     }
@@ -724,6 +776,16 @@ impl Cart {
                 }
                 Some(true)
             }
+            Low::Pokey3 => {
+                if let Some(p) = self.pokey3.as_mut() {
+                    p.write(addr as u8, v);
+                }
+                Some(true)
+            }
+            Low::Covox => {
+                self.covox = Some(v);
+                Some(true)
+            }
             Low::BankSet => Some(false),
         }
     }
@@ -737,16 +799,37 @@ impl Cart {
         if let Some(p) = self.pokey2.as_mut() {
             s += p.clock();
         }
+        if let Some(p) = self.pokey3.as_mut() {
+            s += p.clock();
+        }
         s
     }
 
+    /// Whether an interrupt the cartridge wires to the processor is asserted.
+    pub fn irq(&self) -> bool {
+        let wired = self.info.irq;
+        // The first POKEY is the one at $4000, else the low one; the second the one at $0440.
+        let first = self.pokey.as_ref().or(if self.pokey3.is_some() || self.pokey2_at != 0x0440 {
+            self.pokey2.as_ref()
+        } else {
+            None
+        });
+        let second = self.pokey3.as_ref().or(if self.pokey2_at == 0x0440 { self.pokey2.as_ref() } else { None });
+        (wired & IRQ_POKEY1 != 0 && first.is_some_and(|p| p.irq()))
+            || (wired & IRQ_POKEY2 != 0 && second.is_some_and(|p| p.irq()))
+    }
+
     pub fn has_pokey(&self) -> bool {
-        self.pokey.is_some() || self.pokey2.is_some()
+        self.pokey.is_some() || self.pokey2.is_some() || self.pokey3.is_some()
     }
 
     /// Where the POKEYs are, as the header or the list put them.
     pub fn pokeys(&self) -> Pokeys {
-        Pokeys { at_4000: self.pokey.is_some(), low: self.pokey2.is_some().then_some(self.pokey2_at) }
+        Pokeys {
+            at_4000: self.pokey.is_some(),
+            low: self.pokey2.is_some().then_some(self.pokey2_at),
+            dual: self.pokey3.is_some(),
+        }
     }
 
     pub fn rom(&self) -> &[u8] {
@@ -757,6 +840,8 @@ impl Cart {
 enum Low {
     None,
     Pokey,
+    Pokey3,
+    Covox,
     BankSet,
 }
 
@@ -781,23 +866,25 @@ mod tests {
     #[test]
     fn the_header_bits_pick_the_board() {
         let cases: &[(u16, usize, Kind, Pokeys)] = &[
-            (0x0000, 0x8000, Kind::Rom, Pokeys { at_4000: false, low: None }),
-            (0x0001, 0x8000, Kind::Rom, Pokeys { at_4000: true, low: None }),
-            (0x0003, 0x20000, Kind::Sg, Pokeys { at_4000: true, low: None }),
+            (0x0000, 0x8000, Kind::Rom, Pokeys::default()),
+            (0x0001, 0x8000, Kind::Rom, Pokeys { at_4000: true, ..Pokeys::default() }),
+            (0x0003, 0x20000, Kind::Sg, Pokeys { at_4000: true, ..Pokeys::default() }),
             (0x0006, 0x20000, Kind::SgRam, Pokeys::default()),
-            (0x0040, 0x8000, Kind::Rom, Pokeys { at_4000: false, low: Some(0x0450) }),
-            (0x8000, 0x8000, Kind::Rom, Pokeys { at_4000: false, low: Some(0x0800) }),
-            (0x8002, 0x20000, Kind::Sg, Pokeys { at_4000: false, low: Some(0x0800) }),
-            (0x0400, 0x8000, Kind::Rom, Pokeys { at_4000: false, low: Some(0x0440) }),
-            (0x0441, 0x8000, Kind::Rom, Pokeys { at_4000: true, low: Some(0x0440) }),
+            (0x0040, 0x8000, Kind::Rom, Pokeys { at_4000: false, low: Some(0x0450), dual: false }),
+            (0x8000, 0x8000, Kind::Rom, Pokeys { at_4000: false, low: Some(0x0800), dual: false }),
+            (0x8002, 0x20000, Kind::Sg, Pokeys { at_4000: false, low: Some(0x0800), dual: false }),
+            (0x0400, 0x8000, Kind::Rom, Pokeys { at_4000: false, low: Some(0x0440), dual: false }),
+            (0x0401, 0x8000, Kind::Rom, Pokeys { at_4000: true, low: Some(0x0440), dual: false }),
+            // $0450 and $0440 together: the dual-POKEY board.
+            (0x0441, 0x8000, Kind::Rom, Pokeys { at_4000: true, low: Some(0x0450), dual: true }),
             (0x1000, 0x80000, Kind::Souper, Pokeys::default()),
             (0x2000, 0x10000, Kind::BankSet, Pokeys::default()),
-            (0x2001, 0x10000, Kind::BankSet, Pokeys { at_4000: true, low: None }),
+            (0x2001, 0x10000, Kind::BankSet, Pokeys { at_4000: true, ..Pokeys::default() }),
             (0x6000, 0x10000, Kind::BankSetRam, Pokeys::default()),
-            (0xE000, 0x10000, Kind::BankSetRam, Pokeys { at_4000: false, low: Some(0x0800) }),
+            (0xE000, 0x10000, Kind::BankSetRam, Pokeys { at_4000: false, low: Some(0x0800), dual: false }),
             (0x2002, 0x40000, Kind::BankSetSg, Pokeys::default()),
             (0x6002, 0x40000, Kind::BankSetSgRam, Pokeys::default()),
-            (0xA002, 0x40000, Kind::BankSetSg, Pokeys { at_4000: false, low: Some(0x0800) }),
+            (0xA002, 0x40000, Kind::BankSetSg, Pokeys { at_4000: false, low: Some(0x0800), dual: false }),
             (0x0100, 0x20000, Kind::Activision, Pokeys::default()),
             (0x0200, 0x10000, Kind::Absolute, Pokeys::default()),
             (0x0080, 0x8000, Kind::Mram, Pokeys::default()),
@@ -875,6 +962,26 @@ mod tests {
         let c = Cart::from_cdf(cdf, |p| (p == "roms/game.bin").then(|| banks(32, 0))).unwrap();
         assert_eq!((c.kind, c.info.title.as_str(), c.peek(0xC000)), (Kind::Souper, "A game", 31));
         assert!(Cart::from_cdf("ProSystem\nSUPER\nx\nmissing.bin\n", |_| None).is_err());
+    }
+
+    #[test]
+    fn the_header_wires_interrupts_and_finds_dual_pokeys_and_the_covox() {
+        let mut h = header(0x0440, &vec![0; 0x8000]);
+        h[62] = 0x04; // the second POKEY's interrupt
+        let c = Cart::load(&h).unwrap();
+        assert_eq!(c.pokeys(), Pokeys { at_4000: false, low: Some(0x0450), dual: true });
+        assert_eq!(c.info.irq, IRQ_POKEY2);
+        // A version 4 header, its older bytes filled with $FF: SuperGame, both POKEYs, a Covox, the
+        // first POKEY's interrupt.
+        let mut h = header(0xFFFF, &vec![0; 0x20000]);
+        h[0] = 4;
+        (h[64], h[65], h[67], h[69]) = (1, 0, 0x13, 1);
+        h[62] = 0xFF;
+        let c = Cart::load(&h).unwrap();
+        assert_eq!(c.kind, Kind::Sg);
+        assert_eq!(c.pokeys(), Pokeys { at_4000: false, low: Some(0x0450), dual: true });
+        assert!(c.info.covox);
+        assert_eq!(c.info.irq, IRQ_POKEY1);
     }
 
     #[test]
