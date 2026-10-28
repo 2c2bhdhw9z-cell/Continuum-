@@ -21,6 +21,8 @@ stays the 7800's default until you've played cAtari.
 5. A light gun game, if you have one (Barnyard Blaster, Alien Brigade, Crossbow, Meltdown): tap the
    screen to shoot. ✅ The shot lands where you tap.
 6. Save a state, play on, load it. ✅ Back where you were.
+7. A game that needs the XM expansion module, if you have one (Donkey Kong XM, or an FM music demo).
+   ✅ It plays, with the module's richer music.
 
 ## Build 244 (26 October, 6:20 PM): the Pokémon Box's Items, Gifts, Events, Migration, Showcase
 Commit 52b9f7c. Checked: 0.8.0 build 244, 39 emulators, JIT helper, the new tools' text in the app.

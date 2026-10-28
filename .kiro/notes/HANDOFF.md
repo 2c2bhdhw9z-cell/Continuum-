@@ -10,7 +10,8 @@ Paste this to start a new chat:
 The owner asked for the next easiest core (27 October): the Atari 7800 ("Then do the Atari 7800."),
 with subagents doing the Pokémon Mini at the same time.
 
-- **cAtari** (`cores/continuum-atari`, Atari 7800) is finished and pushed (Built, untested). Write-up:
+- **cAtari** (`cores/continuum-atari`, Atari 7800) is finished and pushed (Built, untested), the XM
+  expansion module and its YM2151 FM chip included. Write-up:
   `.kiro/notes/docs/ATARI7800_CORE.md`; settings: `docs/A7800_OPTIONS_INVENTORY.md`; checklist:
   `tasks/atari7800.json` (A1-A8 done, A9 = the build). Second choice next to ProSystem (default).
   Its tests need MAME only to remake references: the reference MAME is
