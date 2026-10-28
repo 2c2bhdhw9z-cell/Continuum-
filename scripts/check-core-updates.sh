@@ -61,7 +61,7 @@ checked_skip() {
     mednafen_vb)
       echo "2ee0c2c8e4c77073045ac8e135886f628c5ae93b962256e2ffa8db39f8147bad|about 19% slower|12 October 2026" ;;
     puae)
-      echo "2cf44f8e5ad3fc1b9f1877ba4d0346088fbcdbd9ab0a74e802261677ad89c4cb|same code as ours (5.3.1, 7387937); only rebuilt by the buildbot|16 October 2026" ;;
+      echo "49ef1cd2d091fa7f13973461153ae71b0324603a13b33fd673a552c5c076fbd3|same code as ours (5.3.1, 7387937); only rebuilt by the buildbot|27 October 2026" ;;
     *) echo "" ;;
   esac
 }
