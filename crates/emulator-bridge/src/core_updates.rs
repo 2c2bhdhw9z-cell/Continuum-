@@ -69,7 +69,7 @@ pub const CORE_BUILDS: &[CoreBuild] = &[
     core("mednafen_pce", "6e078cf6fe615bf171b8c2401681457f233e26793a5eb42d736159d55483815b", "PC Engine CD", "Beetle PCE"),
     core("mednafen_supergrafx", "3e51d2d9131c34393e563cbfbb6b438af8f5eeb63c00b10899a64b27038c8408", "SuperGrafx", "Beetle SuperGrafx"),
     core("puae", "6f8dc0190d92af9398a29c4647147d3d300ba42620763d6ba53178f96e009889", "Amiga", "PUAE"),
-    core("vice_x64sc", "04c07e0f795dfe3daafbbe42a5b81a37949cb2cdf83f6b641ee456bb49473fe7", "Commodore 64", "VICE"),
+    core("vice_x64sc", "444bcde8513a50bff8a83637846a22bf2bdeeadb5b25c60d6ee0cc6017c07986", "Commodore 64", "VICE"),
     core("dosbox_pure", "d12b0ad50a93713462b4060375b28258be940ab2692d66a33be4f72850761ad6", "DOS", "DOSBox Pure"),
     core("prboom", "65b4f8ab9f21011a19b023bdde585946d908120c1a98c81480fec1e5b6997be7", "DOOM", "PrBoom"),
     core("virtualjaguar", "06861e89c131c88a277954fba521d0e71afa59f1295429bacbb33abb9790ba44", "Jaguar", "Virtual Jaguar"),
@@ -206,6 +206,8 @@ const fn exact(
 /// 12 October 2026: the first moves from build 181. 14 and 16 October 2026
 /// (`.kiro/notes/docs/reports/core-updates-2026-10-14.md`): the cores that moved again, from the pins builds
 /// 182 to 185 shipped.
+/// 27 October 2026 (`.kiro/notes/docs/reports/core-updates-2026-10-27.md`): the cores that moved again, from
+/// the pins builds 190 to 244 shipped (186 and 187 rebuilt 185's commit).
 pub const CORE_UPDATES: &[CoreUpdate] = &[
     // Built from source.
     commits("fceumm", "7a542dab1e87679921962a9f056186eca425c0c2", "ac0d00a7fc01166f84c7bac01d1084ebfd2b865e"),
@@ -265,6 +267,15 @@ pub const CORE_UPDATES: &[CoreUpdate] = &[
         "cb67ba4be4a5d6662d67daf89e34f282274764054dacb16c24f02de2c950a582",
         "v1.32.1",
         "v1.32.1",
+    ),
+    // 27 October: VICE's snapshot code unchanged. A state saved on f63b566 (every build from 181 to
+    // 244) was loaded on 6cbc44a on a computer, and the game carried on frame for frame.
+    exact(
+        "vice_x64sc",
+        "04c07e0f795dfe3daafbbe42a5b81a37949cb2cdf83f6b641ee456bb49473fe7",
+        "444bcde8513a50bff8a83637846a22bf2bdeeadb5b25c60d6ee0cc6017c07986",
+        "3.10 f63b566",
+        "3.10 6cbc44a",
     ),
 ];
 
@@ -470,7 +481,7 @@ mod tests {
         read_state(dir).unwrap().due
     }
 
-    const MOVED: [&str; 10] = [
+    const MOVED: [&str; 11] = [
         "azahar",
         "dosbox_pure",
         "fceumm",
@@ -481,6 +492,7 @@ mod tests {
         "parallel_n64",
         "ppsspp",
         "puae",
+        "vice_x64sc",
     ];
 
     // (a)
@@ -530,7 +542,7 @@ mod tests {
                 assert_eq!(to_version, VersionMatch::Commit(u.to_build), "{}", u.core_id);
             }
         }
-        assert_eq!(CORE_UPDATES.len(), 14);
+        assert_eq!(CORE_UPDATES.len(), 15);
     }
 
     fn loads(core: &str, saved: &str, running: &str) -> bool {
@@ -557,6 +569,7 @@ mod tests {
         assert!(loads("puae", "5.3.1 6536174", "5.3.1 7387937"));
         assert!(loads("dosbox_pure", "1.0-preview6", "1.0-preview7"));
         assert!(loads("mednafen_saturn", "v1.32.1", "v1.32.1"));
+        assert!(loads("vice_x64sc", "3.10 f63b566", "3.10 6cbc44a"));
     }
 
     // (d)
@@ -578,6 +591,7 @@ mod tests {
         assert!(!loads("fceumm", "v0.0.0-0-g000000000", "(SVN) ac0d00a"));
         assert!(!loads("puae", "5.3.1 7387937", "5.3.1 6536174"));
         assert!(!loads("dosbox_pure", "1.0-preview5", "1.0-preview7"));
+        assert!(!loads("vice_x64sc", "3.10 6cbc44a", "3.10 f63b566"));
     }
 
     // (e)
@@ -644,6 +658,29 @@ mod tests {
             "Heads up: the Master System and Game Gear emulator (Gearsystem) just got an update from the people who make it. \
              If anything seems off, send us feedback."
         );
+    }
+
+    /// The pins builds 190 to 244 shipped, for the cores the 27 October batch moved:
+    /// (core id, pin before the move, whether old save states load on the new one).
+    const SHIPPED_190_TO_244: &[(&str, &str, bool)] =
+        &[("vice_x64sc", "04c07e0f795dfe3daafbbe42a5b81a37949cb2cdf83f6b641ee456bb49473fe7", true)];
+
+    #[test]
+    fn an_update_from_builds_190_to_244_says_the_right_thing() {
+        let dir = TempDir::new("from-244");
+        let mut text = String::from("# Continuum\n");
+        for c in CORE_BUILDS {
+            let build = SHIPPED_190_TO_244.iter().find(|s| s.0 == c.core_id).map_or(c.build, |s| s.1);
+            text.push_str(&format!("seen {} {build}\n", c.core_id));
+        }
+        fs::write(dir.0.join(STATE_FILE), text).unwrap();
+        let mut moved: Vec<&str> = SHIPPED_190_TO_244.iter().map(|s| s.0).collect();
+        moved.sort();
+        assert_eq!(open(&dir.0), format!("emulator updates since the last install: {}", moved.join(", ")));
+        for (core_id, _, old_states_load) in SHIPPED_190_TO_244 {
+            let c = CORE_BUILDS.iter().find(|c| c.core_id == *core_id).unwrap();
+            assert_eq!(take_heads_up(&dir.0, core_id).unwrap(), wording(c.console, c.emulator, *old_states_load), "{core_id}");
+        }
     }
 
     #[test]

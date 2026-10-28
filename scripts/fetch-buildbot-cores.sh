@@ -105,7 +105,7 @@ pinned_sha256() {
     prboom)              echo "65b4f8ab9f21011a19b023bdde585946d908120c1a98c81480fec1e5b6997be7" ;;
     prosystem)           echo "c175f25ee35c79deaf5ccf8b2995dcb6c3db2890d98213a15f1de1c9b2500a9b" ;;
     puae)                echo "6f8dc0190d92af9398a29c4647147d3d300ba42620763d6ba53178f96e009889" ;;
-    vice_x64sc)          echo "04c07e0f795dfe3daafbbe42a5b81a37949cb2cdf83f6b641ee456bb49473fe7" ;;
+    vice_x64sc)          echo "444bcde8513a50bff8a83637846a22bf2bdeeadb5b25c60d6ee0cc6017c07986" ;;
     virtualjaguar)       echo "06861e89c131c88a277954fba521d0e71afa59f1295429bacbb33abb9790ba44" ;;
     yabause)             echo "5a3e5ce7691781b0107bfc4364acab242a64e931a74b95769bde4d73b85f3c8e" ;;
     prboom.wad)          echo "b4dd3642932193cc42bca0ee98bf30004888ca4850d69e85023b8baacfba1d1d" ;;
@@ -117,8 +117,8 @@ pinned_sha256() {
 # so the zip's bytes change while the dylib inside stays the same build; a matching dylib is the
 # same checked core (see FROZEN BY CHECKSUM at the top).
 #
-# FIVE ARE BUILD 185's OWN COPIES (16 October 2026): prboom, puae, mednafen_vb, virtualjaguar and
-# vice_x64sc. Their pinned zips were lost when core-mirror-1 was emptied by mistake on 14 October,
+# FOUR ARE BUILD 185's OWN COPIES (16 October 2026): prboom, puae, mednafen_vb and virtualjaguar.
+# Their pinned zips were lost when core-mirror-1 was emptied by mistake on 14 October,
 # and the buildbot has since moved on to builds that were turned down (checked_skip in
 # scripts/check-core-updates.sh) or merely rebuilt. The same checked builds are inside build 185's
 # install (SHIPPED_TAG), so those copies are what a build takes (rule b2, then the mirror once a
@@ -142,7 +142,7 @@ pinned_dylib_sha256() {
     prboom)              echo "e7d16803a856d3f781491452fa4329df109a41c254a26813abc5a5c1a0454a1e" ;;
     prosystem)           echo "69ff2105f2f94e28ffda83ca60a93c83b169fedcb32158faf69f17e165624601" ;;
     puae)                echo "6b07a2073cc88bda9207bbe84599b2deb793235629313fa4b9d3f7773fbd0eeb" ;;
-    vice_x64sc)          echo "caeffa2f4342d51726ae203645dbd729834253139397efce0a2296944588ded1" ;;
+    vice_x64sc)          echo "4aa923576fb884994577ebb80eba129e7aaaf192974817ed70abc83840846776" ;;
     virtualjaguar)       echo "00356c5c609ea418321606fddecb22d554b80399a50ebf141f81dc9f2e4a35b4" ;;
     yabause)             echo "0f4c457fe1ef50cc451ffa7cb1e49b43463df4313b6165180d9fff9769188999" ;;
     *)                   echo "" ;;
