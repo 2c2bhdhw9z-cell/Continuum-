@@ -500,11 +500,12 @@ final class ImportCenter: ObservableObject {
         defer { clearScratch() }
         var asked: [String] = []
         let lowered = Set(names.map { $0.lowercased() })
-        // Files a sheet names (a cue's tracks, a ccd's img) are not asked about on their own.
+        // Files a sheet names (a cue's tracks, a ccd's img, the ROM a 7800 .cdf names) are not
+        // asked about on their own.
         var named = Set<String>()
         for name in names {
             let ext = (name as NSString).pathExtension.lowercased()
-            if ["cue", "m3u", "gdi", "ccd"].contains(ext) {
+            if ["cue", "m3u", "gdi", "ccd", "cdf"].contains(ext) {
                 for ref in importReferencedFiles(path: documents.appendingPathComponent(name).path) {
                     named.insert((ref as NSString).lastPathComponent.lowercased())
                 }

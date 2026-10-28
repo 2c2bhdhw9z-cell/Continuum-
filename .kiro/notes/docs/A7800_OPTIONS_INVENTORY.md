@@ -21,10 +21,10 @@ the emulator's own computer screen). Read from each emulator's own code at the c
 
 ## In cAtari (27 October)
 
-28 settings (`cores/continuum-atari/src/options.rs`), in four groups: System (TV system, console
+29 settings (`cores/continuum-atari/src/options.rs`), in four groups: System (TV system, console
 start-up screen, High Score Cartridge, XM expansion module, slow chip access), Picture (colours, colour strength,
 brightness, whole picture, smooth flicker), Sound (volume, console sound, cartridge sound,
-expansion module sound, soften the sound and its strength, sample rate), Controls (controller 1 and 2, dual-stick games, the two
+expansion module sound, cartridge music, soften the sound and its strength, sample rate), Controls (controller 1 and 2, dual-stick games, the two
 difficulty switches and how their buttons work, opposite directions, light gun crosshair, its colour,
 its aim both ways).
 
@@ -56,7 +56,10 @@ its aim both ways).
 
 - Slow chip access (`catari_slow_io`): the real board's 1.19 MHz cycles for the TIA and RIOT (Auto:
   the light gun games, as a7800 does; MAME and ProSystem leave it out).
-- Separate volumes for the console's sound and the cartridge's POKEY, and the sample rate.
+- Separate volumes for the console's sound, the cartridge's POKEY, the XM's FM chip and Rikki &
+  Vikki's music player (`catari_bupchip_volume`), and the sample rate.
+- Rikki & Vikki's music (the Souper board's music player, played from the game's own files as
+  ProSystem does, with no setting needed: its .cdf names them).
 - Whole picture (`catari_overscan`), smooth flicker (`catari_blend`, light or half and half), opposite
   directions, the light gun's crosshair (on/off, eight colours) and aim (both ways).
 - The SaveKey/AtariVox, and the boards beyond MAME's (BankSet, Souper, POKEY at $0440 and $0800), with
@@ -64,7 +67,5 @@ its aim both ways).
 
 ## Gaps, and why
 
-- The Souper board's music player (Rikki & Vikki's music, which ProSystem plays from the game's .cdf
-  files): later; the game plays, without its music.
 - Trak-ball, ST and Amiga mice, 2600 keypads and driving controllers in the header's controller list:
   later; no 7800 game needs them, and the app's touch controls have no stand-in for them yet.

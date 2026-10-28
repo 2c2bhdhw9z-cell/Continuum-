@@ -109,6 +109,8 @@ const SPECS: &[Spec] = &[
      c"The extra sound chip in some cartridges, like Ballblazer and Commando.", PCT, c"100"),
     (c"audio", c"catari_ym_volume", c"Expansion module sound (YM2151)",
      c"The FM music chip in the XM expansion module.", PCT, c"100"),
+    (c"audio", c"catari_bupchip_volume", c"Cartridge music (BupChip)",
+     c"The music player on the Rikki & Vikki cartridge.", PCT, c"100"),
     (c"audio", c"catari_lowpass", c"Soften the sound",
      c"Takes the harsh edge off the TIA's tones.", OFF_ON, c"off"),
     (c"audio", c"catari_lowpass_level", c"Softening strength", c"Higher takes away more of the high notes.",
@@ -188,6 +190,7 @@ pub struct Settings {
     pub tia_volume: u8,
     pub pokey_volume: u8,
     pub ym_volume: u8,
+    pub bupchip_volume: u8,
     pub lowpass: bool,
     pub lowpass_level: u8,
     pub sound_rate: u32,
@@ -218,6 +221,7 @@ impl Default for Settings {
             tia_volume: 100,
             pokey_volume: 100,
             ym_volume: 100,
+            bupchip_volume: 100,
             lowpass: false,
             lowpass_level: 60,
             sound_rate: 48_000,
@@ -280,6 +284,7 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
     s.tia_volume = pct(c"catari_tia_volume");
     s.pokey_volume = pct(c"catari_pokey_volume");
     s.ym_volume = pct(c"catari_ym_volume");
+    s.bupchip_volume = pct(c"catari_bupchip_volume");
     s.lowpass = on(c"catari_lowpass", false);
     s.lowpass_level = get(c"catari_lowpass_level").and_then(|v| v.parse().ok()).unwrap_or(60).clamp(5, 95);
     s.sound_rate = match get(c"catari_sound_rate").as_deref() {

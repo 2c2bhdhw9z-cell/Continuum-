@@ -58,7 +58,7 @@ pub fn import_system_for_extension(ext: String) -> String {
     detect::system_for_extension(&ext).unwrap_or("").to_string()
 }
 
-/// The files a .cue, .m3u, .gdi or .ccd names, as written.
+/// The files a .cue, .m3u, .gdi, .ccd or .cdf names, as written (a .cdf's with slashes).
 #[uniffi::export]
 pub fn import_referenced_files(path: String) -> Vec<String> {
     detect::referenced_files(Path::new(&path))

@@ -3,8 +3,10 @@
 //! MARIA specification), the chips' data sheets, and how MAME 0.289's a7800 driver behaves; the
 //! proofs are our own test programs run on both (.kiro/notes/docs/ATARI7800_CORE.md).
 
+pub mod bupchip;
 pub mod cart;
 pub mod cart_list;
+pub mod coretone;
 pub mod m6502;
 pub mod machine;
 pub mod libretro;

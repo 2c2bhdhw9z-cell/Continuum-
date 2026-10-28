@@ -806,7 +806,8 @@ fn detect_m3u(path: &Path, depth: u32) -> std::io::Result<Detection> {
 }
 
 /// The files a multi-file sheet names (.cue tracks, .m3u discs, .gdi tracks, the .img and .sub of
-/// a .ccd), as written. Empty for anything else. The import uses it to say which are missing.
+/// a .ccd, a 7800 .cdf's ROM and music), as written. Empty for anything else. The import uses it
+/// to say which are missing.
 pub fn referenced_files(path: &Path) -> Vec<String> {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     let Ok(bytes) = std::fs::read(path) else { return Vec::new() };
@@ -835,10 +836,29 @@ pub fn referenced_files(path: &Path) -> Vec<String> {
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
             vec![format!("{stem}.img"), format!("{stem}.sub")]
         }
+        "cdf" => cdf_files(&text),
         _ => Vec::new(),
     };
     let mut seen = std::collections::HashSet::new();
     names.retain(|n| seen.insert(n.to_ascii_lowercase()));
+    names
+}
+
+/// The files an Atari 7800 ProSystem description (.cdf, how Rikki & Vikki comes) names: its
+/// ROM, then after a "CORETONE" line the cartridge's music files (the sample package, the
+/// instrument package, the songs). Written on Windows, so backslashes become slashes.
+fn cdf_files(text: &str) -> Vec<String> {
+    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
+    if lines.next() != Some("ProSystem") {
+        return Vec::new();
+    }
+    // The board and the title, then the ROM.
+    let mut lines = lines.skip(2);
+    let Some(rom) = lines.next() else { return Vec::new() };
+    let mut names = vec![rom.replace('\\', "/")];
+    if lines.next() == Some("CORETONE") {
+        names.extend(lines.take(34).map(|l| l.replace('\\', "/")));
+    }
     names
 }
 
@@ -1357,6 +1377,19 @@ mod tests {
         assert_eq!(detect_path(&dir.write("e.pbp", &pbp)).system, "ps1");
         pbp[0x100..0x10C].copy_from_slice(b"\0\0\0\0\0\0\0\0\0\0\0\0");
         assert_eq!(detect_path(&dir.write("f.pbp", &pbp)).system, "psp");
+    }
+
+    #[test]
+    fn a_prosystem_description_names_its_rom_and_its_music() {
+        let dir = TestDir::new("cdf");
+        let cdf = dir.write(
+            "RnV.cdf",
+            b"ProSystem\r\nSOUPER\r\nRikki & Vikki\r\n\r\nRnV\\RnV.bin\r\nCORETONE\r\nMusic\\a.smp\r\nMusic\\a.ins\r\nMusic\\0.mus\r\n",
+        );
+        assert_eq!(referenced_files(&cdf), vec!["RnV/RnV.bin", "Music/a.smp", "Music/a.ins", "Music/0.mus"]);
+        let plain = dir.write("Game.cdf", b"ProSystem\nSUPER\nA game\ngame.bin\n");
+        assert_eq!(referenced_files(&plain), vec!["game.bin"]);
+        assert!(referenced_files(&dir.write("x.cdf", b"not one")).is_empty());
     }
 
     #[test]

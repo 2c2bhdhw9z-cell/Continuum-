@@ -335,7 +335,8 @@ chip), the High Score Cartridge and the SaveKey, and matches MAME 0.289 frame fo
 PAL, the TIA's sound sample for sample, POKEY's clock for clock and the FM chip's every sample on
 our own test programs
 (`.kiro/notes/docs/ATARI7800_CORE.md`; settings: `docs/A7800_OPTIONS_INVENTORY.md`; checklist:
-`tasks/atari7800.json`). Not yet: Rikki & Vikki's own music player chip.
+`tasks/atari7800.json`). Also Rikki & Vikki's own music player chip (the BupChip: CoreTone in
+Rust under its zlib licence, matching the original sample for sample).
 **cMini** (the Pokémon Mini) is being built by a workflow in its own clone
 (`/projects/sandbox/.scratch/pokemini-work`). Then ONE build with both, and the phone checks in
 TESTING.md "Next install (after 244)".

@@ -348,16 +348,40 @@ fn port_kind(p: Port, cart: &Cart, port: usize) -> PortKind {
 }
 
 /// The cartridge in a game file: an .a78 or a plain ROM, or a ProSystem description (.cdf) whose
-/// ROM is beside it at `path`.
+/// ROM (and music, for Rikki & Vikki) is beside it at `path`.
 unsafe fn cartridge(data: &[u8], path: *const c_char) -> Option<Cart> {
     if data.starts_with(b"ProSystem") {
         let dir = (!path.is_null())
             .then(|| std::path::PathBuf::from(CStr::from_ptr(path).to_string_lossy().into_owned()))
             .and_then(|p| p.parent().map(|d| d.to_path_buf()))?;
         let text = String::from_utf8_lossy(data);
-        return Cart::from_cdf(&text, |f| std::fs::read(dir.join(f)).ok()).ok();
+        return Cart::from_cdf(&text, |f| read_beside(&dir, f)).ok();
     }
     Cart::load(data).ok()
+}
+
+/// A file a .cdf names, `name` being its path from the .cdf's folder (written on Windows, so its
+/// capitals may not match). The app keeps imported files side by side in one folder, so the
+/// file is looked for there by its name alone too.
+fn read_beside(dir: &std::path::Path, name: &str) -> Option<Vec<u8>> {
+    use std::path::Path;
+    if let Ok(d) = std::fs::read(dir.join(name)) {
+        return Some(d);
+    }
+    let path = Path::new(name);
+    let file = path.file_name()?.to_str()?;
+    let sub = dir.join(path.parent().unwrap_or(Path::new("")));
+    for folder in [sub, dir.to_path_buf()] {
+        let Ok(entries) = std::fs::read_dir(&folder) else { continue };
+        for e in entries.flatten() {
+            if e.file_name().to_str().is_some_and(|n| n.eq_ignore_ascii_case(file)) {
+                if let Ok(d) = std::fs::read(e.path()) {
+                    return Some(d);
+                }
+            }
+        }
+    }
+    None
 }
 
 /// A new machine for `cart` as the settings ask.
@@ -672,18 +696,20 @@ pub unsafe extern "C" fn retro_run() {
     }
 
     // The sound, each part averaged over the output sample: the TIA's level (0-30), the POKEYs'
-    // (0-60) and the XM's YM2151 in stereo.
+    // (0-60), and in stereo the XM's YM2151 and the Souper board's music player. Those two are
+    // as loud at full swing as the console's own sound.
     let s = &core.s;
     let tia = s.tia_volume as f32 / 100.0 / 30.0;
     let pokey = s.pokey_volume as f32 / 100.0 / 60.0;
     let ym = s.ym_volume as f32 / 100.0 / 32_768.0;
+    let bup = s.bupchip_volume as f32 / 100.0 / 32_768.0;
     let master = s.volume as f32 / 100.0;
     let a = if s.lowpass { s.lowpass_level as f32 / 100.0 } else { 0.0 };
     core.audio.clear();
     for sm in core.m.sys.out.drain(..) {
         // A Covox is cartridge sound too: at full swing it is as loud as one POKEY.
         let mono = sm.tia * tia + (sm.pokey + sm.covox * 30.0 / 128.0) * pokey;
-        let x = [(mono + sm.ym.0 * ym) * master, (mono + sm.ym.1 * ym) * master];
+        let x = [(mono + sm.ym.0 * ym + sm.bup.0 * bup) * master, (mono + sm.ym.1 * ym + sm.bup.1 * bup) * master];
         for (k, &x) in x.iter().enumerate() {
             // Take the steady offset out (the TIA's and POKEY's output only swings one way), as
             // the television's input did, then the softening filter if it is on.

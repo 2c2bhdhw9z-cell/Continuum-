@@ -1207,6 +1207,11 @@ enum CoreCatalog {
     /// be importable so those references resolve, and it must never appear in the Library.
     static let trackExtension = "bin"
 
+    /// Files that belong to a game without being one: Rikki & Vikki's music (the sample package,
+    /// the instrument package and the songs its .cdf names, which cAtari's music player plays).
+    /// Importable and backed up with the games, never a Library row.
+    static let companionExtensions: [String] = ["smp", "ins", "mus"]
+
     /// Extensions the Library offers as a launch target: exactly the routing table's keys.
     ///
     /// DERIVED, AND IT USED NOT TO BE. This list and the one below were both written out by hand,
@@ -1244,8 +1249,8 @@ enum CoreCatalog {
         // The shared extensions too (zip, 7z, m3u, ccd, img, elf, mds...), so a file the resolver
         // can place gets into Documents to be asked about at all. Sorted so the list shown to
         // the user is stable.
-        for ext in launchableExtensions + [trackExtension] + sharedExtensions.sorted()
-            + firmwareExtensions
+        for ext in launchableExtensions + [trackExtension] + companionExtensions
+            + sharedExtensions.sorted() + firmwareExtensions
         where !ext.isEmpty && seen.insert(ext).inserted {
             names.append(ext)
         }
@@ -1492,6 +1497,7 @@ enum CoreCatalog {
     static let syncableGameExtensions: Set<String> = {
         var out = Set(launchableExtensions.map { $0.lowercased() })
         out.insert(trackExtension)
+        out.formUnion(companionExtensions)
         out.formUnion(sharedExtensions)
         // GameCube unlock: GameCube's own file types are backed up and restored whether or not
         // GameCube is unlocked. They are not in `routeTable` while it is hidden, so they were left

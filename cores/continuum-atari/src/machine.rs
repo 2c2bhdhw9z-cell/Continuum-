@@ -34,6 +34,8 @@ const SLOW_CYCLE: u64 = 6;
 const YM_SAMPLE: u64 = 32 * CYCLE;
 /// DMA starts seven processor cycles after the line begins.
 const DMA_START: u64 = 7 * CYCLE;
+/// The Souper board's music player makes 48,000 samples a second on its own clock.
+const BUP_RATE: u64 = crate::coretone::RENDER_RATE as u64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Region {
@@ -84,6 +86,8 @@ pub struct Sample {
     pub ym: (f32, f32),
     /// A cartridge's Covox, -128 to 127.
     pub covox: f32,
+    /// The Souper board's music player (the BupChip), left and right, -32768 to 32767.
+    pub bup: (f32, f32),
 }
 
 /// What is plugged into a controller port.
@@ -206,11 +210,18 @@ pub struct Sys {
     /// When its next sample is due, in MARIA clocks times `ym_den`.
     ym_next: u64,
     ym_level: (i32, i32),
+    /// When the Souper board's music player's next sample is due, in MARIA clocks times 48,000.
+    #[serde(default)]
+    bup_next: u64,
+    #[serde(default)]
+    bup_level: (i32, i32),
     /// Sound mixed so far: level x MARIA clocks, since `mix_from`.
     mix_tia: u64,
     mix_pokey: u64,
     mix_ym: (i64, i64),
     mix_covox: u64,
+    #[serde(default)]
+    mix_bup: (i64, i64),
     mix_from: u64,
     /// Output samples, `out_rate` a second: the TIA's average level (0-30), the POKEYs' (0-60 each)
     /// and the YM2151's two sides (-32768 to 32767).
@@ -286,10 +297,13 @@ impl Sys {
             ym_den: 1,
             ym_next: 0,
             ym_level: (0, 0),
+            bup_next: 0,
+            bup_level: (0, 0),
             mix_tia: 0,
             mix_pokey: 0,
             mix_ym: (0, 0),
             mix_covox: 0,
+            mix_bup: (0, 0),
             mix_from: 0,
             out: Vec::new(),
             out_next: 0,
@@ -421,8 +435,9 @@ impl Sys {
             let tia_at = self.tia_next.div_ceil(self.tia_den);
             let pokey_at = if self.has_pokey() { self.pokey_next } else { u64::MAX };
             let ym_at = if self.has_ym() { self.ym_next.div_ceil(self.ym_den) } else { u64::MAX };
+            let bup_at = if self.cart.bupchip.is_some() { self.bup_next.div_ceil(BUP_RATE) } else { u64::MAX };
             let out_at = self.out_next.div_ceil(self.out_rate);
-            let next = tia_at.min(pokey_at).min(ym_at).min(out_at);
+            let next = tia_at.min(pokey_at).min(ym_at).min(bup_at).min(out_at);
             if next > t {
                 break;
             }
@@ -454,6 +469,13 @@ impl Sys {
                 self.ym_samples += 1;
                 self.ym_next += self.ym_num;
             }
+            if next == bup_at {
+                if let Some(b) = self.cart.bupchip.as_mut() {
+                    let (l, r) = b.next_sample();
+                    self.bup_level = (l as i32, r as i32);
+                }
+                self.bup_next += self.region.maria_hz();
+            }
             if next == out_at {
                 let p = (out_at - self.out_last).max(1) as f32;
                 self.out.push(Sample {
@@ -461,8 +483,10 @@ impl Sys {
                     pokey: self.mix_pokey as f32 / p,
                     ym: (self.mix_ym.0 as f32 / p, self.mix_ym.1 as f32 / p),
                     covox: if self.cart.covox.is_some() { self.mix_covox as f32 / p - 128.0 } else { 0.0 },
+                    bup: (self.mix_bup.0 as f32 / p, self.mix_bup.1 as f32 / p),
                 });
                 self.mix_covox = 0;
+                self.mix_bup = (0, 0);
                 self.mix_tia = 0;
                 self.mix_pokey = 0;
                 self.mix_ym = (0, 0);
@@ -511,6 +535,8 @@ impl Sys {
             }
             self.mix_ym.0 += self.ym_level.0 as i64 * dt as i64;
             self.mix_ym.1 += self.ym_level.1 as i64 * dt as i64;
+            self.mix_bup.0 += self.bup_level.0 as i64 * dt as i64;
+            self.mix_bup.1 += self.bup_level.1 as i64 * dt as i64;
             self.mix_from = t;
         }
     }
@@ -866,6 +892,10 @@ impl Sys {
                 }
                 if addr < 0x8000 && self.cart.has_pokey() {
                     self.pokey_sync();
+                }
+                if addr == 0x8007 && self.cart.bupchip.is_some() {
+                    // A command for the music player: its samples up to now come first.
+                    self.sound_to(self.now);
                 }
                 if self.cart.write(addr, v) {
                     self.log_pokey_write(addr, v);

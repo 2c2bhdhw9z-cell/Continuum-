@@ -11,6 +11,8 @@
 //! POKEY at $0800 as the a7800 emulator plays them, the Souper board (Rikki & Vikki) and POKEY at
 //! $0440 as ProSystem does.
 
+use crate::bupchip::BupChip;
+use crate::coretone::Files;
 use crate::pokey::Pokey;
 use serde::{Deserialize, Serialize};
 
@@ -138,6 +140,9 @@ pub struct Cart {
     /// $7000.
     souper: [u8; 5],
     pub info: Info,
+    /// The Souper board's music player, when the game's description names its files.
+    #[serde(default)]
+    pub bupchip: Option<BupChip>,
 }
 
 const SOUPER_MFT: u8 = 0x01;
@@ -356,7 +361,9 @@ impl Cart {
 
     /// A ProSystem cartridge description (.cdf): "ProSystem", the board ("EMPTY", "SUPER",
     /// "ABSOLUTE", "ACTIVISION" or "SOUPER"), the title, the ROM file (read with `read`, a path
-    /// beside the .cdf), then the files of the Souper board's music player, which isn't played.
+    /// beside the .cdf), then, after a line saying "CORETONE", the files of the Souper board's
+    /// music player: its sample package, its instrument package and up to 32 songs. Without the
+    /// two packages the game plays without its music; a missing song is silent.
     pub fn from_cdf(text: &str, read: impl Fn(&str) -> Option<Vec<u8>>) -> Result<Cart, String> {
         let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
         if lines.next() != Some("ProSystem") {
@@ -372,7 +379,20 @@ impl Cart {
         let info = Info { title: lines.next().unwrap_or_default().to_string(), controllers: [1, 1], ..Info::default() };
         let file = lines.next().ok_or("no ROM file named")?.replace('\\', "/");
         let rom = read(&file).ok_or_else(|| format!("{file} is missing"))?;
-        Cart::build(kind, Pokeys::default(), true, rom, info)
+        let mut cart = Cart::build(kind, Pokeys::default(), true, rom, info)?;
+        if lines.next() == Some("CORETONE") {
+            let mut files: Vec<Option<Vec<u8>>> =
+                lines.take(34).map(|l| read(&l.replace('\\', "/")).filter(|d| !d.is_empty())).collect();
+            if files.len() >= 2 {
+                let songs = files.split_off(2).into_iter().map(Option::unwrap_or_default).collect();
+                if let [Some(samples), Some(instruments)] = [files[0].take(), files[1].take()] {
+                    if let Ok(f) = Files::new(samples, instruments, songs) {
+                        cart.bupchip = Some(BupChip::new(f));
+                    }
+                }
+            }
+        }
+        Ok(cart)
     }
 
     fn build(kind: Kind, pokeys: Pokeys, pokey_reads: bool, rom: Vec<u8>, info: Info) -> Result<Cart, String> {
@@ -408,12 +428,24 @@ impl Cart {
             souper: [0; 5],
             rom,
             info,
+            bupchip: None,
         })
     }
 
-    /// Puts the ROM back after a save state is loaded (states don't carry it).
+    /// Puts the ROM back after a save state is loaded (states don't carry it), and the music
+    /// player's files.
     pub fn restore_rom(&mut self, from: &Cart) {
         self.rom = from.rom.clone();
+        match (self.bupchip.as_mut(), from.bupchip.as_ref()) {
+            (Some(b), Some(f)) => b.restore_files(f),
+            (None, Some(f)) => {
+                let mut b = f.clone();
+                b.reset();
+                self.bupchip = Some(b);
+            }
+            (Some(_), None) => self.bupchip = None,
+            (None, None) => {}
+        }
     }
 
     pub fn reset(&mut self) {
@@ -423,6 +455,9 @@ impl Cart {
         };
         self.ram_bank = 0;
         self.souper = [0; 5];
+        if let Some(b) = self.bupchip.as_mut() {
+            b.reset();
+        }
     }
 
     fn rom_at(&self, i: usize) -> u8 {
@@ -694,8 +729,12 @@ impl Cart {
                         0x8003 => self.souper[2] = v,
                         0x8004 => self.souper[3] = v & 7,
                         0x8005 => self.souper[4] = v & 7,
-                        // $8007 commands the board's own sound player (the "BupChip"), which
-                        // plays music from files beside the game: not played yet.
+                        // The board's music player (the "BupChip", bupchip.rs).
+                        0x8007 => {
+                            if let Some(b) = self.bupchip.as_mut() {
+                                b.command(v);
+                            }
+                        }
                         _ => {}
                     }
                 }

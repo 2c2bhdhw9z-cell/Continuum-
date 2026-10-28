@@ -17,8 +17,9 @@ contents in MAME's CC0 list of 189 cartridges, `src/cart_list.rs`, or by its siz
 .cdf descriptions. The boards: plain ROMs up to 48 KB, SuperGame (with RAM, with nine banks, with
 bank 6 at $4000), Absolute (F-18 Hornet), Activision (Double Dragon, Rampage), the mirror-RAM
 prototype, VersaBoard and MegaCart+, BankSet in all its forms (flat, with RAM, SuperGame, 52 KB),
-the Souper board (Rikki & Vikki), a POKEY at $4000, $0440, $0450 or $0800 (two at once on the dual
-boards), and XM/XBoarD carts as their SuperGame part. With them: the High Score Cartridge (the
+the Souper board (Rikki & Vikki) with its music player, a POKEY at $4000, $0440, $0450 or $0800
+(two at once on the dual boards), a Covox, a YM2151 on the cartridge, and the XM expansion module
+and XBoarD. With them: the High Score Cartridge (the
 player's own highscre.bin), the SaveKey/AtariVox, the two-button and one-button joysticks, the
 light gun games, paddles, Pause, Select, Reset and both difficulty switches, NTSC and PAL. Games
 start straight away; the player's own BIOS (ProSystem's file names) can play the Atari logo first.
@@ -36,18 +37,26 @@ start straight away; the player's own BIOS (ProSystem's file names) can play the
   display list interrupts and the DMA cost of each.
 - `tia.rs`, `riot.rs`, `pokey.rs`: the TIA's sound and buttons, the RIOT (timers as Stella measures
   the 6532), POKEY (four channels, 4/5/9/17-bit polynomials, three clocks, joined channels,
-  high-pass filters, two-tone and asynchronous modes; its interrupt isn't wired, as on MAME, a7800
-  and ProSystem).
+  high-pass filters, two-tone and asynchronous modes). A POKEY's or a YM2151's interrupt reaches
+  the processor only when the cartridge's header says it is wired.
 - `cart.rs`: headers (version 3 and version 4), the known list, every board, what MARIA sees on the
   BankSet and Souper boards.
 - `xm.rs`, `ym2151.rs`: the XM expansion module and the XBoarD (128 KB of RAM in 8 KB pages, the
   processor and MARIA each seeing their own, its POKEY at $0450, its High Score part, and the five
   control registers the community documents), and its YM2151 FM music chip: eight channels of four
   operators, the eight ways to connect them, the LFO, the noise generator and the two timers.
+- `coretone.rs`, `bupchip.rs`: the Souper board's music player, the "BupChip" that plays Rikki &
+  Vikki's music. The game writes one-byte commands to $8007 (play song n, stop, pause, carry on,
+  volume, reset). The board plays the songs from the game's own sample, instrument and song files
+  (the .cdf names them) with CoreTone, Osman Celimli's wavetable synthesizer: sixteen channels of
+  8-bit samples into 48 kHz stereo, its scripts stepping 240 times a second. `coretone.rs` is
+  CoreTone 1.2.2cz translated to Rust, under its zlib licence. It keeps the notice and is marked
+  as altered, with the changes listed at its top (only the music part, and safe answers where the
+  C would crash or hang). The app's open-source credits name it.
 - `savekey.rs`: the SaveKey's 24LC256 EEPROM, by the data sheet.
 - `palette.rs`: our own YIQ colour model, fitted to MAME's measured palettes (NTSC "Atari", PAL,
   and the warm-up stages Cool, Warm, Hot).
-- `libretro.rs`, `options.rs`: the core: 26 settings (`.kiro/notes/docs/A7800_OPTIONS_INVENTORY.md`),
+- `libretro.rs`, `options.rs`: the core: 29 settings (`.kiro/notes/docs/A7800_OPTIONS_INVENTORY.md`),
   save states, battery saves (the High Score Cartridge's RAM, then the SaveKey's 32 KB), memory for
   achievements and cheats, the picture's shape.
 
@@ -70,6 +79,18 @@ start straight away; the player's own BIOS (ProSystem's file names) can play the
   - the XM's YM2151, all 223,878 samples of a test that plays every way the operators connect,
     feedback, pitches across the range, the envelopes, the LFO on all four of its waveforms and the
     noise generator (`tests/ym2151_mame.rs`).
+- The music player against the original CoreTone, driven by ProSystem's BupChip layer through
+  `tests/coretone/bupchip_harness.c`. All 520,000 samples are the same (`tests/coretone.rs`). The
+  test runs made-up sample, instrument and song files through every script command and every
+  command the game can write:
+  - looped, one-shot and backwards samples;
+  - volume and pitch slides, one rising past the top;
+  - nested and endless loops, and a loop stack overflowing;
+  - calls, and a break unwinding sixteen calls deep;
+  - sixteen channels at once, loud enough to wrap round;
+  - every note, a sample the package lacks, and a song that isn't one.
+  The console plays it from a .cdf through $8007, and the app's engine finds the files when they
+  sit side by side with mismatched capitals (`catari_frontend.rs`).
 - The RIOT's timer against Stella, which has the same chip, on a 2600 port of the same test
   (`tests/riot_stella.rs`): MAME reads INTIM 2-3 lower, from rounding in its clock arithmetic.
 - The libretro core end to end (`tests/libretro.rs`) and through the app's engine
@@ -92,8 +113,15 @@ start straight away; the player's own BIOS (ProSystem's file names) can play the
 
 ## What is approximate, or not there yet
 
-- The Souper board's music player (the "BupChip", Rikki & Vikki's music, which ProSystem plays from
-  the game's .cdf files): not played; the game plays without its music. Later.
+- The music player keeps its own time, as the board's chip does. Its 48,000 samples a second are
+  real time on both TV systems. ProSystem steps it four times a frame, which on a PAL console
+  plays the music five-sixths as fast.
+- A save state carries the music player's whole state, so the music carries on from the same
+  sample. ProSystem keeps only the song and restarts it.
+- The music's level is our choice: at full swing as loud as the console's own sound, like the XM's
+  FM chip. ProSystem adds it at about four times that against the TIA, which clips. It has its own
+  volume setting.
+- Without its music files the game still plays, silently. ProSystem refuses to load it.
 - The XM's RAM paging follows the registers the a7800 emulator and the community document, not
   MAME 0.289, whose XM is a rougher stand-in (one 16 KB window, no separate pages for MARIA): there
   is nothing to compare it against.
@@ -110,6 +138,11 @@ start straight away; the player's own BIOS (ProSystem's file names) can play the
   `coreChoices[.atari7800] = [prosystem, continuumAtari]`; the picture's shape comes from the core.
 - `scripts/build-core.sh`: three `recipe-start: continuum_atari` regions, `IOS_KIND`
   "cargo-continuum-atari", and `IOS_OPTIONAL_CORES` (a build without it still works).
+- The app takes Rikki & Vikki's music files (`.smp`, `.ins`, `.mus`: `CoreCatalog.companionExtensions`,
+  importable and backed up, never Library rows). The import doesn't ask what system the .bin a .cdf
+  names is (`ImportCenter.finishImport`, the engine's `referenced_files` reading the .cdf). The core
+  looks for each file the .cdf names beside it, by its path, then by its name alone, capitals
+  ignored, because the app keeps every import side by side.
 - `native/ios/project.yml` embeds the dylib; `native/ios/not-in-ios-yml.txt` lists it;
   `scripts/check-core-cache.sh` checks it (229 checks).
 - `native/ios/build-engine.sh` and `.github/workflows/` are untouched, so the core cache stays.
@@ -117,5 +150,4 @@ start straight away; the player's own BIOS (ProSystem's file names) can play the
 ## What's next
 
 1. The owner plays it on the phone (TESTING.md); then cAtari can become the default for the 7800.
-2. The Souper board's music player (Rikki & Vikki's music).
-3. The same 6502 opens the way to the 2600, 5200 and Lynx.
+2. The same 6502 opens the way to the 2600, 5200 and Lynx.

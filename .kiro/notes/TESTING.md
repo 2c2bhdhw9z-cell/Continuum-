@@ -23,6 +23,11 @@ stays the 7800's default until you've played cAtari.
 6. Save a state, play on, load it. ✅ Back where you were.
 7. A game that needs the XM expansion module, if you have one (Donkey Kong XM, or an FM music demo).
    ✅ It plays, with the module's richer music.
+8. Rikki & Vikki, if you have the Steam version. From its folder, import in one go:
+   - the .cdf,
+   - the .bin beside it,
+   - every file in its Music folder (the .smp, .ins and .mus files).
+   Open the .cdf in the Library. ✅ It plays with its music.
 
 ## Build 244 (26 October, 6:20 PM): the Pokémon Box's Items, Gifts, Events, Migration, Showcase
 Commit 52b9f7c. Checked: 0.8.0 build 244, 39 emulators, JIT helper, the new tools' text in the app.

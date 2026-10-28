@@ -1589,6 +1589,9 @@ struct OpenSourceCreditsList: View {
         .init(name: "a5200", systems: "Atari 5200", license: "GPL v2", source: "https://github.com/libretro/a5200"),
         .init(name: "ProSystem", systems: "Atari 7800", license: "GPL v2", source: "https://github.com/libretro/prosystem-libretro"),
         .init(name: "Handy", systems: "Atari Lynx", license: "zlib license", source: "https://github.com/libretro/libretro-handy"),
+        // cAtari's music player for Rikki & Vikki: Osman Celimli's CoreTone, translated to Rust
+        // and altered (cores/continuum-atari/src/coretone.rs keeps its notice).
+        .init(name: "CoreTone, by Osman Celimli (translated to Rust and altered)", systems: "Atari 7800: Rikki & Vikki's music", license: "zlib license", source: "http://tailchao.com/Audio/index.php#BupBoop"),
         .init(name: "PokeMini", systems: "Pokemon Mini", license: "GPL v3", source: "https://github.com/libretro/PokeMini"),
         .init(name: "PUAE", systems: "Amiga", license: "GPL v2", source: "https://github.com/libretro/libretro-uae"),
         .init(name: "VICE x64sc", systems: "Commodore 64", license: "GPL v2", source: "https://github.com/libretro/vice-libretro"),
