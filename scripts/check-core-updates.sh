@@ -52,6 +52,8 @@ checked_skip() {
       echo "e57860d82faa953dc0fc10f201fd583739bc2f7d|3-7% slower on the software renderer the app uses|12 October 2026" ;;
     mednafen_pce_fast)
       echo "4eee99c451f85ebe66d1591de88b892015b23059|only the Spanish and Swedish translations of its settings changed, and Continuum always shows them in English; the emulator Continuum builds is the same|27 October 2026" ;;
+    blastem)
+      echo "2230addc4dd74dd094fd264987fd808abba32d0e|only its makers' web-browser build changed (a new build job, and two network functions renamed for it, which Continuum never uses); the emulator Continuum builds runs the same code|27 October 2026" ;;
     prboom)
       echo "d14d20939640690b9fcef466e10038a9e630c70a39c173f6f048f823cbd5d060|turns the default sound and music volume to max, so DOOM’s sound clips|12 October 2026" ;;
     virtualjaguar)
