@@ -143,8 +143,9 @@ impl Xm {
     pub fn read_low(&mut self, addr: u16, now: u64) -> Option<u8> {
         match self.low_kind(addr) {
             Low::Pokey => Some(self.pokey.read(addr as u8)),
-            // $0460 reads the chip's status, $0461 reads it too (the chip has one status byte).
-            Low::Ym => Some(self.ym.status(now)),
+            // Only the chip's second address reads its status; the first is write-only.
+            Low::Ym if addr & 1 != 0 => Some(self.ym.status(now)),
+            Low::Ym => Some(0xFF),
             Low::Cntrl(_) => Some(0xFF),
             _ => None,
         }
