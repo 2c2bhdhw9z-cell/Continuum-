@@ -37,12 +37,12 @@ def hsc_rom():
     return bytes((i * 7 + (i >> 8)) & 0xFF for i in range(0x1000))
 
 
-def run_mame(work, cart, lua, seconds, extra=(), pal=False, hsc=False):
+def run_mame(work, cart, lua, seconds, extra=(), pal=False, hsc=False, xm=False):
     """Runs MAME's a7800 (a7800p for PAL) in `work` with the cartridge and a Lua script; returns
     MAME's log. The stand-in BIOS goes in under the real BIOS's name: MAME runs it after warning
     that its checksum is wrong. With `hsc`, the cartridge goes into MAME's High Score Cartridge
     (its software list's "hiscore", with our stand-in ROM under the real one's name, and fresh
-    RAM each run)."""
+    RAM each run); with `xm`, into its XM expansion module ("xm", which carries the same ROM)."""
     mame = os.environ["MAME"]
     machine = "a7800p" if pal else "a7800"
     roms = os.path.join(work, "roms", machine)
@@ -63,12 +63,13 @@ def run_mame(work, cart, lua, seconds, extra=(), pal=False, hsc=False):
     open(lua_path, "w").write(lua)
     env = dict(os.environ, SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy")
     carts = ["-cart", cart_path]
-    if hsc:
-        os.makedirs(os.path.join(roms, "hiscore"), exist_ok=True)
-        open(os.path.join(roms, "hiscore", "highscre.bin"), "wb").write(hsc_rom())
+    if hsc or xm:
+        slot = "xm" if xm else "hiscore"
+        os.makedirs(os.path.join(roms, slot), exist_ok=True)
+        open(os.path.join(roms, slot, "highscre.bin"), "wb").write(hsc_rom())
         # MAME's software lists (hash/), beside the binary in its source tree, or MAME_HASH.
         hashes = os.environ.get("MAME_HASH", os.path.join(os.path.dirname(os.path.abspath(mame)), "hash"))
-        carts = ["-hashpath", hashes, "-cart", "hiscore", "-cart2", cart_path]
+        carts = ["-hashpath", hashes, "-cart", slot, "-cart2", cart_path]
     out = subprocess.run(
         [mame, machine, "-rompath", os.path.join(work, "roms"), *carts,
          "-video", "none", "-sound", "none", "-nothrottle", "-skip_gameinfo",

@@ -22,6 +22,7 @@ use crate::maria::Maria;
 use crate::riot::Riot;
 use crate::savekey::{self, SaveKey};
 use crate::tia::TiaSound;
+use crate::xm::Xm;
 use serde::{Deserialize, Serialize};
 
 pub const LINE_CLOCKS: u64 = 454;
@@ -29,6 +30,8 @@ pub const WIDTH: usize = 320;
 /// Processor cycle in MARIA clocks, and the slow cycle for TIA and RIOT accesses.
 const CYCLE: u64 = 4;
 const SLOW_CYCLE: u64 = 6;
+/// The XM's YM2151 makes one sample every 64 of its own clocks: 32 processor cycles.
+const YM_SAMPLE: u64 = 32 * CYCLE;
 /// DMA starts seven processor cycles after the line begins.
 const DMA_START: u64 = 7 * CYCLE;
 
@@ -68,6 +71,17 @@ impl Region {
     pub fn fps(self) -> f64 {
         self.maria_hz() as f64 / (LINE_CLOCKS as f64 * self.lines() as f64)
     }
+}
+
+/// One output sample's parts, each averaged over its stretch of MARIA clocks.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Sample {
+    /// The TIA's level, 0 to 30.
+    pub tia: f32,
+    /// Every POKEY's levels added, 0 to 60 each.
+    pub pokey: f32,
+    /// The XM's YM2151, left and right, -32768 to 32767.
+    pub ym: (f32, f32),
 }
 
 /// What is plugged into a controller port.
@@ -145,6 +159,9 @@ pub struct Sys {
     pub hsc_rom: Option<Vec<u8>>,
     pub savekey: Option<SaveKey>,
     savekey_at: usize,
+    /// The XM expansion module, when the game asks for it: 128 KB of RAM, a POKEY, a YM2151 and
+    /// the High Score Cartridge's saving (xm.rs).
+    pub xm: Option<Xm>,
     pub ctrl_lock: bool,
     pub ctrl_reg: u8,
     /// Now, in MARIA clocks since power-on.
@@ -180,13 +197,22 @@ pub struct Sys {
     /// When the next POKEY step is due (MARIA clocks).
     pokey_next: u64,
     pokey_level: u8,
+    /// The XM's YM2151 makes a sample every `ym_num / ym_den` MARIA clocks (32 processor cycles
+    /// on the board; MAME 0.289 rounds its rate to whole hertz, which its test copies).
+    ym_num: u64,
+    ym_den: u64,
+    /// When its next sample is due, in MARIA clocks times `ym_den`.
+    ym_next: u64,
+    ym_level: (i32, i32),
     /// Sound mixed so far: level x MARIA clocks, since `mix_from`.
     mix_tia: u64,
     mix_pokey: u64,
+    mix_ym: (i64, i64),
     mix_from: u64,
-    /// Output samples (TIA level average, POKEY level average), `out_rate` a second.
+    /// Output samples, `out_rate` a second: the TIA's average level (0-30), the POKEYs' (0-60 each)
+    /// and the YM2151's two sides (-32768 to 32767).
     #[serde(skip)]
-    pub out: Vec<(f32, f32)>,
+    pub out: Vec<Sample>,
     /// When the next output sample ends, in MARIA clocks times `out_rate`.
     out_next: u64,
     out_last: u64,
@@ -201,6 +227,15 @@ pub struct Sys {
     /// the write, address, value).
     #[serde(skip)]
     pub pokey_writes: Option<Vec<(u64, u64, u16, u8)>>,
+    /// Every sample the XM's YM2151 makes, likewise.
+    #[serde(skip)]
+    pub ym_log: Option<Vec<(i32, i32)>>,
+    /// Every write to it, likewise: (the MARIA clock, the clock its line started on, which of its
+    /// two addresses, the value).
+    #[serde(skip)]
+    pub ym_writes: Option<Vec<(u64, u64, u8, u8)>>,
+    /// How many samples it has made.
+    ym_samples: u64,
 }
 
 impl Sys {
@@ -218,6 +253,7 @@ impl Sys {
             hsc_rom: None,
             savekey: None,
             savekey_at: 0,
+            xm: None,
             ctrl_lock: false,
             ctrl_reg: 0,
             now: 0,
@@ -243,8 +279,13 @@ impl Sys {
             tia_level: 0,
             pokey_next: 0,
             pokey_level: 0,
+            ym_num: YM_SAMPLE,
+            ym_den: 1,
+            ym_next: 0,
+            ym_level: (0, 0),
             mix_tia: 0,
             mix_pokey: 0,
+            mix_ym: (0, 0),
             mix_from: 0,
             out: Vec::new(),
             out_next: 0,
@@ -253,6 +294,9 @@ impl Sys {
             tia_log: None,
             pokey_log: None,
             pokey_writes: None,
+            ym_log: None,
+            ym_writes: None,
+            ym_samples: 0,
         };
         s.set_output_rate(48_000);
         if s.bios.is_none() {
@@ -273,12 +317,44 @@ impl Sys {
         self.tia_next = (self.now + first) * den;
     }
 
+    /// Sets the XM's YM2151 sample rate, as MARIA clocks per sample (`num / den`). The chip's
+    /// samples are counted from power-on, so the grid keeps its place.
+    pub fn set_ym_period(&mut self, num: u64, den: u64) {
+        self.ym_num = num;
+        self.ym_den = den;
+        self.ym_next = self.ym_samples * num;
+        if let Some(x) = self.xm.as_mut() {
+            x.ym.sample_clocks = num / den;
+        }
+    }
+
     /// Output samples a second: each one averages the sound over its stretch of MARIA clocks,
     /// the stretches 149 or 150 clocks long so a second holds exactly `hz` of them.
     pub fn set_output_rate(&mut self, hz: u64) {
         self.out_rate = hz.max(1);
         self.out_last = self.now;
         self.out_next = self.now * self.out_rate + self.region.maria_hz();
+    }
+
+    /// Whether anything in the machine has a POKEY to clock.
+    fn has_pokey(&self) -> bool {
+        self.cart.has_pokey() || self.xm.is_some()
+    }
+
+    /// Whether the XM's YM2151 is there.
+    fn has_ym(&self) -> bool {
+        self.xm.is_some()
+    }
+
+    /// Plugs the XM expansion module in, with the game on top of it. Its High Score part keeps
+    /// its scores in the console's battery memory, as the plain cartridge does.
+    pub fn plug_xm(&mut self, hsc_rom: Option<Vec<u8>>) {
+        if self.xm.is_none() {
+            self.xm = Some(Xm::default());
+        }
+        if let Some(rom) = hsc_rom {
+            self.plug_hsc(rom);
+        }
     }
 
     /// Plugs the High Score Cartridge in with the player's own 4 KB ROM. Its RAM starts as all
@@ -335,9 +411,10 @@ impl Sys {
     fn sound_to(&mut self, t: u64) {
         loop {
             let tia_at = self.tia_next.div_ceil(self.tia_den);
-            let pokey_at = if self.cart.has_pokey() { self.pokey_next } else { u64::MAX };
+            let pokey_at = if self.has_pokey() { self.pokey_next } else { u64::MAX };
+            let ym_at = if self.has_ym() { self.ym_next.div_ceil(self.ym_den) } else { u64::MAX };
             let out_at = self.out_next.div_ceil(self.out_rate);
-            let next = tia_at.min(pokey_at).min(out_at);
+            let next = tia_at.min(pokey_at).min(ym_at).min(out_at);
             if next > t {
                 break;
             }
@@ -351,16 +428,34 @@ impl Sys {
             }
             if next == pokey_at {
                 self.pokey_level = self.cart.clock_pokeys();
+                if let Some(x) = self.xm.as_mut() {
+                    self.pokey_level += x.clock_pokey();
+                }
                 if let Some(log) = self.pokey_log.as_mut() {
                     log.push(self.pokey_level);
                 }
                 self.pokey_next += CYCLE;
             }
+            if next == ym_at {
+                if let Some(x) = self.xm.as_mut() {
+                    self.ym_level = x.ym.sample(ym_at);
+                }
+                if let Some(log) = self.ym_log.as_mut() {
+                    log.push(self.ym_level);
+                }
+                self.ym_samples += 1;
+                self.ym_next += self.ym_num;
+            }
             if next == out_at {
                 let p = (out_at - self.out_last).max(1) as f32;
-                self.out.push((self.mix_tia as f32 / p, self.mix_pokey as f32 / p));
+                self.out.push(Sample {
+                    tia: self.mix_tia as f32 / p,
+                    pokey: self.mix_pokey as f32 / p,
+                    ym: (self.mix_ym.0 as f32 / p, self.mix_ym.1 as f32 / p),
+                });
                 self.mix_tia = 0;
                 self.mix_pokey = 0;
+                self.mix_ym = (0, 0);
                 self.out_last = out_at;
                 self.out_next += self.region.maria_hz();
             }
@@ -372,6 +467,21 @@ impl Sys {
     /// (that one already sees a write), as on MAME 0.289.
     fn pokey_sync(&mut self) {
         self.sound_to(self.now.saturating_sub(1));
+    }
+
+    /// True if `addr` is the XM's FM chip. Its reads and writes bring the sound right up to the
+    /// moment (MAME 0.289 does the same), while POKEY's stop a clock short.
+    fn is_ym(&self, addr: u16) -> bool {
+        self.xm.as_ref().is_some_and(|x| matches!(x.low_kind(addr), crate::xm::Low::Ym))
+    }
+
+    /// Brings the sound chips up to the processor's cycle before a read or write of one of them.
+    fn chip_sync(&mut self, addr: u16) {
+        if self.is_ym(addr) {
+            self.sound_to(self.now);
+        } else if self.has_pokey() {
+            self.pokey_sync();
+        }
     }
 
     fn log_pokey_write(&mut self, addr: u16, v: u8) {
@@ -386,6 +496,8 @@ impl Sys {
             let dt = t - self.mix_from;
             self.mix_tia += self.tia_level as u64 * dt;
             self.mix_pokey += self.pokey_level as u64 * dt;
+            self.mix_ym.0 += self.ym_level.0 as i64 * dt as i64;
+            self.mix_ym.1 += self.ym_level.1 as i64 * dt as i64;
             self.mix_from = t;
         }
     }
@@ -480,7 +592,9 @@ impl Sys {
             0x1800..=0x1FFF => self.ram[(addr - 0x1800) as usize],
             0x2000..=0x27FF => self.ram[(addr - 0x1800) as usize],
             0x4000..=0xFFFF => {
-                if addr >= 0xC000 && self.bios_enabled() {
+                if let Some(x) = self.xm.as_ref().filter(|x| x.ram_at(addr)) {
+                    x.read_ram(addr, true)
+                } else if addr >= 0xC000 && self.bios_enabled() {
                     self.bios_read(addr)
                 } else {
                     self.cart.maria_peek(addr)
@@ -658,8 +772,10 @@ impl Sys {
             0x0020..=0x003F | 0x0120..=0x013F | 0x0220..=0x023F | 0x0320..=0x033F => self.maria.read(addr as u8),
             0x0040..=0x00FF | 0x0140..=0x01FF => self.ram[0x800 + (addr & 0x1FF) as usize],
             0x0400..=0x047F | 0x0800..=0x17FF | 0x3000..=0x3FFF => {
-                if self.cart.has_pokey() {
-                    self.pokey_sync();
+                self.chip_sync(addr);
+                let now = self.now;
+                if let Some(v) = self.xm.as_mut().and_then(|x| x.read_low(addr, now)) {
+                    return v;
                 }
                 match self.cart.read_low(addr) {
                     Some(v) => v,
@@ -670,6 +786,9 @@ impl Sys {
             0x1800..=0x1FFF => self.ram[(addr - 0x1800) as usize],
             0x2000..=0x27FF => self.ram[(addr - 0x1800) as usize],
             0x4000..=0xFFFF => {
+                if self.xm.as_ref().is_some_and(|x| x.ram_at(addr)) {
+                    return self.xm.as_ref().unwrap().read_ram(addr, false);
+                }
                 if addr >= 0xC000 && self.bios_enabled() {
                     self.bios_read(addr)
                 } else {
@@ -697,8 +816,22 @@ impl Sys {
             }
             0x0040..=0x00FF | 0x0140..=0x01FF => self.ram[0x800 + (addr & 0x1FF) as usize] = v,
             0x0400..=0x047F | 0x0800..=0x17FF | 0x3000..=0x3FFF => {
-                if self.cart.has_pokey() {
-                    self.pokey_sync();
+                self.chip_sync(addr);
+                let now = self.now;
+                if let Some(x) = self.xm.as_mut() {
+                    if !matches!(x.low_kind(addr), crate::xm::Low::None | crate::xm::Low::HscRam) {
+                        let ym = matches!(x.low_kind(addr), crate::xm::Low::Ym);
+                        if x.write_low(addr, v, now) {
+                            self.log_pokey_write(addr, v);
+                        }
+                        if ym {
+                            let (at, line) = (self.now, self.line_start);
+                            if let Some(log) = self.ym_writes.as_mut() {
+                                log.push((at, line, addr as u8 & 1, v));
+                            }
+                        }
+                        return;
+                    }
                 }
                 match self.cart.write_low(addr, v) {
                     Some(true) => self.log_pokey_write(addr, v),
@@ -714,6 +847,10 @@ impl Sys {
             0x1800..=0x1FFF => self.ram[(addr - 0x1800) as usize] = v,
             0x2000..=0x27FF => self.ram[(addr - 0x1800) as usize] = v,
             0x4000..=0xFFFF => {
+                if self.xm.as_ref().is_some_and(|x| x.ram_at(addr)) {
+                    self.xm.as_mut().unwrap().write_ram(addr, v);
+                    return;
+                }
                 if addr < 0x8000 && self.cart.has_pokey() {
                     self.pokey_sync();
                 }
@@ -780,6 +917,9 @@ impl Atari7800 {
     /// The console's reset (the Reset switch on a 7800 is a game input; this is power-on/reset).
     pub fn reset(&mut self) {
         self.sys.cart.reset();
+        if let Some(x) = self.sys.xm.as_mut() {
+            x.reset();
+        }
         self.sys.maria = Maria::default();
         if self.sys.bios.is_some() {
             self.sys.ctrl_lock = false;

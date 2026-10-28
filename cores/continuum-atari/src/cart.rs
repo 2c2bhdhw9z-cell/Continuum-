@@ -92,6 +92,8 @@ pub struct Info {
     pub save_device: u8,
     pub light_gun: bool,
     pub from_header: bool,
+    /// The game wants the XM expansion module (the header's expansion byte, or a YM2151 on it).
+    pub xm: bool,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -136,6 +138,47 @@ pub fn crc32(data: &[u8]) -> u32 {
 /// The board the header's mapper word describes (bits 0-15 as the .a78 v4 header documents
 /// them), with the community's usual fixes for headers that contradict themselves (as MAME and
 /// the a7800 emulator apply them).
+/// The same from a version 4 header's own bytes (64 the board, 65 its options, 67 the sound
+/// chips), as the community's 7800header tool writes them. A version 4 file may fill the older
+/// bytes 53-54 with $FF, which is what sends us here.
+fn board_from_v4(mapper: u8, options: u8, audio: u8, len: usize) -> (Kind, Pokeys, bool, bool) {
+    let bankset = options & 0x80 != 0;
+    let kind = match (mapper, options & 7, bankset) {
+        (4, _, _) => Kind::Souper,
+        (2, _, _) => Kind::Activision,
+        (3, _, _) => Kind::Absolute,
+        (1, 1, false) => Kind::SgRam,
+        (1, 2, false) => Kind::Mram,
+        (1, 6, false) => {
+            if len > 0x40000 {
+                Kind::MegaCart
+            } else {
+                Kind::Versa
+            }
+        }
+        (1, 5, false) => Kind::Sg9,
+        (1, _, false) => Kind::Sg,
+        (1, 1 | 6, true) => Kind::BankSetSgRam,
+        (1, _, true) => Kind::BankSetSg,
+        (_, 1 | 6, true) => Kind::BankSetRam,
+        (_, _, true) => Kind::BankSet,
+        (_, 2, false) => Kind::Mram,
+        _ => Kind::Rom,
+    };
+    // The sound byte's low three bits say where a POKEY is: 1 $0440, 2 $0450, 3 both, 4 $0800,
+    // 5 $4000.
+    let (at_4000, low) = match audio & 7 {
+        1 => (false, Some(0x0440)),
+        2 => (false, Some(0x0450)),
+        3 => (false, Some(0x0440)),
+        4 => (false, Some(0x0800)),
+        5 => (true, None),
+        _ => (false, None),
+    };
+    let pokeys = Pokeys { at_4000: at_4000 && matches!(kind, Kind::Rom | Kind::Sg | Kind::BankSet), low };
+    (kind, pokeys, !kind.bankset(), audio & 0x08 != 0)
+}
+
 fn board_from_mapper(mut head: u16, len: usize) -> (Kind, Pokeys, bool) {
     match head & 0x3D {
         0x05 | 0x09 | 0x11 | 0x21 => head &= !0x01,
@@ -235,7 +278,17 @@ impl Cart {
             info.save_device = head[58];
             info.light_gun = head[55] == 2 || head[56] == 2;
             info.from_header = true;
-            let (kind, pokeys, reads) = board_from_mapper(mapper, len);
+            // A version 4 header's own bytes, when the older ones are filled in with $FF.
+            let (kind, pokeys, reads, ym) = if head[0] >= 4 && mapper == 0xFFFF {
+                board_from_v4(head[64], head[65], head[67], len)
+            } else {
+                let (k, p, r) = board_from_mapper(mapper, len);
+                // The older word's bit 11 is a YM2151 at $0460; a version 4 header also says so
+                // in its sound byte.
+                let ym = mapper & 0x0800 != 0 || (head[0] >= 4 && head[67] & 0x08 != 0);
+                (k, p, r, ym)
+            };
+            info.xm = ym || head[63] == 1;
             (kind, pokeys, reads, rom)
         } else {
             let crc = crc32(data);

@@ -12,7 +12,7 @@ use std::sync::Mutex;
 
 use crate::cart::Cart;
 use crate::machine::{Atari7800, PortKind, Region};
-use crate::options::{Hsc, Port, Settings, SlowIo};
+use crate::options::{Hsc, Port, Settings, SlowIo, XmWhen};
 
 #[repr(C)]
 pub struct RetroSystemInfo {
@@ -140,9 +140,9 @@ struct Core {
     switches: [bool; 2],
     held: [bool; 2],
     /// The sound filters' state: the low-pass, and the DC-removing high-pass.
-    lp: f32,
-    hp_in: f32,
-    hp_out: f32,
+    lp: [f32; 2],
+    hp_in: [f32; 2],
+    hp_out: [f32; 2],
     audio: Vec<i16>,
     /// Where the light gun points, in the picture's dots and lines.
     aim: Option<(i32, i32)>,
@@ -374,9 +374,18 @@ unsafe fn machine(cart: Cart, s: &Settings, env: Option<EnvFn>) -> Option<Box<At
         Hsc::Off => false,
         Hsc::Auto => cart.info.save_device == 1,
     };
+    let wants_xm = match s.xm {
+        XmWhen::On => true,
+        XmWhen::Off => false,
+        XmWhen::Auto => cart.info.xm,
+    };
     let mut m = Box::new(Atari7800::new(cart, region, bios));
     m.sys.ports = ports;
-    if let (Some(e), true) = (env, wants_hsc) {
+    if wants_xm {
+        // The XM carries the High Score Cartridge's chip, so its ROM goes in with it.
+        let rom = env.and_then(|e| read_hsc(e));
+        m.sys.plug_xm(rom);
+    } else if let (Some(e), true) = (env, wants_hsc) {
         if let Some(rom) = read_hsc(e) {
             m.sys.plug_hsc(rom);
         }
@@ -425,9 +434,9 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
         prev: Vec::new(),
         switches: s.difficulty_a,
         held: [false; 2],
-        lp: 0.0,
-        hp_in: 0.0,
-        hp_out: 0.0,
+        lp: [0.0; 2],
+        hp_in: [0.0; 2],
+        hp_out: [0.0; 2],
         audio: Vec::with_capacity(2048),
         aim: None,
         s: s.clone(),
@@ -475,6 +484,9 @@ pub extern "C" fn retro_reset() {
             fresh.sys.slow_io = slow;
             fresh.sys.set_output_rate(rate as u64);
             // What keeps without power stays plugged in and kept.
+            if m.sys.xm.is_some() {
+                fresh.sys.plug_xm(None);
+            }
             if let Some(rom) = m.sys.hsc_rom.take() {
                 fresh.sys.plug_hsc(rom);
             }
@@ -610,6 +622,7 @@ pub unsafe extern "C" fn retro_run() {
             s.region = core.at_start.region;
             s.bios = core.at_start.bios;
             s.hsc = core.at_start.hsc;
+            s.xm = core.at_start.xm;
             s.overscan = core.at_start.overscan;
             s.sound_rate = core.at_start.sound_rate;
             s.ports = core.at_start.ports;
@@ -658,23 +671,27 @@ pub unsafe extern "C" fn retro_run() {
         video(shown.as_ptr() as *const c_void, w as u32, h as u32, w * 4);
     }
 
-    // The sound: the TIA's level (0-30) and POKEY's (0-60) averaged over each output sample.
+    // The sound, each part averaged over the output sample: the TIA's level (0-30), the POKEYs'
+    // (0-60) and the XM's YM2151 in stereo.
     let s = &core.s;
     let tia = s.tia_volume as f32 / 100.0 / 30.0;
     let pokey = s.pokey_volume as f32 / 100.0 / 60.0;
+    let ym = s.ym_volume as f32 / 100.0 / 32_768.0;
     let master = s.volume as f32 / 100.0;
     let a = if s.lowpass { s.lowpass_level as f32 / 100.0 } else { 0.0 };
     core.audio.clear();
-    for (t, p) in core.m.sys.out.drain(..) {
-        let x = (t * tia + p * pokey) * master;
-        // Remove the steady offset (the TIA's output only swings one way), as the TV's input did.
-        let hp = 0.999 * (core.hp_out + x - core.hp_in);
-        core.hp_in = x;
-        core.hp_out = hp;
-        core.lp = core.lp * a + hp * (1.0 - a);
-        let v = (core.lp * 24_000.0).clamp(-32768.0, 32767.0) as i16;
-        core.audio.push(v);
-        core.audio.push(v);
+    for sm in core.m.sys.out.drain(..) {
+        let mono = sm.tia * tia + sm.pokey * pokey;
+        let x = [(mono + sm.ym.0 * ym) * master, (mono + sm.ym.1 * ym) * master];
+        for (k, &x) in x.iter().enumerate() {
+            // Take the steady offset out (the TIA's and POKEY's output only swings one way), as
+            // the television's input did, then the softening filter if it is on.
+            let hp = 0.999 * (core.hp_out[k] + x - core.hp_in[k]);
+            core.hp_in[k] = x;
+            core.hp_out[k] = hp;
+            core.lp[k] = core.lp[k] * a + hp * (1.0 - a);
+            core.audio.push((core.lp[k] * 24_000.0).clamp(-32768.0, 32767.0) as i16);
+        }
     }
     if let Some(audio) = audio {
         let mut sent = 0;

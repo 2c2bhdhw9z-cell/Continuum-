@@ -216,6 +216,25 @@ POKEY_SOUND = [
 ]
 
 
+# (case, program, frames): the XM expansion module's YM2151, recorded at the chip's own rate
+# (3,579,544 / 64 = 55,930 Hz, which MAME can record). MAME puts the XM's sound on a speaker of
+# its own, so the second recorded channel is the chip's two sides added.
+# tests/ym2151_mame.rs checks our chip against it, sample for sample.
+YM_SOUND = [
+    ("xm", "xm", 240),
+]
+
+
+def ym_sound(case, program, frames):
+    work = os.path.abspath(f"mame-{case}")
+    os.makedirs(work, exist_ok=True)
+    lua = ("sub = emu.add_machine_frame_notifier(function() "
+           f"if manager.machine.screens[':screen']:frame_number() >= {frames} + 2 then manager.machine:exit() end end)\n")
+    a78.run_mame(work, a78.cartridge(program), lua, frames // 50 + 5, xm=True,
+                 extra=("-samplerate", "55930", "-wavwrite", f"{case}.wav"))
+    print(f"{case}: {os.path.join(work, case + '.wav')}")
+
+
 def pokey_sound(case, program, frames):
     work = os.path.abspath(f"mame-{case}")
     os.makedirs(work, exist_ok=True)
@@ -237,6 +256,9 @@ def main():
     for case, program, frames in POKEY_SOUND:
         if not wanted or case in wanted:
             pokey_sound(case, program, frames)
+    for case, program, frames in YM_SOUND:
+        if not wanted or case in wanted:
+            ym_sound(case, program, frames)
 
 
 if __name__ == "__main__":

@@ -83,6 +83,9 @@ const SPECS: &[Spec] = &[
     (c"system", c"catari_hsc", c"High Score Cartridge",
      c"Keeps high scores in the games made for it. Needs your own highscre.bin with the BIOS files.",
      &[(c"auto", c"Auto"), (c"on", c"Every game"), (c"off", c"Off")], c"auto"),
+    (c"system", c"catari_xm", c"XM expansion module",
+     c"Extra memory and an FM music chip, for the games made for it. Changes apply at the next start.",
+     &[(c"auto", c"Auto"), (c"on", c"Every game"), (c"off", c"Off")], c"auto"),
     (c"system", c"catari_slow_io", c"Slow chip access",
      c"The console slows down to talk to its sound and controller chips; light gun games need it.",
      &[(c"auto", c"Auto (light gun games)"), (c"on", c"Always, like the console"), (c"off", c"Never")], c"auto"),
@@ -104,6 +107,8 @@ const SPECS: &[Spec] = &[
     (c"audio", c"catari_tia_volume", c"Console sound (TIA)", c"", PCT, c"100"),
     (c"audio", c"catari_pokey_volume", c"Cartridge sound (POKEY)",
      c"The extra sound chip in some cartridges, like Ballblazer and Commando.", PCT, c"100"),
+    (c"audio", c"catari_ym_volume", c"Expansion module sound (YM2151)",
+     c"The FM music chip in the XM expansion module.", PCT, c"100"),
     (c"audio", c"catari_lowpass", c"Soften the sound",
      c"Takes the harsh edge off the TIA's tones.", OFF_ON, c"off"),
     (c"audio", c"catari_lowpass_level", c"Softening strength", c"Higher takes away more of the high notes.",
@@ -143,6 +148,15 @@ pub enum Port {
     SaveKey,
 }
 
+/// When to plug the XM expansion module in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum XmWhen {
+    /// For the games whose header asks for it.
+    Auto,
+    On,
+    Off,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hsc {
     /// For the games whose header asks for it.
@@ -163,6 +177,7 @@ pub struct Settings {
     pub region: Option<bool>,
     pub bios: bool,
     pub hsc: Hsc,
+    pub xm: XmWhen,
     pub slow_io: SlowIo,
     pub palette: crate::palette::Preset,
     pub saturation: u8,
@@ -172,6 +187,7 @@ pub struct Settings {
     pub volume: u8,
     pub tia_volume: u8,
     pub pokey_volume: u8,
+    pub ym_volume: u8,
     pub lowpass: bool,
     pub lowpass_level: u8,
     pub sound_rate: u32,
@@ -191,6 +207,7 @@ impl Default for Settings {
             region: None,
             bios: false,
             hsc: Hsc::Auto,
+            xm: XmWhen::Auto,
             slow_io: SlowIo::Auto,
             palette: crate::palette::Preset::Atari,
             saturation: 100,
@@ -200,6 +217,7 @@ impl Default for Settings {
             volume: 100,
             tia_volume: 100,
             pokey_volume: 100,
+            ym_volume: 100,
             lowpass: false,
             lowpass_level: 60,
             sound_rate: 48_000,
@@ -227,6 +245,11 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
         _ => None,
     };
     s.bios = on(c"catari_bios", false);
+    s.xm = match get(c"catari_xm").as_deref() {
+        Some("on") => XmWhen::On,
+        Some("off") => XmWhen::Off,
+        _ => XmWhen::Auto,
+    };
     s.hsc = match get(c"catari_hsc").as_deref() {
         Some("on") => Hsc::On,
         Some("off") => Hsc::Off,
@@ -256,6 +279,7 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>) -> Settings {
     s.volume = pct(c"catari_volume");
     s.tia_volume = pct(c"catari_tia_volume");
     s.pokey_volume = pct(c"catari_pokey_volume");
+    s.ym_volume = pct(c"catari_ym_volume");
     s.lowpass = on(c"catari_lowpass", false);
     s.lowpass_level = get(c"catari_lowpass_level").and_then(|v| v.parse().ok()).unwrap_or(60).clamp(5, 95);
     s.sound_rate = match get(c"catari_sound_rate").as_deref() {

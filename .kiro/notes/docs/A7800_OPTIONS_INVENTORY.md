@@ -21,10 +21,10 @@ the emulator's own computer screen). Read from each emulator's own code at the c
 
 ## In cAtari (27 October)
 
-26 settings (`cores/continuum-atari/src/options.rs`), in four groups: System (TV system, console
-start-up screen, High Score Cartridge, slow chip access), Picture (colours, colour strength,
-brightness, whole picture, smooth flicker), Sound (volume, console sound, cartridge sound, soften
-the sound and its strength, sample rate), Controls (controller 1 and 2, dual-stick games, the two
+28 settings (`cores/continuum-atari/src/options.rs`), in four groups: System (TV system, console
+start-up screen, High Score Cartridge, XM expansion module, slow chip access), Picture (colours, colour strength,
+brightness, whole picture, smooth flicker), Sound (volume, console sound, cartridge sound,
+expansion module sound, soften the sound and its strength, sample rate), Controls (controller 1 and 2, dual-stick games, the two
 difficulty switches and how their buttons work, opposite directions, light gun crosshair, its colour,
 its aim both ways).
 
@@ -42,13 +42,13 @@ its aim both ways).
 | a7800 | Palette machines: NTSC Hot, Warm, Cool; PAL Cool, Warm, Hot | done | `catari_palette` (Atari, Cool, Warm, Hot, PAL console, black and white) with `catari_saturation` and `catari_brightness`; our own colour model, fitted to MAME's measured palettes |
 | a7800 | Developer mode | n/a | for writing 7800 programs on a computer |
 | a7800 | Controllers per port (joystick, light gun, paddles, others) | done | `catari_port1` (Auto, joystick, light gun, paddles), `catari_port2` (Auto, joystick, paddles, SaveKey/AtariVox); trak-ball, mice and keypads are 2600 or rare: gap |
-| a7800 | XM expansion module | gap | XM games play their SuperGame part; the XM's own RAM, POKEY and YM2151 sound chip are later |
+| a7800 | XM expansion module | done | `catari_xm` (Auto, Every game, Off): 128 KB of RAM, its POKEY and its YM2151 FM chip (ours, matching MAME sample for sample), and its High Score saving |
 | BizHawk | Port 1 / Port 2 (unplugged, standard 2600 stick, ProLine, light gun) | done | the 2600 stick reads as a one-button ProLine on the 7800; "unplugged" is the app's |
 | JS7800 | Screen size, aspect ratio, full screen, filter | app | the app's picture size, shape and screen filters (cAtari reports the picture's shape) |
 | JS7800 | Palette: ProSystem's, Cool/Warm/Hot dark and light | done | `catari_palette` plus brightness for dark or light; ProSystem's own table isn't copied (colour strength gives the brighter look) |
 | JS7800 | Save scores, where, local fallback | done / app | high scores keep in the High Score Cartridge or SaveKey, saved by the app with the game; an online score server is n/a |
 | JS7800 | Keyboard and gamepad mapping | app | the app's controls |
-| JS7800 | Expansion module (XM): Auto, on, off | gap | as a7800's XM above |
+| JS7800 | Expansion module (XM): Auto, on, off | done | `catari_xm`, the same three choices |
 | JS7800 | Frame skipping, vertical sync | app | the app's speed and display |
 | EMU7800 | Touch controls shown, their spacing | app | the app's touch controls |
 
@@ -64,8 +64,6 @@ its aim both ways).
 
 ## Gaps, and why
 
-- The XM expansion module (its RAM, POKEY and YM2151): later, as a whole piece; its games still play
-  their SuperGame part.
 - The Souper board's music player (Rikki & Vikki's music, which ProSystem plays from the game's .cdf
   files): later; the game plays, without its music.
 - Trak-ball, ST and Amiga mice, 2600 keypads and driving controllers in the header's controller list:

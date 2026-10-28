@@ -1,0 +1,33 @@
+# MAME 0.289's a7800 with the XM expansion module playing test-programs/xm.asm, its
+# YM2151 recorded at the chip's own 55,930 Hz; made by tests/ym2151_mame.rs, which
+# checked all 223878 of its samples against ours. FNV-1a 64 of each 8192 (the
+# chip's two sides added, as MAME's speaker adds them).
+frames 240
+samples 221184
+block 0 942f9f15431a8ce0
+block 1 df1246d80a95f276
+block 2 5050d8190cda0907
+block 3 015d7431ae2889ea
+block 4 289c8bf082031909
+block 5 e1f8727f04525b2c
+block 6 8f6955bf94ec2325
+block 7 fca2ac12cb5c2e1a
+block 8 827db359cc554abf
+block 9 cf43f20115e2484a
+block 10 8f6955bf94ec2325
+block 11 426d4a460c9954de
+block 12 2464470d6f07a884
+block 13 72e54e2f98c1cc79
+block 14 5c31e22d988d3e21
+block 15 ab85438942729e37
+block 16 29e85f79c49f8bac
+block 17 130e2196ccef2a1e
+block 18 a5e578dedc387a2b
+block 19 1ad815089e25863c
+block 20 db223ea9326d7c5c
+block 21 d6fae361f43112f0
+block 22 d8fe4d5b873ebb3c
+block 23 e76f9824c12726c9
+block 24 8f6955bf94ec2325
+block 25 8f6955bf94ec2325
+block 26 8f6955bf94ec2325

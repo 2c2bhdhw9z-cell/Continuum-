@@ -38,7 +38,12 @@ start straight away; the player's own BIOS (ProSystem's file names) can play the
   the 6532), POKEY (four channels, 4/5/9/17-bit polynomials, three clocks, joined channels,
   high-pass filters, two-tone and asynchronous modes; its interrupt isn't wired, as on MAME, a7800
   and ProSystem).
-- `cart.rs`: headers, the known list, every board, what MARIA sees on the BankSet and Souper boards.
+- `cart.rs`: headers (version 3 and version 4), the known list, every board, what MARIA sees on the
+  BankSet and Souper boards.
+- `xm.rs`, `ym2151.rs`: the XM expansion module and the XBoarD (128 KB of RAM in 8 KB pages, the
+  processor and MARIA each seeing their own, its POKEY at $0450, its High Score part, and the five
+  control registers the community documents), and its YM2151 FM music chip: eight channels of four
+  operators, the eight ways to connect them, the LFO, the noise generator and the two timers.
 - `savekey.rs`: the SaveKey's 24LC256 EEPROM, by the data sheet.
 - `palette.rs`: our own YIQ colour model, fitted to MAME's measured palettes (NTSC "Atari", PAL,
   and the warm-up stages Cool, Warm, Hot).
@@ -61,7 +66,10 @@ start straight away; the player's own BIOS (ProSystem's file names) can play the
   - the TIA's sound, all 204,800 samples of every mode at many pitches and volumes
     (`tests/tia_mame.rs`);
   - POKEY's sound, every one of 6.2 million clocks, through MAME's own recording (3.1 million
-    samples, none more than 8 out of 32,768; `tests/pokey_mame.rs`).
+    samples, none more than 8 out of 32,768; `tests/pokey_mame.rs`);
+  - the XM's YM2151, all 223,878 samples of a test that plays every way the operators connect,
+    feedback, pitches across the range, the envelopes, the LFO on all four of its waveforms and the
+    noise generator (`tests/ym2151_mame.rs`).
 - The RIOT's timer against Stella, which has the same chip, on a 2600 port of the same test
   (`tests/riot_stella.rs`): MAME reads INTIM 2-3 lower, from rounding in its clock arithmetic.
 - The libretro core end to end (`tests/libretro.rs`) and through the app's engine
@@ -86,7 +94,9 @@ start straight away; the player's own BIOS (ProSystem's file names) can play the
 
 - The Souper board's music player (the "BupChip", Rikki & Vikki's music, which ProSystem plays from
   the game's .cdf files): not played; the game plays without its music. Later.
-- The XM expansion module's own RAM, POKEY and YM2151: XM games play their SuperGame part. Later.
+- The XM's RAM paging follows the registers the a7800 emulator and the community document, not
+  MAME 0.289, whose XM is a rougher stand-in (one 16 KB window, no separate pages for MARIA): there
+  is nothing to compare it against.
 - The slow TIA/RIOT cycles slow the processor but not POKEY's clock (on the board POKEY runs on the
   processor's clock); the setting is on by default only for light gun games, which have no POKEY.
 - The AtariVox's speech isn't played (no emulator does); its memory is the SaveKey's.
@@ -107,5 +117,5 @@ start straight away; the player's own BIOS (ProSystem's file names) can play the
 ## What's next
 
 1. The owner plays it on the phone (TESTING.md); then cAtari can become the default for the 7800.
-2. The XM expansion module, then the Souper board's music player.
+2. The Souper board's music player (Rikki & Vikki's music).
 3. The same 6502 opens the way to the 2600, 5200 and Lynx.

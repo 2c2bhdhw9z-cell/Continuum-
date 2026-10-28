@@ -15,3 +15,5 @@ pub mod pokey;
 pub mod riot;
 pub mod savekey;
 pub mod tia;
+pub mod xm;
+pub mod ym2151;
