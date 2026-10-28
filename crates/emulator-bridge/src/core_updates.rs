@@ -79,7 +79,7 @@ pub const CORE_BUILDS: &[CoreBuild] = &[
     core("pokemini", "3964e0b8effcbc036e7af63adb31788b83759b5a4d78d5b3d8ce9ffc7a70ac02", "Pok\u{e9}mon Mini", "PokeMini"),
     core("mednafen_vb", "1bd318f06c0d1f794d6712a37c27f58479a37297838ea1e6d150d73283941ce4", "Virtual Boy", "Beetle VB"),
     core("yabause", "5a3e5ce7691781b0107bfc4364acab242a64e931a74b95769bde4d73b85f3c8e", "Saturn", "Yabause"),
-    core("mednafen_saturn", "cb67ba4be4a5d6662d67daf89e34f282274764054dacb16c24f02de2c950a582", "Saturn", "Beetle Saturn"),
+    core("mednafen_saturn", "31cfc7be31c56fae7c09e8b3a3575bc3554d53d338587c8fa142a1963f0bc0bd", "Saturn", "Beetle Saturn"),
 ];
 
 /// The builds in build 181 (b88308f, identical at 4574969), the last install before this file
@@ -261,10 +261,20 @@ pub const CORE_UPDATES: &[CoreUpdate] = &[
         "1.0-preview6",
         "1.0-preview7",
     ),
+    // 27 October: Beetle Saturn's save-state code unchanged since faef277 (builds 182 to 244). A
+    // state saved on faef277 was loaded on fdf1104 on a computer, and the game carried on frame for
+    // frame. Both builds report "v1.32.1".
     exact(
         "mednafen_saturn",
         "cbb2f723ccdd99230e28c493d35b0d728112f79d48f07081ad6852dc9340e16c",
+        "31cfc7be31c56fae7c09e8b3a3575bc3554d53d338587c8fa142a1963f0bc0bd",
+        "v1.32.1",
+        "v1.32.1",
+    ),
+    exact(
+        "mednafen_saturn",
         "cb67ba4be4a5d6662d67daf89e34f282274764054dacb16c24f02de2c950a582",
+        "31cfc7be31c56fae7c09e8b3a3575bc3554d53d338587c8fa142a1963f0bc0bd",
         "v1.32.1",
         "v1.32.1",
     ),
@@ -542,7 +552,7 @@ mod tests {
                 assert_eq!(to_version, VersionMatch::Commit(u.to_build), "{}", u.core_id);
             }
         }
-        assert_eq!(CORE_UPDATES.len(), 15);
+        assert_eq!(CORE_UPDATES.len(), 16);
     }
 
     fn loads(core: &str, saved: &str, running: &str) -> bool {
@@ -662,8 +672,10 @@ mod tests {
 
     /// The pins builds 190 to 244 shipped, for the cores the 27 October batch moved:
     /// (core id, pin before the move, whether old save states load on the new one).
-    const SHIPPED_190_TO_244: &[(&str, &str, bool)] =
-        &[("vice_x64sc", "04c07e0f795dfe3daafbbe42a5b81a37949cb2cdf83f6b641ee456bb49473fe7", true)];
+    const SHIPPED_190_TO_244: &[(&str, &str, bool)] = &[
+        ("vice_x64sc", "04c07e0f795dfe3daafbbe42a5b81a37949cb2cdf83f6b641ee456bb49473fe7", true),
+        ("mednafen_saturn", "cb67ba4be4a5d6662d67daf89e34f282274764054dacb16c24f02de2c950a582", true),
+    ];
 
     #[test]
     fn an_update_from_builds_190_to_244_says_the_right_thing() {

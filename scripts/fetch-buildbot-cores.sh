@@ -97,7 +97,7 @@ pinned_sha256() {
     handy)               echo "402ba7a02edf5ba345464de4c0e332faefe86c4d4cb73ed44f6a11962b50846b" ;;
     mednafen_ngp)        echo "1ed8617c9e45a572998d093d5b389f3ee16eeb9e019c6dbe2f9b9beaa59ff7ae" ;;
     mednafen_pce)        echo "6e078cf6fe615bf171b8c2401681457f233e26793a5eb42d736159d55483815b" ;;
-    mednafen_saturn)     echo "cb67ba4be4a5d6662d67daf89e34f282274764054dacb16c24f02de2c950a582" ;;
+    mednafen_saturn)     echo "31cfc7be31c56fae7c09e8b3a3575bc3554d53d338587c8fa142a1963f0bc0bd" ;;
     mednafen_supergrafx) echo "3e51d2d9131c34393e563cbfbb6b438af8f5eeb63c00b10899a64b27038c8408" ;;
     mednafen_vb)         echo "1bd318f06c0d1f794d6712a37c27f58479a37297838ea1e6d150d73283941ce4" ;;
     mednafen_wswan)      echo "9aa05d0207e283731e6d0bde7aa6830de4269b0465b53f47ceb2e99d0ff6e5a5" ;;
@@ -134,7 +134,7 @@ pinned_dylib_sha256() {
     handy)               echo "b2d2c86e03fe3c6fd49ba9dac73a59dded85628077abd2e015659c7611604f06" ;;
     mednafen_ngp)        echo "0d9932e1ee9a198918a05386071dd6c58ff4aff78f6c85dcdc5098f8e976fa0b" ;;
     mednafen_pce)        echo "aa2f4dd3504b9bf80ae693e08013038d6d0b507b2a79c05ffc5c2ddfd251b2a8" ;;
-    mednafen_saturn)     echo "404286424732f49e42253898346bf2b6a9c217930c2c963d17dc6a2df737dcab" ;;
+    mednafen_saturn)     echo "43b790bd7080b2cf6cd5c2db0d6d365f38230cab3874274d31d3dda3c2da433b" ;;
     mednafen_supergrafx) echo "19e3804e130944e80bbe8b629d9aa3ff4b29ed35562f4dd3c6cbd0168fb21a29" ;;
     mednafen_vb)         echo "929bf66746f7074fe697c1be261e08c0069e232301122e2ad1f0280ec2117cdc" ;;
     mednafen_wswan)      echo "0f3a7249303cbe3be71ac9e99f425a4cc05034abb7615baedfa95d17e8155117" ;;
