@@ -55,7 +55,7 @@ checked_skip() {
     blastem)
       echo "2230addc4dd74dd094fd264987fd808abba32d0e|only its makers' web-browser build changed (a new build job, and two network functions renamed for it, which Continuum never uses); the emulator Continuum builds runs the same code|27 October 2026" ;;
     prboom)
-      echo "d14d20939640690b9fcef466e10038a9e630c70a39c173f6f048f823cbd5d060|turns the default sound and music volume to max, so DOOM’s sound clips|12 October 2026" ;;
+      echo "b5bed4d764ab0f8e7db4bbe0e556d53660f2053f9854206e9494af9205259aef|turns the default sound and music volume to max, so DOOM’s sound clips|28 October 2026" ;;
     virtualjaguar)
       echo "024c4337de34938c75f6d783f8355de91ad30c10539f2056991ad75213b1adc9|about 13% slower|12 October 2026" ;;
     mednafen_vb)
