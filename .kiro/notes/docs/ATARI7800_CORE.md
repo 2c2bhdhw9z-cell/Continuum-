@@ -129,7 +129,10 @@ start straight away; the player's own BIOS (ProSystem's file names) can play the
   processor's clock); the setting is on by default only for light gun games, which have no POKEY.
 - The AtariVox's speech isn't played (no emulator does); its memory is the SaveKey's.
 - Not compared with another emulator: BankSet, Souper and POKEY at $0440/$0800 (MAME 0.289 has
-  none of them), the light gun and paddles beyond their unit tests.
+  none of them). The light gun has its core unit tests plus the FEAT-002 app-input probe: taps
+  follow the exact drawn picture, bars do not fire, and controls keep precedence. A real light-gun
+  game is still a phone check. Paddles have their core unit tests; their app movement source is in
+  the next FEAT-002 checkpoint.
 
 ## Where it's wired in
 
@@ -144,7 +147,8 @@ start straight away; the player's own BIOS (ProSystem's file names) can play the
   looks for each file the .cdf names beside it, by its path, then by its name alone, capitals
   ignored, because the app keeps every import side by side.
 - `native/ios/project.yml` embeds the dylib; `native/ios/not-in-ios-yml.txt` lists it;
-  `scripts/check-core-cache.sh` checks it (229 checks).
+  `scripts/check-core-cache.sh` checks it (229 checks). `TouchControls.swift` gives Atari 7800 the
+  renderer's whole-picture pointer for the light gun.
 - `native/ios/build-engine.sh` and `.github/workflows/` are untouched, so the core cache stays.
 
 ## What's next

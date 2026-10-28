@@ -5529,29 +5529,53 @@ final class EngineHost: ObservableObject {
         return screenModes.trackpad(for: system)
     }
 
-    /// The engine's answer for where the touch screen is, for the systems that have one.
+    /// The engine's answer for the source area a finger controls: the DS/3DS digitizer or the
+    /// full visible picture used by the Atari 7800 light gun.
     func touchMapper(for system: GameSystem) -> TouchScreenMapper? {
-        guard system.touchScreen != nil else { return nil }
+        guard let surface = system.picturePointerSurface else { return nil }
         let engine = self.engine
-        return TouchScreenMapper(
-            rect: { size in
-                guard let rect = engine.touchScreenRect(viewWidth: Float(size.width),
+        switch surface {
+        case .digitizer(_):
+            return TouchScreenMapper(
+                rect: { size in
+                    guard let rect = engine.touchScreenRect(viewWidth: Float(size.width),
+                                                            viewHeight: Float(size.height)) else {
+                        return nil
+                    }
+                    return CGRect(x: CGFloat(rect.x), y: CGFloat(rect.y),
+                                  width: CGFloat(rect.width), height: CGFloat(rect.height))
+                },
+                map: { size, point in
+                    guard let mapped = engine.mapTouch(viewWidth: Float(size.width),
+                                                       viewHeight: Float(size.height),
+                                                       x: Float(point.x), y: Float(point.y),
+                                                       clamp: true) else {
+                        return nil
+                    }
+                    return CGPoint(x: CGFloat(mapped.x), y: CGFloat(mapped.y))
+                }
+            )
+        case .wholePicture:
+            return TouchScreenMapper(
+                rect: { size in
+                    guard let rect = engine.pictureRect(viewWidth: Float(size.width),
                                                         viewHeight: Float(size.height)) else {
-                    return nil
+                        return nil
+                    }
+                    return CGRect(x: CGFloat(rect.x), y: CGFloat(rect.y),
+                                  width: CGFloat(rect.width), height: CGFloat(rect.height))
+                },
+                map: { size, point in
+                    guard let mapped = engine.mapPicture(viewWidth: Float(size.width),
+                                                         viewHeight: Float(size.height),
+                                                         x: Float(point.x), y: Float(point.y),
+                                                         clamp: true) else {
+                        return nil
+                    }
+                    return CGPoint(x: CGFloat(mapped.x), y: CGFloat(mapped.y))
                 }
-                return CGRect(x: CGFloat(rect.x), y: CGFloat(rect.y),
-                              width: CGFloat(rect.width), height: CGFloat(rect.height))
-            },
-            map: { size, point in
-                guard let mapped = engine.mapTouch(viewWidth: Float(size.width),
-                                                   viewHeight: Float(size.height),
-                                                   x: Float(point.x), y: Float(point.y),
-                                                   clamp: true) else {
-                    return nil
-                }
-                return CGPoint(x: CGFloat(mapped.x), y: CGFloat(mapped.y))
-            }
-        )
+            )
+        }
     }
 
     /// Leaves the running game and goes back to the Library.

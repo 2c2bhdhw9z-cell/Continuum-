@@ -221,12 +221,10 @@ struct MouseFrame: Sendable, Equatable {
     var middle: Bool
 }
 
-/// Where the emulated touch screen is, answered by the engine.
+/// Where a framebuffer source area is drawn, answered by the engine.
 ///
-/// THE ENGINE OWNS THIS ARITHMETIC. The DS and 3DS screens can be stacked, side by side, one big
-/// and one small, one alone, swapped, or cut into a skin's holes, and only the engine knows which
-/// layout it drew. Both closures take the size of the picture view the fractions belong to (the
-/// Metal view's rect, or the skin canvas), and work in fractions of it.
+/// DS/3DS use their hardware digitizer crop. Atari 7800 uses the whole visible picture for its
+/// light gun. The engine owns the arithmetic because it owns the renderer placements.
 struct TouchScreenMapper {
     /// The touch screen's rect as fractions of a picture view of this size, or nil for none.
     let rect: (CGSize) -> CGRect?
@@ -272,6 +270,21 @@ struct PadControl: Sendable {
     let cluster: PadCluster
     let shape: PadControlShape
     let offset: CGPoint
+}
+
+/// What a finger on the game picture controls.
+enum PicturePointerSurface: Sendable {
+    /// A hardware digitizer covering one crop of a multi-screen framebuffer.
+    case digitizer(CGRect)
+    /// A light gun aimed across the actually drawn one-screen picture.
+    case wholePicture
+
+    var sourceRect: CGRect {
+        switch self {
+        case .digitizer(let rect): return rect
+        case .wholePicture: return CGRect(x: 0, y: 0, width: 1, height: 1)
+        }
+    }
 }
 
 /// The systems this build can run, as the pad layout sees them.
@@ -427,7 +440,7 @@ enum GameSystem: String, Sendable, CaseIterable {
     var dpadDrivesAnalogStick: Bool {
         switch self {
         case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .ds, .fds, .sg1000,
-             .tg16, .atari2600:
+             .tg16, .atari2600, .atari7800:
             return false
         case .n64:
             return true
@@ -449,7 +462,7 @@ enum GameSystem: String, Sendable, CaseIterable {
             // 5200 stick was analog. The digital directions are sent alongside.
             return true
         case .wswan, .ngp, .pcecd, .sgx, .amiga, .c64, .dos, .doom, .jaguar, .lynx,
-             .atari7800, .arcade, .pokemini, .vb, .saturn, .segacd, .sega32x:
+             .arcade, .pokemini, .vb, .saturn, .segacd, .sega32x:
             return false
         case .flash, .j2me, .symbian:
             // Keys, not sticks: the bundled players read key presses.
@@ -461,42 +474,33 @@ enum GameSystem: String, Sendable, CaseIterable {
         }
     }
 
-    /// Which part of the framebuffer is a touch screen, as a fraction of it with the origin top
-    /// left, or nil for a system that has none.
+    /// Which source area a finger on the game picture controls.
     ///
-    /// Expressed against the framebuffer rather than against the display because that is the one
-    /// description that survives rotation, the aspect setting and every layout the pad can take:
-    /// wherever the picture ends up being drawn, the touch screen is still the same part of it.
-    ///
-    /// The DS framebuffer is both screens stacked, top over bottom, so its touch screen is the
-    /// LOWER HALF and nothing above y = 0.5 responds. That is not a simplification of the
-    /// hardware, it is the hardware: only the bottom screen was ever a digitiser.
-    ///
-    /// Every other system returns nil, and that is what keeps this whole feature off their pads.
-    /// Listed case by case rather than defaulted, so adding a system is a compile error here
-    /// instead of a touch screen that silently does nothing.
-    var touchScreen: CGRect? {
+    /// The DS and 3DS keep their hardware digitizer crops. Atari 7800 uses the whole actually
+    /// drawn picture for its light gun. Every other libretro system has no picture pointer.
+    var picturePointerSurface: PicturePointerSurface? {
         switch self {
-        case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .fds, .sg1000,
-             .tg16, .atari2600, .n64, .psp:
-            return nil
-        case .wswan, .ngp, .pcecd, .sgx, .amiga, .c64, .dos, .doom, .jaguar, .lynx,
-             .atari7800, .atari5200, .arcade, .pokemini, .vb, .saturn, .segacd, .sega32x,
-             .dreamcast, .symbian, .gamecube:
-            return nil
-        case .flash, .j2me:
-            // The whole picture takes taps, but as the web view's own touches (mouse clicks for
-            // Flash, the touch screen for J2ME), never through the engine's pointer.
-            return nil
+        case .atari7800:
+            return .wholePicture
         case .ds:
-            return CGRect(x: 0, y: 0.5, width: 1, height: 0.5)
+            return .digitizer(CGRect(x: 0, y: 0.5, width: 1, height: 0.5))
         case .n3ds:
             // Stacked default: both screens are 240 tall in a 480-tall frame, and the bottom
-            // screen is 320 wide inside a 400-wide frame, centred. Only that screen is a
-            // digitiser. A side-by-side layout option would put the touch screen somewhere
-            // else; the core's default is stacked, and this matches that.
-            return CGRect(x: 0.1, y: 0.5, width: 0.8, height: 0.5)
+            // screen is 320 wide inside a 400-wide frame, centred.
+            return .digitizer(CGRect(x: 0.1, y: 0.5, width: 0.8, height: 0.5))
+        case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .fds, .sg1000,
+             .tg16, .atari2600, .n64, .psp, .wswan, .ngp, .pcecd, .sgx, .amiga,
+             .c64, .dos, .doom, .jaguar, .lynx, .atari5200, .arcade, .pokemini,
+             .vb, .saturn, .segacd, .sega32x, .dreamcast, .symbian, .gamecube,
+             .flash, .j2me:
+            return nil
         }
+    }
+
+    /// The source crop used by the controls' fallback mapper. EngineHost replaces it with the
+    /// renderer's exact placement whenever a game is running.
+    var touchScreen: CGRect? {
+        picturePointerSurface?.sourceRect
     }
 
     var displayName: String {

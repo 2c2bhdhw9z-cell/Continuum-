@@ -1216,9 +1216,8 @@ impl ContinuumEngine {
         self.lock().skin_can_swap()
     }
 
-    /// Where the touch screen is drawn in the phone's picture view of `view_width x
-    /// view_height` (points are fine; only the shape matters), or `None` when the phone is not
-    /// showing one. Fractions of the view.
+    /// Where the DS/3DS touch screen is drawn in the phone's picture view of `view_width x
+    /// view_height` (points are fine; only the shape matters). Fractions of the view.
     pub fn touch_screen_rect(&self, view_width: f32, view_height: f32) -> Option<ViewRect> {
         self.lock()
             .touch_region(view_width, view_height)
@@ -1230,9 +1229,20 @@ impl ContinuumEngine {
             })
     }
 
-    /// A point on the phone's picture view (fractions of it) to the framebuffer fraction
-    /// `apply_pointer` takes, through the same layout the picture was drawn with. `None` when
-    /// the point is off the touch screen and `clamp` is false.
+    /// Where the visible one-screen picture is drawn. Bars and unused parts of skin holes are not
+    /// included, so a tap there cannot begin a pointer press.
+    pub fn picture_rect(&self, view_width: f32, view_height: f32) -> Option<ViewRect> {
+        self.lock()
+            .picture_region(view_width, view_height)
+            .map(|region| ViewRect {
+                x: region.dest.x,
+                y: region.dest.y,
+                width: region.dest.w,
+                height: region.dest.h,
+            })
+    }
+
+    /// A point on the phone's picture view to the DS/3DS framebuffer fraction.
     pub fn map_touch(
         &self,
         view_width: f32,
@@ -1243,6 +1253,20 @@ impl ContinuumEngine {
     ) -> Option<FramebufferPoint> {
         self.lock()
             .map_touch(view_width, view_height, x, y, clamp)
+            .map(|(x, y)| FramebufferPoint { x, y })
+    }
+
+    /// A point on the actually drawn one-screen picture to the matching framebuffer fraction.
+    pub fn map_picture(
+        &self,
+        view_width: f32,
+        view_height: f32,
+        x: f32,
+        y: f32,
+        clamp: bool,
+    ) -> Option<FramebufferPoint> {
+        self.lock()
+            .map_picture(view_width, view_height, x, y, clamp)
             .map(|(x, y)| FramebufferPoint { x, y })
     }
 

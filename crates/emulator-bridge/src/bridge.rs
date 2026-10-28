@@ -20,7 +20,7 @@ use crate::cheats::search::{RamSearch, SearchFilter, SearchHit, SearchWidth};
 use crate::battery_layout::{self, BatteryLayout};
 use crate::cores::{ContentHint, CoreDescriptor, CoreRegistry, CoreState, EmulatorCore};
 use crate::error::BridgeError;
-use crate::gfx::screen_layout::{DualScreenConfig, DualScreenGeometry, TouchRegion};
+use crate::gfx::screen_layout::{DualScreenConfig, DualScreenGeometry, SourceRegion};
 use crate::gfx::{Renderer, ScaleFilter, ScaleMode, SkinHole};
 use crate::input::{Button, GamepadBridge, PadKind, PadSource};
 use crate::rewind::RewindBuffer;
@@ -1277,13 +1277,27 @@ impl EmulatorBridge {
         self.renderer.as_ref().is_some_and(Renderer::skin_can_swap)
     }
 
-    /// Where the touch screen is on the phone's picture view of `view_w x view_h`.
-    pub fn touch_region(&self, view_w: f32, view_h: f32) -> Option<TouchRegion> {
+    /// Where the DS/3DS touch screen is on the phone's picture view of `view_w x view_h`.
+    pub fn touch_region(&self, view_w: f32, view_h: f32) -> Option<SourceRegion> {
         self.renderer.as_ref()?.touch_region(view_w, view_h)
     }
 
-    /// A point on the phone's picture view, as fractions of it, to the framebuffer fraction the
-    /// pointer API takes. `None` when it is not on the touch screen and `clamp` is false.
+    /// Where the visible one-screen picture is on the phone's picture view.
+    pub fn picture_region(&self, view_w: f32, view_h: f32) -> Option<SourceRegion> {
+        self.renderer.as_ref()?.picture_region(view_w, view_h)
+    }
+
+    fn map_region(
+        &self,
+        region: SourceRegion,
+        x: f32,
+        y: f32,
+        clamp: bool,
+    ) -> Option<(f32, f32)> {
+        crate::gfx::screen_layout::map_source(&region, x, y, clamp)
+    }
+
+    /// A point on the phone's picture view, as fractions of it, to the DS/3DS framebuffer.
     pub fn map_touch(
         &self,
         view_w: f32,
@@ -1292,8 +1306,20 @@ impl EmulatorBridge {
         y: f32,
         clamp: bool,
     ) -> Option<(f32, f32)> {
-        let region = self.touch_region(view_w, view_h)?;
-        crate::gfx::screen_layout::map_touch(&region, x, y, clamp)
+        self.map_region(self.touch_region(view_w, view_h)?, x, y, clamp)
+    }
+
+    /// A point on the actually drawn one-screen picture to the matching framebuffer fraction.
+    /// Letterbox bars return `None` unless a caller is continuing an already-started clamped stroke.
+    pub fn map_picture(
+        &self,
+        view_w: f32,
+        view_h: f32,
+        x: f32,
+        y: f32,
+        clamp: bool,
+    ) -> Option<(f32, f32)> {
+        self.map_region(self.picture_region(view_w, view_h)?, x, y, clamp)
     }
 
     /// Width over height of what the phone shows, when that is not the core's own aspect.

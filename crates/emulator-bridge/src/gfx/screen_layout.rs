@@ -538,63 +538,101 @@ pub fn touch_holes(holes: &[SkinHole], geometry: &DualScreenGeometry, fb_w: f32,
         .collect()
 }
 
-/// Where the touch screen was drawn, and which crop of the framebuffer that rect shows.
+/// Where a source rectangle was drawn, and which crop of the framebuffer that rect shows.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct TouchRegion {
+pub struct SourceRegion {
     /// Fraction of the view.
     pub dest: FracRect,
-    /// Fraction of the framebuffer. Always inside the guest touch screen.
+    /// Fraction of the framebuffer, clipped to the requested source rectangle.
     pub src: FracRect,
+    /// Quarter turns counter-clockwise applied by the drawing shader.
+    pub rotation: u32,
 }
 
-/// The part of each placement that shows the guest touch screen, first match wins.
+/// The old digitizer name, retained for callers that only map the DS/3DS bottom screen.
+pub type TouchRegion = SourceRegion;
+
+fn rotate_rect(rect: FracRect, rotation: u32) -> FracRect {
+    match rotation % 4 {
+        1 => FracRect::new(rect.y, 1.0 - rect.x - rect.w, rect.h, rect.w),
+        2 => FracRect::new(1.0 - rect.x - rect.w, 1.0 - rect.y - rect.h, rect.w, rect.h),
+        3 => FracRect::new(1.0 - rect.y - rect.h, rect.x, rect.h, rect.w),
+        _ => rect,
+    }
+}
+
+/// The part of the first placement that shows `wanted`, carried back into the view.
 ///
-/// Works for every kind of placement: a layout slot showing exactly the bottom screen, a skin hole
-/// whose crop includes margins around it, and the single quad that shows the whole stacked frame.
-/// In each case it is the intersection of the placement's crop with the guest touch screen,
-/// carried back into the view.
-pub fn touch_region(placements: &[ScreenPlacement], geometry: &DualScreenGeometry) -> Option<TouchRegion> {
+/// This is shared by DS/3DS digitizers and whole-picture pointers. It walks the exact placements
+/// used by the renderer, including skin crops, and turns the source rectangle with the same
+/// quarter-turn rule as the drawing shader.
+pub fn source_region(
+    placements: &[ScreenPlacement],
+    wanted: FracRect,
+    rotation: u32,
+) -> Option<SourceRegion> {
     placements.iter().find_map(|placement| {
         if placement.dest.is_empty() || placement.src.is_empty() {
             return None;
         }
-        let src = placement.src.intersect(&geometry.bottom)?;
-        let sx = placement.dest.w / placement.src.w;
-        let sy = placement.dest.h / placement.src.h;
-        Some(TouchRegion {
+        let src = placement.src.intersect(&wanted)?;
+        let local = FracRect::new(
+            (src.x - placement.src.x) / placement.src.w,
+            (src.y - placement.src.y) / placement.src.h,
+            src.w / placement.src.w,
+            src.h / placement.src.h,
+        );
+        let shown = rotate_rect(local, rotation);
+        Some(SourceRegion {
             dest: FracRect::new(
-                placement.dest.x + (src.x - placement.src.x) * sx,
-                placement.dest.y + (src.y - placement.src.y) * sy,
-                src.w * sx,
-                src.h * sy,
+                placement.dest.x + shown.x * placement.dest.w,
+                placement.dest.y + shown.y * placement.dest.h,
+                shown.w * placement.dest.w,
+                shown.h * placement.dest.h,
             ),
             src,
+            rotation: rotation % 4,
         })
     })
 }
 
-/// A point in the view, as a fraction, to a point in the framebuffer, as a fraction.
+/// The part of each placement that shows the guest touch screen, first match wins.
+pub fn touch_region(placements: &[ScreenPlacement], geometry: &DualScreenGeometry) -> Option<TouchRegion> {
+    source_region(placements, geometry.bottom, 0)
+}
+
+/// A point in the view, as a fraction, to a point in the requested framebuffer source rectangle.
 ///
-/// `None` when the point is not on the touch screen and `clamp` is false. With `clamp`, a finger
-/// that has slid a little off the edge reads as the edge, which is what a drag that started on
-/// the screen wants.
-pub fn map_touch(region: &TouchRegion, view_x: f32, view_y: f32, clamp: bool) -> Option<(f32, f32)> {
+/// `None` when the point is outside and `clamp` is false. With `clamp`, a stroke that began inside
+/// reads at the nearest edge after it slides out. Rotation is undone exactly as the shader does.
+pub fn map_source(region: &SourceRegion, view_x: f32, view_y: f32, clamp: bool) -> Option<(f32, f32)> {
     let dest = region.dest;
     // A NaN coordinate passes no range check and survives `clamp`, so it would come out as a NaN
     // guest point; there is no edge to read it as.
     if dest.is_empty() || !view_x.is_finite() || !view_y.is_finite() {
         return None;
     }
-    let mut u = (view_x - dest.x) / dest.w;
-    let mut v = (view_y - dest.y) / dest.h;
-    if !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v) {
+    let mut x = (view_x - dest.x) / dest.w;
+    let mut y = (view_y - dest.y) / dest.h;
+    if !(0.0..=1.0).contains(&x) || !(0.0..=1.0).contains(&y) {
         if !clamp {
             return None;
         }
-        u = u.clamp(0.0, 1.0);
-        v = v.clamp(0.0, 1.0);
+        x = x.clamp(0.0, 1.0);
+        y = y.clamp(0.0, 1.0);
     }
+    let (u, v) = match region.rotation {
+        1 => (1.0 - y, x),
+        2 => (1.0 - x, 1.0 - y),
+        3 => (y, 1.0 - x),
+        _ => (x, y),
+    };
     Some((region.src.x + u * region.src.w, region.src.y + v * region.src.h))
+}
+
+/// Maps a point through a DS/3DS digitizer region.
+pub fn map_touch(region: &TouchRegion, view_x: f32, view_y: f32, clamp: bool) -> Option<(f32, f32)> {
+    map_source(region, view_x, view_y, clamp)
 }
 
 #[cfg(test)]

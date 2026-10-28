@@ -19,7 +19,7 @@ use bytemuck::{Pod, Zeroable};
 
 use super::convert;
 use super::screen_layout::{
-    self, DualScreenConfig, DualScreenGeometry, ScreenPlacement, TargetRole, TouchRegion,
+    self, DualScreenConfig, DualScreenGeometry, FracRect, ScreenPlacement, SourceRegion, TargetRole,
 };
 use crate::error::GfxError;
 use crate::frame::FrameView;
@@ -833,19 +833,30 @@ impl Renderer {
         self.needs_reconfigure = false;
     }
 
-    /// Where the touch screen is drawn on the PHONE, for a view of `view_w x view_h`.
+    /// Where a framebuffer source rectangle is drawn on the PHONE, for a view of
+    /// `view_w x view_h`.
     ///
-    /// The same placements the phone's draw uses, so a tap and a pixel cannot disagree. `None`
-    /// for a one-screen system, or when the phone is not showing the touch screen.
-    pub fn touch_region(&self, view_w: f32, view_h: f32) -> Option<TouchRegion> {
-        let geometry = self.dual_geometry?;
+    /// The same placements and rotation the phone's draw uses, so a pointer and a pixel cannot
+    /// disagree. `None` when the phone is not showing any of the requested source rectangle.
+    pub fn source_region(&self, source: FracRect, view_w: f32, view_h: f32) -> Option<SourceRegion> {
         let role = if self.external_active() {
             TargetRole::PhoneCompanion
         } else {
             TargetRole::Phone
         };
         let placements = self.placements_for(role, view_w, view_h);
-        screen_layout::touch_region(&placements, &geometry)
+        screen_layout::source_region(&placements, source, self.rotation)
+    }
+
+    /// Where the DS/3DS digitizer is drawn on the phone.
+    pub fn touch_region(&self, view_w: f32, view_h: f32) -> Option<SourceRegion> {
+        let geometry = self.dual_geometry?;
+        self.source_region(geometry.bottom, view_w, view_h)
+    }
+
+    /// Where the visible part of a one-screen framebuffer is drawn on the phone.
+    pub fn picture_region(&self, view_w: f32, view_h: f32) -> Option<SourceRegion> {
+        self.source_region(FracRect::WHOLE, view_w, view_h)
     }
 
     /// Width over height of what the phone shows, for a two-screen system with a layout the

@@ -68,7 +68,9 @@ pub fn code_support(core_id: &str) -> CodeSupport {
         "prboom" => reads("DOOM's own cheat words, like iddqd or idkfa"),
         "virtualjaguar" => reads(""),
         "azahar" | "flycast" | "stella2023" | "mednafen_pce" | "mednafen_vb" | "puae"
-        | "vice_x64sc" | "handy" | "a5200" | "pokemini" | "yabause" => IGNORES,
+        | "vice_x64sc" | "handy" | "a5200" | "pokemini" | "yabause" | "continuum_gb"
+        | "continuum_sms" | "continuum_arcade" | "continuum_atari" | "continuum_mini"
+        | "continuum_gc" | "continuum_symbian" => IGNORES,
         _ => reads(""),
     }
 }
@@ -284,7 +286,20 @@ mod tests {
 
     #[test]
     fn the_cores_that_throw_codes_away_say_so() {
-        for core in ["azahar", "flycast", "stella2023", "pokemini", "yabause"] {
+        for core in [
+            "azahar",
+            "flycast",
+            "stella2023",
+            "pokemini",
+            "yabause",
+            "continuum_gb",
+            "continuum_sms",
+            "continuum_arcade",
+            "continuum_atari",
+            "continuum_mini",
+            "continuum_gc",
+            "continuum_symbian",
+        ] {
             assert!(!code_support(core).reads_typed_codes, "{core}");
         }
     }
