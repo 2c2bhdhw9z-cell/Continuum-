@@ -5,7 +5,31 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (27 October 2026, evening Eastern): cAtari done, cMini being built, then one build
+## START HERE (29 October 2026, 3 AM Eastern): finish cGear, cBoy and cMini, then one build
+
+The owner's order (29 October, about 1:15 AM): "finish cGear, cBoy, and cMini". The chat that had
+seven workflows going broke and the owner deleted it; whatever it hadn't pushed is gone. This chat
+works without workflows and pushes each finished piece at once ([skip ci]; the last push of the
+batch starts the one build).
+
+- Done and pushed: cGear cheat codes (5d138cb, Game Genie, Pro Action Replay and raw, like
+  Gearsystem), cBoy cheat codes (1588cf4, every kind mGBA reads; matched mGBA's own cheat code on
+  23,075 generated lists, `.kiro/notes/docs/CBOY_CHEATS.md`).
+- Now: cMini. Its only check against another emulator so far was one stand-in program writing one
+  byte (`examples/reference.rs`); the crate has no tests. Plan: build PokeMini's own core headless
+  (the emulator cMini replaces, GPL v3, `DS-Homebrew/PokeMini`, read for behaviour only) and the
+  reference MAME (`/projects/sandbox/.scratch/mame/build-minref.sh`, pokemini driver only, 9
+  minutes), run PokeMini's GPL example programs (`dev-misc/examples`: bouncing, framebuffer,
+  mapview, sound_tst, template) and its free BIOS on both and on cMini, compare frame by frame and
+  instruction by instruction, and fix cMini until they agree. Known simplifications seen in
+  `machine.rs`: the picture chip draws and raises its interrupts once at the end of each frame,
+  and the timers have no 16-bit mode and no 32 kHz clock.
+- After cMini: cBoy's Game Boy Advance timing (64 of 133 of Alyosha's timing tests pass).
+- Then ONE build with everything since 244 (cAtari, cMini, cArcade's second round, the Saturn and
+  C64 updates, cGear's and cBoy's work), check the .ipa, hand over the link and the steps in
+  TESTING.md "Next install (after 244)".
+
+## Earlier: cAtari done, cMini being built, then one build (27 October 2026, evening Eastern)
 
 The owner asked for the next easiest core (27 October): the Atari 7800 ("Then do the Atari 7800."),
 with subagents doing the Pokémon Mini at the same time.
