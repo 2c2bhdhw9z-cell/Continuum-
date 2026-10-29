@@ -15,6 +15,10 @@ batch starts the one build).
 - Done and pushed: cGear cheat codes (5d138cb, Game Genie, Pro Action Replay and raw, like
   Gearsystem), cBoy cheat codes (1588cf4, every kind mGBA reads; matched mGBA's own cheat code on
   23,075 generated lists, `.kiro/notes/docs/CBOY_CHEATS.md`).
+- cMini's processor is done (73ff305): written again, and all 768 opcodes match PokeMini's own
+  processor on 42,768 random states (`tests/cpu_pokemini.rs`, harness built by
+  `.kiro/notes/wip/tools/pokemini/build.sh`). Next: the rest of the console (interrupts, timers,
+  picture chip, LCD, sound, I/O) the same way, against `pmharness` (PokeMini's whole console).
 - Now: cMini. Its only check against another emulator so far was one stand-in program writing one
   byte (`examples/reference.rs`); the crate has no tests. Plan: build PokeMini's own core headless
   (the emulator cMini replaces, GPL v3, `DS-Homebrew/PokeMini`, read for behaviour only) and the
