@@ -236,7 +236,11 @@ impl Machine {
                 best = Some((p, vector))
             }
         }
-        self.cpu.irq = best.map(|x| x.1)
+        if let Some((p, vector)) = best {
+            if self.cpu.interruptible() && self.cpu.status != crate::minx::ENTERING && p > self.cpu.level() {
+                self.cpu.interrupt(vector * 2)
+            }
+        }
     }
     pub fn read(&mut self, a: u32) -> u8 {
         self.memory().read(a)
@@ -310,6 +314,20 @@ impl Machine {
         self.sync_audio_regs();
         self.update_irq()
     }
+    /// One instruction (or interrupt entry), with the clocks it took run through the timers.
+    /// Returns the cycles.
+    pub fn step(&mut self) -> u32 {
+        let mut cpu = std::mem::take(&mut self.cpu);
+        let c = {
+            let mut mem = self.memory();
+            cpu.step(&mut mem)
+        };
+        self.cpu = cpu;
+        self.cycles += c as u64;
+        self.clock_timers(c);
+        c
+    }
+
     pub fn run_frame(
         &mut self,
         rate: u32,
@@ -320,14 +338,7 @@ impl Machine {
     ) {
         let target = self.cycles + CLOCK as u64 / 72;
         while self.cycles < target {
-            let mut cpu = std::mem::take(&mut self.cpu);
-            let c = {
-                let mut mem = self.memory();
-                cpu.step(&mut mem)
-            };
-            self.cpu = cpu;
-            self.cycles += c as u64;
-            self.clock_timers(c);
+            let c = self.step();
             self.audio.render(c, rate, piezo, lowpass, gain, audio)
         }
         let bios = &self.bios;

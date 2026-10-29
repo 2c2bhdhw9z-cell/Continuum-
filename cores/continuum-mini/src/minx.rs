@@ -1,14 +1,39 @@
-//! Cycle-accounted MINX interpreter. The decoder covers all 256 primary bytes and both extension
-//! pages; undefined encodings still consume their measured bus time instead of hanging the machine.
+//! The MINX, the Pokémon Mini's processor (Nintendo's variant of Epson's S1C88): every opcode of
+//! the main page and of the two extension pages (`CE xx`, `CF xx`), with its cycles, as PokeMini
+//! models the chip (its timings were measured on the console by Team Pokeme). Written for cMini;
+//! `tests/cpu_pokemini.rs` checks every opcode against PokeMini's own processor from thousands of
+//! random starting states.
+//!
+//! The registers: A and B (BA), H and L (HL), X, Y and SP, each 16 bits; the bank registers I
+//! (for [HL], [N+nn] and [nnnn]), XI and YI (for [X] and [Y]); N (the page of [N+nn]); V, the
+//! code bank, and U, the bank the next jump, call or return moves to. A write to U only holds
+//! for the instruction after it: two instructions later U is V again, unless a jump came between.
+//! F holds Zero, Carry, Overflow and Sign, Decimal (the add and subtract work in BCD), Unpack
+//! (they work on the low four bits only), and the two interrupt-level bits. E holds four input
+//! lines the JX and JNX branches test.
 
 use serde::{Deserialize, Serialize};
 
-pub const FLAG_I: u8 = 0x80;
-pub const FLAG_D: u8 = 0x40;
-pub const FLAG_S: u8 = 0x08;
-pub const FLAG_O: u8 = 0x04;
-pub const FLAG_C: u8 = 0x02;
 pub const FLAG_Z: u8 = 0x01;
+pub const FLAG_C: u8 = 0x02;
+pub const FLAG_O: u8 = 0x04;
+pub const FLAG_S: u8 = 0x08;
+/// Add and subtract work in binary-coded decimal.
+pub const FLAG_D: u8 = 0x10;
+/// Add and subtract work on the low four bits only.
+pub const FLAG_U: u8 = 0x20;
+/// The two interrupt-level bits: interrupts at or below this level wait.
+pub const FLAG_I0: u8 = 0x40;
+pub const FLAG_I1: u8 = 0x80;
+/// Kept old name: the interrupt mask, both level bits.
+pub const FLAG_I: u8 = FLAG_I0 | FLAG_I1;
+
+/// What the processor is doing between instructions.
+pub const RUNNING: u8 = 0;
+pub const HALTED: u8 = 1;
+pub const STOPPED: u8 = 2;
+/// An interrupt has been accepted: its call comes before the next instruction.
+pub const ENTERING: u8 = 3;
 
 pub trait Bus {
     fn read(&mut self, address: u32) -> u8;
@@ -23,7 +48,13 @@ pub struct Minx {
     pub hl: u16,
     pub x: u16,
     pub y: u16,
+    /// The bank the next jump, call or return takes.
     pub u: u8,
+    /// U as the instruction after next will see it (U holds for one instruction after a write).
+    pub u_next: u8,
+    /// Instructions left before U falls back to V (2 just after a write to U changed it).
+    pub u_hold: u8,
+    /// The code bank now.
     pub v: u8,
     pub f: u8,
     pub e: u8,
@@ -31,32 +62,70 @@ pub struct Minx {
     pub i: u8,
     pub xi: u8,
     pub yi: u8,
-    pub halted: bool,
-    pub irq: Option<u8>,
+    /// RUNNING, HALTED, STOPPED or ENTERING.
+    pub status: u8,
+    /// The vector address of an interrupt being entered.
+    pub vector: u8,
+    /// The last byte fetched (what an unmapped read returns).
+    pub ir: u8,
     pub cycles: u64,
 }
 
+#[inline]
+fn sext(v: u8) -> u16 {
+    v as i8 as i16 as u16
+}
+
 impl Minx {
+    /// As the console starts: from the reset vector (the start-up program's), or straight at
+    /// the cartridge's entry, $2102, when the console's own program isn't there to run.
     pub fn reset(&mut self, bus: &mut impl Bus, direct: bool) {
         *self = Self::default();
-        self.sp = 0x2000;
-        self.pc = if direct { 0x2102 } else { self.read16(bus, 0) };
+        self.f = FLAG_I;
+        self.e = 0x1F;
         if direct {
-            self.u = 1;
-            self.v = 0;
+            self.pc = 0x2102;
+            self.sp = 0x2000;
+        } else {
+            self.pc = u16::from_le_bytes([bus.read(0), bus.read(1)]);
         }
     }
 
+    /// Whether an interrupt may be taken now: not while a write to U is still pending.
+    pub fn interruptible(&self) -> bool {
+        self.u_hold == 0
+    }
+
+    /// The interrupt level in F (0 lets every interrupt in, 3 only the non-maskable ones).
+    pub fn level(&self) -> u8 {
+        self.f >> 6
+    }
+
+    /// The machine accepts an interrupt: its call is made before the next instruction, and a
+    /// halted or stopped processor wakes for it.
+    pub fn interrupt(&mut self, vector: u8) {
+        self.status = ENTERING;
+        self.vector = vector;
+    }
+
+    /// Kept for the libretro layer and older callers.
+    pub fn halted(&self) -> bool {
+        self.status == HALTED || self.status == STOPPED
+    }
+
+    /// The address the program counter points at: banked (by V) in the upper half.
     pub fn address(&self) -> u32 {
         if self.pc & 0x8000 != 0 {
-            (self.v as u32) << 15 | (self.pc & 0x7fff) as u32
+            (u32::from(self.v) << 15) | u32::from(self.pc & 0x7FFF)
         } else {
-            self.pc as u32
+            u32::from(self.pc)
         }
     }
+
     fn fetch(&mut self, bus: &mut impl Bus) -> u8 {
         let v = bus.read(self.address());
         self.pc = self.pc.wrapping_add(1);
+        self.ir = v;
         v
     }
     fn fetch16(&mut self, bus: &mut impl Bus) -> u16 {
@@ -64,14 +133,22 @@ impl Minx {
         let hi = self.fetch(bus);
         u16::from_le_bytes([lo, hi])
     }
-    fn read16(&self, bus: &mut impl Bus, a: u32) -> u16 {
+    /// A word at an address, its second byte at the next address (no wrap inside a bank).
+    fn read16(bus: &mut impl Bus, a: u32) -> u16 {
         u16::from_le_bytes([bus.read(a), bus.read(a.wrapping_add(1))])
     }
-    fn write16(&self, bus: &mut impl Bus, a: u32, v: u16) {
-        let b = v.to_le_bytes();
-        bus.write(a, b[0]);
-        bus.write(a + 1, b[1]);
+    /// A word in bank `bank` at `a`, the second byte wrapping inside the bank.
+    fn read16_in(bus: &mut impl Bus, bank: u8, a: u16) -> u16 {
+        let base = u32::from(bank) << 16;
+        u16::from_le_bytes([bus.read(base | u32::from(a)), bus.read(base | u32::from(a.wrapping_add(1)))])
     }
+    fn write16_in(bus: &mut impl Bus, bank: u8, a: u16, v: u16) {
+        let base = u32::from(bank) << 16;
+        let [lo, hi] = v.to_le_bytes();
+        bus.write(base | u32::from(a), lo);
+        bus.write(base | u32::from(a.wrapping_add(1)), hi);
+    }
+
     fn a(&self) -> u8 {
         self.ba as u8
     }
@@ -85,1151 +162,1401 @@ impl Minx {
         (self.hl >> 8) as u8
     }
     fn set_a(&mut self, v: u8) {
-        self.ba = (self.ba & 0xff00) | v as u16
+        self.ba = (self.ba & 0xFF00) | u16::from(v);
     }
     fn set_b(&mut self, v: u8) {
-        self.ba = (self.ba & 0x00ff) | (v as u16) << 8
+        self.ba = (self.ba & 0x00FF) | u16::from(v) << 8;
     }
     fn set_l(&mut self, v: u8) {
-        self.hl = (self.hl & 0xff00) | v as u16
+        self.hl = (self.hl & 0xFF00) | u16::from(v);
     }
     fn set_h(&mut self, v: u8) {
-        self.hl = (self.hl & 0x00ff) | (v as u16) << 8
+        self.hl = (self.hl & 0x00FF) | u16::from(v) << 8;
     }
-    fn addr_ihl(&self) -> u32 {
-        (self.i as u32) << 16 | self.hl as u32
+    /// The 8-bit registers by their number in the encodings: A, B, L, H.
+    fn r8(&self, k: u8) -> u8 {
+        match k & 3 {
+            0 => self.a(),
+            1 => self.b(),
+            2 => self.l(),
+            _ => self.h(),
+        }
     }
-    fn addr_x(&self) -> u32 {
-        (self.xi as u32) << 16 | self.x as u32
+    fn set_r8(&mut self, k: u8, v: u8) {
+        match k & 3 {
+            0 => self.set_a(v),
+            1 => self.set_b(v),
+            2 => self.set_l(v),
+            _ => self.set_h(v),
+        }
     }
-    fn addr_y(&self) -> u32 {
-        (self.yi as u32) << 16 | self.y as u32
+    /// The 16-bit registers by their number: BA, HL, X, Y.
+    fn r16(&self, k: u8) -> u16 {
+        match k & 3 {
+            0 => self.ba,
+            1 => self.hl,
+            2 => self.x,
+            _ => self.y,
+        }
     }
-    fn addr_n(&mut self, bus: &mut impl Bus) -> u32 {
-        (self.i as u32) << 16 | (self.n as u32) << 8 | self.fetch(bus) as u32
-    }
-    fn addr_i16(&mut self, bus: &mut impl Bus) -> u32 {
-        (self.i as u32) << 16 | self.fetch16(bus) as u32
+    fn set_r16(&mut self, k: u8, v: u16) {
+        match k & 3 {
+            0 => self.ba = v,
+            1 => self.hl = v,
+            2 => self.x = v,
+            _ => self.y = v,
+        }
     }
 
-    fn flags8(&mut self, value: u8, carry: bool, overflow: bool) {
-        self.f = (self.f & !(FLAG_S | FLAG_O | FLAG_C | FLAG_Z))
-            | if value & 0x80 != 0 { FLAG_S } else { 0 }
-            | if overflow { FLAG_O } else { 0 }
-            | if carry { FLAG_C } else { 0 }
-            | if value == 0 { FLAG_Z } else { 0 };
+    fn at_hl(&self) -> u32 {
+        u32::from(self.i) << 16 | u32::from(self.hl)
     }
-    fn add8(&mut self, a: u8, b: u8, c: bool) -> u8 {
-        let ci = (c && (self.f & FLAG_C != 0)) as u16;
-        let r = a as u16 + b as u16 + ci;
-        let v = r as u8;
-        self.flags8(v, r > 255, (!(a ^ b) & (a ^ v) & 0x80) != 0);
-        v
+    fn at_x(&self) -> u32 {
+        u32::from(self.xi) << 16 | u32::from(self.x)
     }
-    fn sub8(&mut self, a: u8, b: u8, c: bool) -> u8 {
-        let ci = (c && (self.f & FLAG_C != 0)) as i16;
-        let r = a as i16 - b as i16 - ci;
-        let v = r as u8;
-        self.flags8(v, r < 0, ((a ^ b) & (a ^ v) & 0x80) != 0);
-        v
+    fn at_y(&self) -> u32 {
+        u32::from(self.yi) << 16 | u32::from(self.y)
     }
-    fn logic(&mut self, v: u8) -> u8 {
-        self.f = (self.f & !(FLAG_S | FLAG_Z))
-            | if v & 0x80 != 0 { FLAG_S } else { 0 }
-            | if v == 0 { FLAG_Z } else { 0 };
-        v
+    fn at_n(&self, nn: u8) -> u32 {
+        u32::from(self.i) << 16 | u32::from(self.n) << 8 | u32::from(nn)
     }
-    fn flags16(&mut self, a: u16, b: u16, r: u32, sub: bool) -> u16 {
-        let v = r as u16;
-        let ov = if sub {
-            ((a ^ b) & (a ^ v) & 0x8000) != 0
-        } else {
-            (!(a ^ b) & (a ^ v) & 0x8000) != 0
+    fn at_abs(&self, nnnn: u16) -> u32 {
+        u32::from(self.i) << 16 | u32::from(nnnn)
+    }
+    /// [X+ss], [Y+ss], [X+L] or [Y+L] (the offset added inside the bank).
+    fn at_indexed(&mut self, bus: &mut impl Bus, k: u8) -> u32 {
+        let (bank, base) = if k & 1 == 0 { (self.xi, self.x) } else { (self.yi, self.y) };
+        let off = if k & 2 == 0 { sext(self.fetch(bus)) } else { sext(self.l()) };
+        u32::from(bank) << 16 | u32::from(base.wrapping_add(off))
+    }
+
+    // ------------------------------------------------------------------ arithmetic
+
+    fn add8(&mut self, a: u8, b: u8, carry_in: bool) -> u8 {
+        let c = u8::from(carry_in && self.f & FLAG_C != 0);
+        self.f &= 0xF0;
+        let (lo_a, lo_b) = (a & 15, b & 15);
+        match self.f & (FLAG_D | FLAG_U) {
+            0 => {
+                let r = a.wrapping_add(b).wrapping_add(c);
+                self.zero(r == 0);
+                self.carry(r < a);
+                self.flag(FLAG_O, (a ^ r) & 0x80 != 0 && (a ^ b) & 0x80 == 0);
+                self.flag(FLAG_S, r & 0x80 != 0);
+                r
+            }
+            FLAG_D => {
+                let mut r = a.wrapping_add(b).wrapping_add(c);
+                if lo_a + lo_b + c >= 10 {
+                    r = r.wrapping_add(6);
+                }
+                if r >= 0xA0 {
+                    r = r.wrapping_add(0x60);
+                }
+                self.zero(r == 0);
+                self.carry(r < a);
+                r
+            }
+            FLAG_U => {
+                let r = lo_a + lo_b + c;
+                self.zero(r & 15 == 0);
+                self.carry(r >= 16);
+                self.flag(FLAG_O, (a ^ r) & 8 != 0 && (a ^ b) & 8 == 0);
+                self.flag(FLAG_S, r & 8 != 0);
+                r & 15
+            }
+            _ => {
+                let mut r = lo_a + lo_b + c;
+                if r >= 10 {
+                    r += 6;
+                }
+                self.zero(r & 15 == 0);
+                self.carry(r >= 16);
+                r & 15
+            }
+        }
+    }
+
+    fn sub8(&mut self, a: u8, b: u8, carry_in: bool) -> u8 {
+        let c = u8::from(carry_in && self.f & FLAG_C != 0);
+        self.f &= 0xF0;
+        let lo = (a & 15).wrapping_sub(b & 15).wrapping_sub(c);
+        match self.f & (FLAG_D | FLAG_U) {
+            0 => {
+                let r = a.wrapping_sub(b).wrapping_sub(c);
+                self.zero(r == 0);
+                self.carry(a < b);
+                self.flag(FLAG_O, (a ^ r) & 0x80 != 0 && (a ^ b) & 0x80 != 0);
+                self.flag(FLAG_S, r & 0x80 != 0);
+                r
+            }
+            FLAG_D => {
+                let mut r = a.wrapping_sub(b).wrapping_sub(c);
+                if lo >= 10 {
+                    r = r.wrapping_sub(6);
+                }
+                if r >= 0xA0 {
+                    r = r.wrapping_sub(0x60);
+                }
+                self.zero(r == 0);
+                self.carry(a < b);
+                r
+            }
+            FLAG_U => {
+                let r = lo;
+                self.zero(r & 15 == 0);
+                self.carry(r >= 16);
+                self.flag(FLAG_O, (a ^ r) & 8 != 0 && (a ^ b) & 8 != 0);
+                self.flag(FLAG_S, r & 8 != 0);
+                r & 15
+            }
+            _ => {
+                let r = if lo >= 10 { lo.wrapping_sub(6) } else { lo };
+                self.zero(r & 15 == 0);
+                self.carry(r >= 16);
+                r & 15
+            }
+        }
+    }
+
+    fn add16(&mut self, a: u16, b: u16, carry_in: bool) -> u16 {
+        let c = u16::from(carry_in && self.f & FLAG_C != 0);
+        let r = a.wrapping_add(b).wrapping_add(c);
+        self.f &= 0xF0;
+        self.zero(r == 0);
+        self.carry(r < a);
+        self.flag(FLAG_O, (a ^ r) & 0x8000 != 0 && (a ^ b) & 0x8000 == 0);
+        self.flag(FLAG_S, r & 0x8000 != 0);
+        r
+    }
+
+    fn sub16(&mut self, a: u16, b: u16, carry_in: bool) -> u16 {
+        let c = u16::from(carry_in && self.f & FLAG_C != 0);
+        let r = a.wrapping_sub(b).wrapping_sub(c);
+        self.f &= 0xF0;
+        self.zero(r == 0);
+        self.carry(a < b);
+        self.flag(FLAG_O, (a ^ r) & 0x8000 != 0 && (a ^ b) & 0x8000 != 0);
+        self.flag(FLAG_S, r & 0x8000 != 0);
+        r
+    }
+
+    /// AND, OR, XOR, NOT and TST: Zero and Sign; Carry and Overflow kept.
+    fn logic(&mut self, r: u8) -> u8 {
+        self.f &= 0xF6;
+        self.zero(r == 0);
+        self.flag(FLAG_S, r & 0x80 != 0);
+        r
+    }
+
+    /// INC and DEC: only Zero changes.
+    fn count8(&mut self, r: u8) -> u8 {
+        self.f &= !FLAG_Z;
+        self.zero(r == 0);
+        r
+    }
+    fn count16(&mut self, r: u16) -> u16 {
+        self.f &= !FLAG_Z;
+        self.zero(r == 0);
+        r
+    }
+
+    /// The shifts and rotates (CE 80-9F), NOT and NEG (CE A0-A7), by their row.
+    fn shift(&mut self, row: u8, a: u8) -> u8 {
+        let carry = self.f & FLAG_C != 0;
+        let (keep, c, r, o) = match row {
+            0 => (0xF0, a & 0x80 != 0, a << 1, (a & 0x40 != 0) != (a & 0x80 != 0)),
+            1 => (0xF4, a & 0x80 != 0, a << 1, false),
+            2 => (0xF0, a & 1 != 0, (a & 0x80) | (a >> 1), false),
+            3 => (0xF4, a & 1 != 0, a >> 1, false),
+            4 => (0xF4, a & 0x80 != 0, (a << 1) | u8::from(carry), false),
+            5 => (0xF4, a & 0x80 != 0, a.rotate_left(1), false),
+            6 => (0xF4, a & 1 != 0, (a >> 1) | if carry { 0x80 } else { 0 }, false),
+            7 => (0xF4, a & 1 != 0, a.rotate_right(1), false),
+            8 => return self.logic(!a),
+            _ => {
+                let r = a.wrapping_neg();
+                self.f &= 0xF0;
+                self.zero(r == 0);
+                self.carry(r != 0);
+                self.flag(FLAG_O, r == 0x80);
+                self.flag(FLAG_S, r & 0x80 != 0);
+                return r;
+            }
         };
-        self.f = (self.f & !(FLAG_S | FLAG_O | FLAG_C | FLAG_Z))
-            | if v & 0x8000 != 0 { FLAG_S } else { 0 }
-            | if ov { FLAG_O } else { 0 }
-            | if r > 0xffff { FLAG_C } else { 0 }
-            | if v == 0 { FLAG_Z } else { 0 };
-        v
+        self.f &= keep;
+        self.carry(c);
+        self.flag(FLAG_O, o);
+        self.zero(r == 0);
+        self.flag(FLAG_S, r & 0x80 != 0);
+        r
     }
-    fn add16(&mut self, a: u16, b: u16, c: bool) -> u16 {
-        let r = a as u32 + b as u32 + u32::from(c && self.f & FLAG_C != 0);
-        self.flags16(a, b, r, false)
+
+    fn flag(&mut self, bit: u8, on: bool) {
+        if on {
+            self.f |= bit;
+        }
     }
-    fn sub16(&mut self, a: u16, b: u16, c: bool) -> u16 {
-        let borrow = u32::from(c && self.f & FLAG_C != 0);
-        let r = (a as u32).wrapping_sub(b as u32 + borrow);
-        self.flags16(a, b, r, true)
+    fn zero(&mut self, on: bool) {
+        self.flag(FLAG_Z, on)
     }
-    fn push8(&mut self, bus: &mut impl Bus, v: u8) {
+    fn carry(&mut self, on: bool) {
+        self.flag(FLAG_C, on)
+    }
+
+    /// The ALU groups of the main page (00-3F) and of CE 00-3F: ADD, ADC, SUB, SBC, AND, OR,
+    /// CMP, XOR. Returns the result, or None for CMP (which only sets the flags).
+    fn alu(&mut self, group: u8, a: u8, b: u8) -> Option<u8> {
+        Some(match group {
+            0 => self.add8(a, b, false),
+            1 => self.add8(a, b, true),
+            2 => self.sub8(a, b, false),
+            3 => self.sub8(a, b, true),
+            4 => self.logic(a & b),
+            5 => self.logic(a | b),
+            6 => {
+                self.sub8(a, b, false);
+                return None;
+            }
+            _ => self.logic(a ^ b),
+        })
+    }
+
+    // ------------------------------------------------------------------ stack and jumps
+
+    fn push(&mut self, bus: &mut impl Bus, v: u8) {
         self.sp = self.sp.wrapping_sub(1);
-        bus.write(self.sp as u32, v)
+        bus.write(u32::from(self.sp), v);
     }
-    fn pop8(&mut self, bus: &mut impl Bus) -> u8 {
-        let v = bus.read(self.sp as u32);
+    fn pop(&mut self, bus: &mut impl Bus) -> u8 {
+        let v = bus.read(u32::from(self.sp));
         self.sp = self.sp.wrapping_add(1);
         v
     }
-    fn push16(&mut self, bus: &mut impl Bus, v: u16) {
-        self.push8(bus, (v >> 8) as u8);
-        self.push8(bus, v as u8)
+    fn push_pc(&mut self, bus: &mut impl Bus) {
+        self.push(bus, self.v);
+        self.push(bus, (self.pc >> 8) as u8);
+        self.push(bus, self.pc as u8);
     }
-    fn pop16(&mut self, bus: &mut impl Bus) -> u16 {
-        let lo = self.pop8(bus);
-        let hi = self.pop8(bus);
-        u16::from_le_bytes([lo, hi])
-    }
-    fn jump(&mut self, a: u16) {
+    /// Moves to bank U (the jump, call and return all do).
+    fn take_u(&mut self) {
         self.v = self.u;
-        self.pc = a
+        self.u_next = self.u;
     }
-    fn call(&mut self, bus: &mut impl Bus, a: u16) {
-        self.push8(bus, self.v);
-        self.push16(bus, self.pc);
-        self.jump(a)
+    /// A relative jump: the offset counts from the instruction's last byte.
+    fn jump_by(&mut self, offset: u16) {
+        self.take_u();
+        self.pc = self.pc.wrapping_add(offset).wrapping_sub(1);
+    }
+    fn call_by(&mut self, bus: &mut impl Bus, offset: u16) {
+        self.push_pc(bus);
+        self.jump_by(offset);
+    }
+    fn jump_to(&mut self, addr: u16) {
+        self.take_u();
+        self.pc = addr;
+    }
+    /// An interrupt's call (CINT, and every interrupt the machine raises), or JINT's jump: F
+    /// saved, the level raised to 3, and on through the vector.
+    fn call_vector(&mut self, bus: &mut impl Bus, vector: u16, with_return: bool) {
+        if with_return {
+            self.push_pc(bus);
+        }
+        self.push(bus, self.f);
+        self.f |= FLAG_I;
+        self.take_u();
+        self.pc = Self::read16(bus, u32::from(vector));
+    }
+    fn set_u(&mut self, v: u8) {
+        if v != self.u_next {
+            self.u_hold = 2;
+        }
+        self.u = v;
+        self.u_next = v;
+    }
+    fn ret(&mut self, bus: &mut impl Bus) {
+        let lo = self.pop(bus);
+        let hi = self.pop(bus);
+        self.pc = u16::from_le_bytes([lo, hi]);
+        self.v = self.pop(bus);
+        self.set_u(self.v);
     }
 
+    /// The conditions of the CE page's branches and calls (CE E0-FF), by their low four bits.
+    fn condition(&self, k: u8) -> bool {
+        let (z, o, s) = (self.f & FLAG_Z != 0, self.f & FLAG_O != 0, self.f & FLAG_S != 0);
+        match k & 15 {
+            0 => o != s,
+            1 => o != s || z,
+            2 => o == s && !z,
+            3 => o == s,
+            4 => o,
+            5 => !o,
+            6 => !s,
+            7 => s,
+            8..=11 => self.e & (1 << (k & 3)) == 0,
+            _ => self.e & (1 << (k & 3)) != 0,
+        }
+    }
+
+    // ------------------------------------------------------------------ running
+
+    /// One instruction (or an interrupt's entry, or a cycle of sleep). Returns its cycles.
     pub fn step(&mut self, bus: &mut impl Bus) -> u32 {
-        if let Some(vector) = self.irq {
-            if self.f & (FLAG_I | FLAG_D) == 0 && self.u == self.v {
-                self.halted = false;
-                self.push8(bus, self.v);
-                self.push16(bus, self.pc);
-                self.push8(bus, self.f);
-                self.f |= FLAG_I;
-                self.v = 0;
-                self.pc = self.read16(bus, (vector as u32) * 2);
-                self.cycles += 28;
-                return 28;
+        if self.u_hold > 0 {
+            self.u = self.u_next;
+            self.u_next = self.v;
+            self.u_hold -= 1;
+        }
+        let c = match self.status {
+            ENTERING => {
+                self.status = RUNNING;
+                self.call_vector(bus, u16::from(self.vector), true);
+                20
             }
-        }
-        if self.halted {
-            self.cycles += 8;
-            return 8;
-        }
-        let op = self.fetch(bus);
-        let c = match op {
-            0x00..=0x3f => {
-                let group = op >> 3;
-                let source = op & 7;
-                let rhs = match source {
+            HALTED | STOPPED => 8,
+            _ => {
+                let op = self.fetch(bus);
+                self.main(bus, op)
+            }
+        };
+        self.cycles += u64::from(c);
+        c
+    }
+
+    fn main(&mut self, bus: &mut impl Bus, op: u8) -> u32 {
+        match op {
+            0x00..=0x3F => {
+                let rhs = match op & 7 {
                     0 => self.a(),
                     1 => self.b(),
                     2 => self.fetch(bus),
-                    3 => bus.read(self.addr_ihl()),
+                    3 => bus.read(self.at_hl()),
                     4 => {
-                        let a = self.addr_n(bus);
-                        bus.read(a)
+                        let nn = self.fetch(bus);
+                        bus.read(self.at_n(nn))
                     }
                     5 => {
-                        let a = self.addr_i16(bus);
-                        bus.read(a)
+                        let nnnn = self.fetch16(bus);
+                        bus.read(self.at_abs(nnnn))
                     }
-                    6 => bus.read(self.addr_x()),
-                    _ => bus.read(self.addr_y()),
+                    6 => bus.read(self.at_x()),
+                    _ => bus.read(self.at_y()),
                 };
-                let a = self.a();
-                match group {
-                    0 => {
-                        let v = self.add8(a, rhs, false);
-                        self.set_a(v)
+                if let Some(r) = self.alu(op >> 3, self.a(), rhs) {
+                    self.set_a(r);
+                }
+                match op & 7 {
+                    4 => 12,
+                    5 => 16,
+                    _ => 8,
+                }
+            }
+            0x40..=0x5F => {
+                let v = match op & 7 {
+                    k @ 0..=3 => self.r8(k),
+                    4 => {
+                        let nn = self.fetch(bus);
+                        bus.read(self.at_n(nn))
                     }
-                    1 => {
-                        let v = self.add8(a, rhs, true);
-                        self.set_a(v)
+                    5 => bus.read(self.at_hl()),
+                    6 => bus.read(self.at_x()),
+                    _ => bus.read(self.at_y()),
+                };
+                self.set_r8(op >> 3, v);
+                match op & 7 {
+                    0..=3 => 4,
+                    4 => 12,
+                    _ => 8,
+                }
+            }
+            0x7C => {
+                self.fetch(bus);
+                64
+            }
+            0x60..=0x7F => {
+                let to_n = op >= 0x78;
+                let n_dst = if to_n { Some(self.fetch(bus)) } else { None };
+                let v = match op & 7 {
+                    k @ 0..=3 => self.r8(k),
+                    4 => {
+                        let nn = self.fetch(bus);
+                        bus.read(self.at_n(nn))
                     }
-                    2 => {
-                        let v = self.sub8(a, rhs, false);
-                        self.set_a(v)
-                    }
-                    3 => {
-                        let v = self.sub8(a, rhs, true);
-                        self.set_a(v)
+                    5 => bus.read(self.at_hl()),
+                    6 => bus.read(self.at_x()),
+                    _ => bus.read(self.at_y()),
+                };
+                let dst = match (op >> 3) & 3 {
+                    0 => self.at_x(),
+                    1 => self.at_hl(),
+                    2 => self.at_y(),
+                    _ => self.at_n(n_dst.unwrap_or(0)),
+                };
+                bus.write(dst, v);
+                match (to_n, op & 7) {
+                    (_, 0..=3) => 8,
+                    (true, _) => 16,
+                    (false, 4) => 16,
+                    _ => 12,
+                }
+            }
+            0x80..=0x8F => {
+                let dec = op & 8 != 0;
+                let step = |v: u8| if dec { v.wrapping_sub(1) } else { v.wrapping_add(1) };
+                match op & 7 {
+                    k @ 0..=3 => {
+                        let r = self.count8(step(self.r8(k)));
+                        self.set_r8(k, r);
+                        8
                     }
                     4 => {
-                        let v = self.logic(a & rhs);
-                        self.set_a(v)
+                        self.n = self.count8(step(self.n));
+                        8
                     }
                     5 => {
-                        let v = self.logic(a | rhs);
-                        self.set_a(v)
+                        let nn = self.fetch(bus);
+                        let a = self.at_n(nn);
+                        let r = self.count8(step(bus.read(a)));
+                        bus.write(a, r);
+                        16
                     }
                     6 => {
-                        self.sub8(a, rhs, false);
+                        let a = self.at_hl();
+                        let r = self.count8(step(bus.read(a)));
+                        bus.write(a, r);
+                        12
                     }
                     _ => {
-                        let v = self.logic(a ^ rhs);
-                        self.set_a(v)
+                        let r = if dec { self.sp.wrapping_sub(1) } else { self.sp.wrapping_add(1) };
+                        self.sp = self.count16(r);
+                        8
                     }
-                };
-                if source == 5 {
-                    16
-                } else if source == 4 {
-                    12
-                } else {
-                    8
                 }
             }
-            0x40..=0x5f => {
-                let dst = (op >> 3) & 3;
-                let src = op & 7;
-                let v = match src {
-                    0 => self.a(),
-                    1 => self.b(),
-                    2 => self.l(),
-                    3 => self.h(),
-                    4 => {
-                        let a = self.addr_n(bus);
-                        bus.read(a)
-                    }
-                    5 => bus.read(self.addr_ihl()),
-                    6 => bus.read(self.addr_x()),
-                    _ => bus.read(self.addr_y()),
-                };
-                match dst {
-                    0 => self.set_a(v),
-                    1 => self.set_b(v),
-                    2 => self.set_l(v),
-                    _ => self.set_h(v),
-                };
-                if src == 4 {
-                    12
-                } else if src >= 5 {
-                    8
-                } else {
-                    4
-                }
-            }
-            0x60..=0x7b => {
-                let slot = (op >> 3) & 3;
-                let addr = match slot {
-                    0 => self.addr_x(),
-                    1 => self.addr_ihl(),
-                    2 => self.addr_y(),
-                    _ => self.addr_n(bus),
-                };
-                let v = match op & 7 {
-                    0 => self.a(),
-                    1 => self.b(),
-                    2 => self.l(),
-                    3 => self.h(),
-                    4 => {
-                        let a = self.addr_n(bus);
-                        bus.read(a)
-                    }
-                    5 => bus.read(self.addr_ihl()),
-                    6 => bus.read(self.addr_x()),
-                    _ => bus.read(self.addr_y()),
-                };
-                bus.write(addr, v);
-                12
-            }
-            0x80..=0x8f => {
-                let dec = op >= 0x88;
-                let id = op & 7;
-                match id {
-                    0 => {
-                        let v = if dec {
-                            self.sub8(self.a(), 1, false)
-                        } else {
-                            self.add8(self.a(), 1, false)
-                        };
-                        self.set_a(v)
-                    }
-                    1 => {
-                        let v = if dec {
-                            self.sub8(self.b(), 1, false)
-                        } else {
-                            self.add8(self.b(), 1, false)
-                        };
-                        self.set_b(v)
-                    }
-                    2 => {
-                        let v = if dec {
-                            self.sub8(self.l(), 1, false)
-                        } else {
-                            self.add8(self.l(), 1, false)
-                        };
-                        self.set_l(v)
-                    }
-                    3 => {
-                        let v = if dec {
-                            self.sub8(self.h(), 1, false)
-                        } else {
-                            self.add8(self.h(), 1, false)
-                        };
-                        self.set_h(v)
-                    }
-                    4 => {
-                        self.n = if dec {
-                            self.n.wrapping_sub(1)
-                        } else {
-                            self.n.wrapping_add(1)
-                        }
-                    }
-                    5 | 6 => {
-                        let a = if id == 5 {
-                            self.addr_n(bus)
-                        } else {
-                            self.addr_ihl()
-                        };
-                        let old = bus.read(a);
-                        let v = if dec {
-                            old.wrapping_sub(1)
-                        } else {
-                            old.wrapping_add(1)
-                        };
-                        bus.write(a, v);
-                        self.logic(v);
-                    }
-                    _ => {
-                        self.sp = if dec {
-                            self.sp.wrapping_sub(1)
-                        } else {
-                            self.sp.wrapping_add(1)
-                        }
-                    }
-                };
-                8
-            }
-            0x90..=0x93 => {
-                let id = op & 3;
-                let old = [self.ba, self.hl, self.x, self.y][id as usize];
-                let v = self.add16(old, 1, false);
-                match id {
-                    0 => self.ba = v,
-                    1 => self.hl = v,
-                    2 => self.x = v,
-                    _ => self.y = v,
-                };
+            0x90..=0x93 | 0x98..=0x9B => {
+                let k = op & 3;
+                let v = self.r16(k);
+                let r = if op & 8 != 0 { v.wrapping_sub(1) } else { v.wrapping_add(1) };
+                let r = self.count16(r);
+                self.set_r16(k, r);
                 8
             }
             0x94 => {
                 self.logic(self.a() & self.b());
-                12
+                8
             }
             0x95 => {
-                let a = self.addr_ihl();
                 let k = self.fetch(bus);
-                let v = bus.read(a);
+                let v = bus.read(self.at_hl());
                 self.logic(v & k);
                 12
             }
-            0x96 => {
+            0x96 | 0x97 => {
                 let k = self.fetch(bus);
-                self.logic(self.a() & k);
-                12
-            }
-            0x97 => {
-                let k = self.fetch(bus);
-                self.logic(self.b() & k);
-                12
-            }
-            0x98..=0x9b => {
-                let id = op & 3;
-                let old = [self.ba, self.hl, self.x, self.y][id as usize];
-                let v = self.sub16(old, 1, false);
-                match id {
-                    0 => self.ba = v,
-                    1 => self.hl = v,
-                    2 => self.x = v,
-                    _ => self.y = v,
-                };
+                self.logic(self.r8(op & 1) & k);
                 8
             }
-            0x9c => {
-                self.f &= self.fetch(bus);
-                12
-            }
-            0x9d => {
-                self.f |= self.fetch(bus);
-                12
-            }
-            0x9e => {
-                self.f ^= self.fetch(bus);
-                12
-            }
-            0x9f => {
-                self.f = self.fetch(bus);
-                12
-            }
-            0xa0..=0xa3 => {
-                let v = [self.ba, self.hl, self.x, self.y][(op & 3) as usize];
-                self.push16(bus, v);
-                16
-            }
-            0xa4 => {
-                self.push8(bus, self.n);
-                12
-            }
-            0xa5 => {
-                self.push8(bus, self.i);
-                12
-            }
-            0xa6 => {
-                self.push8(bus, self.xi);
-                self.push8(bus, self.yi);
-                16
-            }
-            0xa7 => {
-                self.push8(bus, self.f);
-                12
-            }
-            0xa8..=0xab => {
-                let v = self.pop16(bus);
-                match op & 3 {
-                    0 => self.ba = v,
-                    1 => self.hl = v,
-                    2 => self.x = v,
-                    _ => self.y = v,
+            0x9C..=0x9F => {
+                let k = self.fetch(bus);
+                self.f = match op {
+                    0x9C => self.f & k,
+                    0x9D => self.f | k,
+                    0x9E => self.f ^ k,
+                    _ => k,
                 };
                 12
             }
-            0xac => {
-                self.n = self.pop8(bus);
-                12
-            }
-            0xad => {
-                self.i = self.pop8(bus);
-                12
-            }
-            0xae => {
-                self.yi = self.pop8(bus);
-                self.xi = self.pop8(bus);
+            0xA0..=0xA3 => {
+                let v = self.r16(op & 3);
+                self.push(bus, (v >> 8) as u8);
+                self.push(bus, v as u8);
                 16
             }
-            0xaf => {
-                self.f = self.pop8(bus);
+            0xA4 => {
+                self.push(bus, self.n);
                 12
             }
-            0xb0 => {
-                let v = self.fetch(bus);
-                self.set_a(v);
+            0xA5 => {
+                self.push(bus, self.i);
+                12
+            }
+            0xA6 => {
+                self.push(bus, self.xi);
+                self.push(bus, self.yi);
+                16
+            }
+            0xA7 => {
+                self.push(bus, self.f);
+                12
+            }
+            0xA8..=0xAB => {
+                let lo = self.pop(bus);
+                let hi = self.pop(bus);
+                self.set_r16(op & 3, u16::from_le_bytes([lo, hi]));
+                12
+            }
+            0xAC => {
+                self.n = self.pop(bus);
                 8
             }
-            0xb1 => {
-                let v = self.fetch(bus);
-                self.set_b(v);
+            0xAD => {
+                self.i = self.pop(bus);
                 8
             }
-            0xb2 => {
-                let v = self.fetch(bus);
-                self.set_l(v);
+            0xAE => {
+                self.yi = self.pop(bus);
+                self.xi = self.pop(bus);
+                12
+            }
+            0xAF => {
+                self.f = self.pop(bus);
                 8
             }
-            0xb3 => {
-                let v = self.fetch(bus);
-                self.set_h(v);
+            0xB0..=0xB3 => {
+                let k = self.fetch(bus);
+                self.set_r8(op & 3, k);
                 8
             }
-            0xb4 => {
+            0xB4 => {
                 self.n = self.fetch(bus);
                 8
             }
-            0xb5..=0xb7 => {
+            0xB5..=0xB7 => {
+                let k = self.fetch(bus);
                 let a = match op {
-                    0xb5 => self.addr_ihl(),
-                    0xb6 => self.addr_x(),
-                    _ => self.addr_y(),
+                    0xB5 => self.at_hl(),
+                    0xB6 => self.at_x(),
+                    _ => self.at_y(),
                 };
-                let v = self.fetch(bus);
-                bus.write(a, v);
+                bus.write(a, k);
                 12
             }
-            0xb8..=0xbb => {
-                let a = self.addr_i16(bus);
-                let v = self.read16(bus, a);
-                match op & 3 {
-                    0 => self.ba = v,
-                    1 => self.hl = v,
-                    2 => self.x = v,
-                    _ => self.y = v,
-                };
+            0xB8..=0xBB => {
+                let a = self.fetch16(bus);
+                let v = Self::read16_in(bus, self.i, a);
+                self.set_r16(op & 3, v);
                 20
             }
-            0xbc..=0xbf => {
-                let a = self.addr_i16(bus);
-                let v = [self.ba, self.hl, self.x, self.y][(op & 3) as usize];
-                self.write16(bus, a, v);
+            0xBC..=0xBF => {
+                let a = self.fetch16(bus);
+                Self::write16_in(bus, self.i, a, self.r16(op & 3));
                 20
             }
-            0xc0..=0xc3 => {
+            0xC0..=0xC3 => {
                 let k = self.fetch16(bus);
-                let id = op & 3;
-                let old = [self.ba, self.hl, self.x, self.y][id as usize];
-                let v = self.add16(old, k, false);
-                match id {
-                    0 => self.ba = v,
-                    1 => self.hl = v,
-                    2 => self.x = v,
-                    _ => self.y = v,
-                };
+                let r = self.add16(self.r16(op & 3), k, false);
+                self.set_r16(op & 3, r);
                 12
             }
-            0xc4..=0xc7 => {
-                let v = self.fetch16(bus);
-                match op & 3 {
-                    0 => self.ba = v,
-                    1 => self.hl = v,
-                    2 => self.x = v,
-                    _ => self.y = v,
-                };
+            0xC4..=0xC7 => {
+                let k = self.fetch16(bus);
+                self.set_r16(op & 3, k);
                 12
             }
-            0xc8 => {
-                std::mem::swap(&mut self.ba, &mut self.hl);
-                8
+            0xC8..=0xCA => {
+                let other = self.r16((op & 3) + 1);
+                self.set_r16((op & 3) + 1, self.ba);
+                self.ba = other;
+                12
             }
-            0xc9 => {
-                std::mem::swap(&mut self.ba, &mut self.x);
-                8
-            }
-            0xca => {
-                std::mem::swap(&mut self.ba, &mut self.y);
-                8
-            }
-            0xcb => {
+            0xCB => {
                 std::mem::swap(&mut self.ba, &mut self.sp);
-                8
+                12
             }
-            0xcc => {
+            0xCC => {
                 self.ba = self.ba.rotate_left(8);
                 8
             }
-            0xcd => {
-                let a = self.addr_ihl();
+            0xCD => {
+                let a = self.at_hl();
                 let v = bus.read(a);
                 bus.write(a, self.a());
                 self.set_a(v);
-                8
+                12
             }
-            0xce => self.step_ce(bus),
-            0xcf => self.step_cf(bus),
-            0xd0..=0xd7 => {
+            0xCE => {
+                let op = self.fetch(bus);
+                self.page_ce(bus, op)
+            }
+            0xCF => {
+                let op = self.fetch(bus);
+                self.page_cf(bus, op)
+            }
+            0xD0..=0xD7 => {
                 let k = self.fetch16(bus);
-                let id = op & 3;
-                let old = [self.ba, self.hl, self.x, self.y][id as usize];
-                let v = self.sub16(old, k, false);
-                if op < 0xd4 {
-                    match id {
-                        0 => self.ba = v,
-                        1 => self.hl = v,
-                        2 => self.x = v,
-                        _ => self.y = v,
-                    }
-                };
-                12
-            }
-            0xd8..=0xdd => {
-                let a = self.addr_n(bus);
-                let k = self.fetch(bus);
-                let old = bus.read(a);
-                match op {
-                    0xd8 => {
-                        let v = self.logic(old & k);
-                        bus.write(a, v)
-                    }
-                    0xd9 => {
-                        let v = self.logic(old | k);
-                        bus.write(a, v)
-                    }
-                    0xda => {
-                        let v = self.logic(old ^ k);
-                        bus.write(a, v)
-                    }
-                    0xdb => {
-                        self.sub8(old, k, false);
-                    }
-                    0xdc => {
-                        self.logic(old & k);
-                    }
-                    _ => bus.write(a, k),
-                };
-                16
-            }
-            0xde => {
-                self.set_a((self.a() & 0x0f) | (self.b() << 4));
-                8
-            }
-            0xdf => {
-                self.ba = (self.a() as i8 as i16) as u16;
-                8
-            }
-            0xe0..=0xe7 => {
-                let d = self.fetch(bus) as i8;
-                let take = match op & 7 {
-                    0 => self.f & FLAG_C != 0,
-                    1 => self.f & FLAG_C == 0,
-                    2 => self.f & FLAG_Z != 0,
-                    3 => self.f & FLAG_Z == 0,
-                    4 => self.f & FLAG_C != 0,
-                    5 => self.f & FLAG_C == 0,
-                    6 => self.f & FLAG_Z != 0,
-                    _ => self.f & FLAG_Z == 0,
-                };
-                if take {
-                    let t = self.pc.wrapping_add_signed(d as i16 - 1);
-                    if op < 0xe4 {
-                        self.call(bus, t)
-                    } else {
-                        self.jump(t)
-                    }
-                };
-                12
-            }
-            0xe8..=0xef => {
-                let d = self.fetch16(bus);
-                let take = match op & 3 {
-                    0 => self.f & FLAG_C != 0,
-                    1 => self.f & FLAG_C == 0,
-                    2 => self.f & FLAG_Z != 0,
-                    _ => self.f & FLAG_Z == 0,
-                };
-                if take {
-                    let t = self.pc.wrapping_add(d).wrapping_sub(1);
-                    if op < 0xec {
-                        self.call(bus, t)
-                    } else {
-                        self.jump(t)
-                    }
+                let v = self.r16(op & 3);
+                let r = self.sub16(v, k, false);
+                if op < 0xD4 {
+                    self.set_r16(op & 3, r);
                 }
                 12
             }
-            0xf0 => {
-                let d = self.fetch(bus) as i8;
-                self.call(bus, self.pc.wrapping_add_signed(d as i16 - 1));
+            0xD8..=0xDD => {
+                let nn = self.fetch(bus);
+                let k = self.fetch(bus);
+                let a = self.at_n(nn);
+                match op {
+                    0xD8..=0xDA => {
+                        let v = bus.read(a);
+                        let r = self.logic(match op {
+                            0xD8 => v & k,
+                            0xD9 => v | k,
+                            _ => v ^ k,
+                        });
+                        bus.write(a, r);
+                        20
+                    }
+                    0xDB => {
+                        let v = bus.read(a);
+                        self.sub8(v, k, false);
+                        16
+                    }
+                    0xDC => {
+                        let v = bus.read(a);
+                        self.logic(v & k);
+                        16
+                    }
+                    _ => {
+                        bus.write(a, k);
+                        16
+                    }
+                }
+            }
+            0xDE => {
+                self.set_a((self.a() & 0x0F) | (self.b() << 4));
+                8
+            }
+            0xDF => {
+                let a = self.a();
+                self.set_b(a >> 4);
+                self.set_a(a & 0x0F);
+                8
+            }
+            0xE0..=0xEF => {
+                let cond = match op & 3 {
+                    0 => self.f & FLAG_C != 0,
+                    1 => self.f & FLAG_C == 0,
+                    2 => self.f & FLAG_Z != 0,
+                    _ => self.f & FLAG_Z == 0,
+                };
+                let long = op & 8 != 0;
+                let offset = if long { self.fetch16(bus) } else { sext(self.fetch(bus)) };
+                let call = op & 4 == 0;
+                match (call, cond, long) {
+                    (true, true, false) => {
+                        self.call_by(bus, offset);
+                        20
+                    }
+                    (true, true, true) => {
+                        self.call_by(bus, offset);
+                        24
+                    }
+                    (true, false, false) => 8,
+                    (true, false, true) => 12,
+                    (false, true, _) => {
+                        self.jump_by(offset);
+                        if long { 12 } else { 8 }
+                    }
+                    (false, false, _) => {
+                        if long {
+                            12
+                        } else {
+                            8
+                        }
+                    }
+                }
+            }
+            0xF0 => {
+                let k = self.fetch(bus);
+                self.call_by(bus, sext(k));
                 20
             }
-            0xf1 => {
-                let d = self.fetch(bus) as i8;
-                self.jump(self.pc.wrapping_add_signed(d as i16 - 1));
+            0xF1 => {
+                let k = self.fetch(bus);
+                self.jump_by(sext(k));
                 8
             }
-            0xf2 => {
-                let d = self.fetch16(bus);
-                self.call(bus, self.pc.wrapping_add(d).wrapping_sub(1));
+            0xF2 => {
+                let k = self.fetch16(bus);
+                self.call_by(bus, k);
                 24
             }
-            0xf3 => {
-                let d = self.fetch16(bus);
-                self.jump(self.pc.wrapping_add(d).wrapping_sub(1));
+            0xF3 => {
+                let k = self.fetch16(bus);
+                self.jump_by(k);
                 12
             }
-            0xf4 => {
-                self.jump(self.hl);
+            0xF4 => {
+                self.jump_to(self.hl);
                 8
             }
-            0xf5 => {
-                let d = self.fetch(bus) as i8;
-                self.set_b(self.b().wrapping_sub(1));
-                if self.b() != 0 {
-                    self.jump(self.pc.wrapping_add_signed(d as i16 - 1))
+            0xF5 => {
+                let k = self.fetch(bus);
+                let b = self.count8(self.b().wrapping_sub(1));
+                self.set_b(b);
+                if b != 0 {
+                    self.jump_by(sext(k));
                 }
-                8
+                16
             }
-            0xf6 => {
+            0xF6 => {
                 self.set_a(self.a().rotate_left(4));
                 8
             }
-            0xf7 => {
-                let a = self.addr_ihl();
-                let v = bus.read(a).rotate_left(4);
-                bus.write(a, v);
+            0xF7 => {
+                let a = self.at_hl();
+                let v = bus.read(a);
+                bus.write(a, v.rotate_left(4));
                 12
             }
-            0xf8 => {
-                self.pc = self.pop16(bus);
-                self.v = self.pop8(bus);
-                self.u = self.v;
-                8
+            0xF8 => {
+                self.ret(bus);
+                16
             }
-            0xf9 => {
-                self.f = self.pop8(bus);
-                self.pc = self.pop16(bus);
-                self.v = self.pop8(bus);
-                self.u = self.v;
-                8
+            0xF9 => {
+                self.f = self.pop(bus);
+                self.ret(bus);
+                16
             }
-            0xfa => {
-                self.pc = self.pop16(bus).wrapping_add(2);
-                self.v = self.pop8(bus);
-                self.u = self.v;
-                8
+            0xFA => {
+                self.ret(bus);
+                self.pc = self.pc.wrapping_add(2);
+                16
             }
-            0xfb => {
-                let a = self.addr_i16(bus);
-                let t = self.read16(bus, a);
-                self.call(bus, t);
+            0xFB => {
+                let k = self.fetch16(bus);
+                self.push_pc(bus);
+                self.take_u();
+                self.pc = Self::read16(bus, (u32::from(self.i) << 16).wrapping_add(u32::from(k)));
                 20
             }
-            0xfc => {
-                let i = self.fetch(bus) & 0xfe;
-                let t = self.read16(bus, i as u32);
-                self.call(bus, t);
-                self.push8(bus, self.f);
-                20
-            }
-            0xfd => {
-                let i = self.fetch(bus) & 0xfe;
-                let t = self.read16(bus, i as u32);
-                self.jump(t);
-                12
-            }
-            0xff => 8,
-            _ => 8,
-        };
-        self.cycles += c as u64;
-        c
-    }
-
-    fn ce_indexed(&mut self, bus: &mut impl Bus, mode: u8) -> u32 {
-        match mode {
-            0 => (self.xi as u32) << 16 | self.x.wrapping_add(self.fetch(bus) as u16) as u32,
-            1 => (self.yi as u32) << 16 | self.y.wrapping_add(self.fetch(bus) as u16) as u32,
-            2 => (self.xi as u32) << 16 | self.x.wrapping_add(self.l() as u16) as u32,
-            _ => (self.yi as u32) << 16 | self.y.wrapping_add(self.l() as u16) as u32,
-        }
-    }
-
-    fn ce_condition(&self, code: u8) -> bool {
-        match code & 15 {
-            0 => (self.f & (FLAG_S | FLAG_O)) == FLAG_S || (self.f & (FLAG_S | FLAG_O)) == FLAG_O,
-            1 => {
-                self.f & FLAG_Z != 0
-                    || (self.f & (FLAG_S | FLAG_O)) == FLAG_S
-                    || (self.f & (FLAG_S | FLAG_O)) == FLAG_O
-            }
-            2 => self.f & FLAG_Z == 0 && (self.f & FLAG_S != 0) == (self.f & FLAG_O != 0),
-            3 => (self.f & FLAG_S != 0) == (self.f & FLAG_O != 0),
-            4 => self.f & FLAG_O != 0,
-            5 => self.f & FLAG_O == 0,
-            6 => self.f & FLAG_S == 0,
-            7 => self.f & FLAG_S != 0,
-            8 => self.e & 0x80 == 0,
-            9 => self.e & 0x40 == 0,
-            10 => self.e & 0x20 == 0,
-            11 => self.e & 0x10 == 0,
-            12 => self.e & 0x80 != 0,
-            13 => self.e & 0x40 != 0,
-            14 => self.e & 0x20 != 0,
-            _ => self.e & 0x10 != 0,
-        }
-    }
-
-    fn step_ce(&mut self, bus: &mut impl Bus) -> u32 {
-        let op = self.fetch(bus);
-        match op {
-            0x00..=0x3f => {
-                let group = op >> 3;
-                let form = op & 7;
-                let (left, right, target) = if form < 4 {
-                    let a = self.ce_indexed(bus, form);
-                    (self.a(), bus.read(a), None)
-                } else {
-                    let a = self.addr_ihl();
-                    let rhs = match form {
-                        4 => self.a(),
-                        5 => self.fetch(bus),
-                        6 => bus.read(self.addr_x()),
-                        _ => bus.read(self.addr_y()),
-                    };
-                    (bus.read(a), rhs, Some(a))
-                };
-                let result = match group {
-                    0 => self.add8(left, right, false),
-                    1 => self.add8(left, right, true),
-                    2 => self.sub8(left, right, false),
-                    3 => self.sub8(left, right, true),
-                    4 => self.logic(left & right),
-                    5 => self.logic(left | right),
-                    6 => {
-                        self.sub8(left, right, false);
-                        left
-                    }
-                    _ => self.logic(left ^ right),
-                };
-                if group != 6 {
-                    if let Some(a) = target {
-                        bus.write(a, result)
-                    } else {
-                        self.set_a(result)
-                    }
-                }
-            }
-            0x40..=0x5f => {
-                let reg = (op >> 3) & 3;
-                let store = op & 4 != 0;
-                let a = self.ce_indexed(bus, op & 3);
-                if store {
-                    let v = [self.a(), self.b(), self.l(), self.h()][reg as usize];
-                    bus.write(a, v)
-                } else {
-                    let v = bus.read(a);
-                    match reg {
-                        0 => self.set_a(v),
-                        1 => self.set_b(v),
-                        2 => self.set_l(v),
-                        _ => self.set_h(v),
-                    }
-                }
-            }
-            0x60..=0x63 | 0x68..=0x6b | 0x78..=0x7b => {
-                let src = self.ce_indexed(bus, op & 3);
-                let dst = match op & 0x78 {
-                    0x60 => self.addr_ihl(),
-                    0x68 => self.addr_x(),
-                    _ => self.addr_y(),
-                };
-                let v = bus.read(src);
-                bus.write(dst, v);
-            }
-            0x80..=0x9f => {
-                let kind = (op >> 2) & 7;
-                let id = op & 3;
-                let mut address = None;
-                let old = match id {
-                    0 => self.a(),
-                    1 => self.b(),
-                    2 => {
-                        let a = self.addr_n(bus);
-                        address = Some(a);
-                        bus.read(a)
-                    }
-                    _ => {
-                        let a = self.addr_ihl();
-                        address = Some(a);
-                        bus.read(a)
-                    }
-                };
-                let carry = self.f & FLAG_C != 0;
-                let v = match kind {
-                    0 | 1 => old << 1,
-                    2 => (old as i8 >> 1) as u8,
-                    3 => old >> 1,
-                    4 => (old << 1) | carry as u8,
-                    5 => old.rotate_left(1),
-                    6 => (old >> 1) | ((carry as u8) << 7),
-                    _ => old.rotate_right(1),
-                };
-                self.flags8(
-                    v,
-                    if matches!(kind, 0 | 1 | 4 | 5) {
-                        old & 0x80 != 0
-                    } else {
-                        old & 1 != 0
-                    },
-                    false,
-                );
-                if let Some(a) = address {
-                    bus.write(a, v)
-                } else if id == 0 {
-                    self.set_a(v)
-                } else {
-                    self.set_b(v)
-                }
-            }
-            0xa0..=0xa7 => {
-                let id = op & 3;
-                let mut address = None;
-                let old = match id {
-                    0 => self.a(),
-                    1 => self.b(),
-                    2 => {
-                        let a = self.addr_n(bus);
-                        address = Some(a);
-                        bus.read(a)
-                    }
-                    _ => {
-                        let a = self.addr_ihl();
-                        address = Some(a);
-                        bus.read(a)
-                    }
-                };
-                let v = if op & 4 == 0 {
-                    self.logic(!old)
-                } else {
-                    self.sub8(0, old, false)
-                };
-                if let Some(a) = address {
-                    bus.write(a, v)
-                } else if id == 0 {
-                    self.set_a(v)
-                } else {
-                    self.set_b(v)
-                }
-            }
-            0xa8 => self.ba = (self.a() as i8 as i16) as u16,
-            0xae => self.halted = true,
-            0xb0..=0xbf => {
+            0xFC => {
                 let k = self.fetch(bus);
-                let id = op & 3;
-                let old = match id {
-                    0 => self.b(),
-                    1 => self.l(),
-                    2 => self.h(),
-                    _ => self.n,
-                };
-                let group = (op - 0xb0) >> 2;
-                let v = match group {
-                    0 => self.logic(old & k),
-                    1 => self.logic(old | k),
-                    2 => self.logic(old ^ k),
-                    _ => {
-                        self.sub8(old, k, false);
-                        old
-                    }
-                };
-                if group < 3 {
-                    match id {
-                        0 => self.set_b(v),
-                        1 => self.set_l(v),
-                        2 => self.set_h(v),
-                        _ => self.n = v,
-                    }
-                }
+                self.call_vector(bus, u16::from(k), true);
+                20
             }
-            0xc0 => self.set_a(self.n),
-            0xc1 => self.set_a(self.f),
-            0xc2 => self.n = self.a(),
-            0xc3 => self.f = self.a(),
-            0xc4 => self.u = self.fetch(bus),
-            0xc5 => self.i = self.fetch(bus),
-            0xc6 => self.xi = self.fetch(bus),
-            0xc7 => self.yi = self.fetch(bus),
-            0xc8 => self.set_a(self.v),
-            0xc9 => self.set_a(self.i),
-            0xca => self.set_a(self.xi),
-            0xcb => self.set_a(self.yi),
-            0xcc => self.u = self.a(),
-            0xcd => self.i = self.a(),
-            0xce => self.xi = self.a(),
-            0xcf => self.yi = self.a(),
-            0xd0..=0xd7 => {
-                let a = self.addr_i16(bus);
-                if op < 0xd4 {
-                    let v = bus.read(a);
-                    match op & 3 {
-                        0 => self.set_a(v),
-                        1 => self.set_b(v),
-                        2 => self.set_l(v),
-                        _ => self.set_h(v),
-                    }
-                } else {
-                    let v = [self.a(), self.b(), self.l(), self.h()][(op & 3) as usize];
-                    bus.write(a, v)
-                }
+            0xFD => {
+                let k = self.fetch(bus);
+                self.call_vector(bus, u16::from(k), false);
+                8
             }
-            0xd8 => self.hl = self.l() as u16 * self.a() as u16,
-            0xd9 => {
-                if self.a() != 0 {
-                    let q = self.hl / self.a() as u16;
-                    self.hl = ((self.hl % self.a() as u16) << 8) | (q & 0xff)
-                }
-            }
-            0xe0..=0xff => {
-                let d = self.fetch(bus) as i8;
-                if self.ce_condition(op) {
-                    let t = self.pc.wrapping_add_signed(d as i16 - 1);
-                    if op < 0xf0 {
-                        self.jump(t)
-                    } else {
-                        self.call(bus, t)
-                    }
-                }
-            }
-            _ => {}
+            // A "crash" opcode: the console's own behaviour is unknown; nothing happens here.
+            0xFE => 4,
+            _ => 8,
         }
-        16
     }
 
-    fn step_cf(&mut self, bus: &mut impl Bus) -> u32 {
-        let op = self.fetch(bus);
+    fn page_ce(&mut self, bus: &mut impl Bus, op: u8) -> u32 {
         match op {
-            0x00..=0x0f => {
-                let rhs = [self.ba, self.hl, self.x, self.y][(op & 3) as usize];
-                self.ba = match (op >> 2) & 3 {
-                    0 => self.add16(self.ba, rhs, false),
-                    1 => self.add16(self.ba, rhs, true),
-                    2 => self.sub16(self.ba, rhs, false),
-                    _ => self.sub16(self.ba, rhs, true),
+            0x00..=0x3F => {
+                let group = op >> 3;
+                if op & 4 == 0 {
+                    let a = self.at_indexed(bus, op & 3);
+                    let v = bus.read(a);
+                    if let Some(r) = self.alu(group, self.a(), v) {
+                        self.set_a(r);
+                    }
+                    16
+                } else {
+                    let rhs = match op & 3 {
+                        0 => self.a(),
+                        1 => self.fetch(bus),
+                        2 => bus.read(self.at_x()),
+                        _ => bus.read(self.at_y()),
+                    };
+                    let at = self.at_hl();
+                    let v = bus.read(at);
+                    if let Some(r) = self.alu(group, v, rhs) {
+                        bus.write(at, r);
+                    }
+                    if op & 3 == 0 {
+                        16
+                    } else {
+                        20
+                    }
                 }
             }
-            0x18..=0x1b => {
-                let rhs = [self.ba, self.hl, self.x, self.y][(op & 3) as usize];
-                self.sub16(self.ba, rhs, false);
+            0x40..=0x5F => {
+                let reg = (op - 0x40) >> 3;
+                let a = self.at_indexed(bus, op & 3);
+                if op & 4 == 0 {
+                    let v = bus.read(a);
+                    self.set_r8(reg, v);
+                } else {
+                    bus.write(a, self.r8(reg));
+                }
+                16
             }
-            0x20..=0x2f => {
-                let rhs = [self.ba, self.hl, self.x, self.y][(op & 3) as usize];
-                self.hl = match (op >> 2) & 3 {
-                    0 => self.add16(self.hl, rhs, false),
-                    1 => self.add16(self.hl, rhs, true),
-                    2 => self.sub16(self.hl, rhs, false),
-                    _ => self.sub16(self.hl, rhs, true),
+            0x60..=0x63 | 0x68..=0x6B | 0x78..=0x7B => {
+                let a = self.at_indexed(bus, op & 3);
+                let v = bus.read(a);
+                let dst = match op {
+                    0x60..=0x63 => self.at_hl(),
+                    0x68..=0x6B => self.at_x(),
+                    _ => self.at_y(),
+                };
+                bus.write(dst, v);
+                20
+            }
+            0x64 | 0x65 => {
+                let k = self.fetch16(bus);
+                let reg = op & 1;
+                let r = self.add16(self.r16(reg), k, true);
+                self.set_r16(reg, r);
+                16
+            }
+            0x66 | 0x67 => {
+                let k = u16::from(self.fetch(bus)) << 8 | u16::from(self.l());
+                let reg = op & 1;
+                let r = self.add16(self.r16(reg), k, true);
+                self.set_r16(reg, r);
+                24
+            }
+            0x6C | 0x6D => {
+                if op == 0x6C {
+                    // Adds a byte to SP, then carries on as 6D.
+                    let k = u16::from(self.fetch(bus));
+                    self.sp = self.add16(self.sp, k, false);
+                }
+                let k = u16::from(self.fetch(bus));
+                self.hl = self.add16(self.x, ((k << 4) * 3) + ((k & 8) >> 3), false);
+                self.f &= !FLAG_C;
+                40
+            }
+            0x6E => {
+                let k = u16::from(self.fetch(bus)) << 8 | u16::from(self.l());
+                self.sp = self.add16(self.sp, k, false);
+                16
+            }
+            0x6F => {
+                let k = u16::from(self.l());
+                self.hl = self.add16(self.x, ((k << 4) * 3) + ((k & 8) >> 3), false);
+                self.f &= !FLAG_C;
+                40
+            }
+            0x70 | 0x71 => {
+                self.pc = self.pc.wrapping_add(1);
+                64
+            }
+            0x72 | 0x73 => 64,
+            0x74..=0x77 => {
+                let reg = if op & 1 == 0 { 0 } else { 2 };
+                let a = self.at_indexed(bus, op & 3);
+                let v = bus.read(a);
+                self.set_r8(reg, v);
+                64
+            }
+            0x7C | 0x7D => {
+                self.pc = self.pc.wrapping_add(1);
+                if op == 0x7C {
+                    20
+                } else {
+                    16
                 }
             }
-            0x38..=0x3b => {
-                let rhs = [self.ba, self.hl, self.x, self.y][(op & 3) as usize];
-                self.sub16(self.hl, rhs, false);
+            0x7E => 20,
+            0x7F => 16,
+            0x80..=0xA7 => {
+                let row = (op - 0x80) >> 2;
+                match op & 3 {
+                    k @ 0..=1 => {
+                        let r = self.shift(row, self.r8(k));
+                        self.set_r8(k, r);
+                        12
+                    }
+                    2 => {
+                        let nn = self.fetch(bus);
+                        let a = self.at_n(nn);
+                        let r = self.shift(row, bus.read(a));
+                        bus.write(a, r);
+                        20
+                    }
+                    _ => {
+                        let a = self.at_hl();
+                        let r = self.shift(row, bus.read(a));
+                        bus.write(a, r);
+                        16
+                    }
+                }
             }
-            0x40 => self.x = self.add16(self.x, self.ba, false),
-            0x41 => self.x = self.add16(self.x, self.hl, false),
-            0x42 => self.y = self.add16(self.y, self.ba, false),
-            0x43 => self.y = self.add16(self.y, self.hl, false),
-            0x44 => self.sp = self.add16(self.sp, self.ba, false),
-            0x45 => self.sp = self.add16(self.sp, self.hl, false),
-            0x48 => self.x = self.sub16(self.x, self.ba, false),
-            0x49 => self.x = self.sub16(self.x, self.hl, false),
-            0x4a => self.y = self.sub16(self.y, self.ba, false),
-            0x4b => self.y = self.sub16(self.y, self.hl, false),
-            0x4c => self.sp = self.sub16(self.sp, self.ba, false),
-            0x4d => self.sp = self.sub16(self.sp, self.hl, false),
-            0x5c => {
-                self.sub16(self.sp, self.ba, false);
+            0xA8 => {
+                self.ba = sext(self.a());
+                12
             }
-            0x5d => {
-                self.sub16(self.sp, self.hl, false);
+            0xA9 => 8,
+            0xAA => 12,
+            0xAB..=0xAD => 64,
+            0xAE => {
+                self.status = HALTED;
+                8
+            }
+            0xAF => {
+                self.status = STOPPED;
+                8
+            }
+            0xB0..=0xBF => {
+                let col = op & 3;
+                let row = (op - 0xB0) >> 2;
+                if col == 3 {
+                    match row {
+                        0 => self.set_h(self.v),
+                        1 => self.x = (self.x & 0x00FF) | u16::from(self.v) << 8,
+                        2 => self.y = (self.y & 0x00FF) | u16::from(self.v) << 8,
+                        _ => {
+                            let k = self.fetch(bus);
+                            self.sub8(self.n, k, false);
+                        }
+                    }
+                    return 12;
+                }
+                let k = self.fetch(bus);
+                let reg = col + 1;
+                let v = self.r8(reg);
+                match row {
+                    0 => {
+                        let r = self.logic(v & k);
+                        self.set_r8(reg, r)
+                    }
+                    1 => {
+                        let r = self.logic(v | k);
+                        self.set_r8(reg, r)
+                    }
+                    2 => {
+                        let r = self.logic(v ^ k);
+                        self.set_r8(reg, r)
+                    }
+                    _ => {
+                        self.sub8(v, k, false);
+                    }
+                }
+                12
+            }
+            0xC0 => {
+                self.set_a(self.n);
+                8
+            }
+            0xC1 => {
+                self.set_a(self.f);
+                8
+            }
+            0xC2 => {
+                self.n = self.a();
+                8
+            }
+            0xC3 => {
+                self.f = self.a();
+                8
+            }
+            0xC4 => {
+                let k = self.fetch(bus);
+                self.set_u(k);
+                16
+            }
+            0xC5..=0xC7 => {
+                let k = self.fetch(bus);
+                match op {
+                    0xC5 => self.i = k,
+                    0xC6 => self.xi = k,
+                    _ => self.yi = k,
+                }
+                12
+            }
+            0xC8..=0xCB => {
+                let v = match op {
+                    0xC8 => self.v,
+                    0xC9 => self.i,
+                    0xCA => self.xi,
+                    _ => self.yi,
+                };
+                self.set_a(v);
+                8
+            }
+            0xCC => {
+                self.set_u(self.a());
+                8
+            }
+            0xCD..=0xCF => {
+                let a = self.a();
+                match op {
+                    0xCD => self.i = a,
+                    0xCE => self.xi = a,
+                    _ => self.yi = a,
+                }
+                8
+            }
+            0xD0..=0xD7 => {
+                let a = u32::from(self.fetch16(bus));
+                if op < 0xD4 {
+                    let v = bus.read(a);
+                    self.set_r8(op & 3, v);
+                } else {
+                    bus.write(a, self.r8(op & 3));
+                }
+                20
+            }
+            0xD8 => {
+                self.f &= 0xF0;
+                self.hl = u16::from(self.l()) * u16::from(self.a());
+                self.zero(self.hl == 0);
+                self.flag(FLAG_S, self.hl & 0x8000 != 0);
+                48
+            }
+            0xD9 => {
+                self.f &= 0xF0;
+                let d = u16::from(self.a());
+                if d != 0 {
+                    let q = self.hl / d;
+                    if q < 256 {
+                        let rem = (self.hl % d) as u8;
+                        self.hl = u16::from(rem) << 8 | q;
+                        self.zero(q == 0);
+                        self.flag(FLAG_S, q & 0x80 != 0);
+                    } else {
+                        self.f |= FLAG_O | FLAG_S;
+                    }
+                }
+                52
+            }
+            0xDA | 0xDB | 0xDE | 0xDF => {
+                self.fetch(bus);
+                64
+            }
+            0xDC => 64,
+            0xDD => 16,
+            0xE0..=0xEF => {
+                let k = self.fetch(bus);
+                if self.condition(op) {
+                    self.jump_by(sext(k));
+                }
+                12
+            }
+            _ => {
+                let k = self.fetch(bus);
+                if self.condition(op) {
+                    self.call_by(bus, sext(k));
+                }
+                12
+            }
+        }
+    }
+
+    fn page_cf(&mut self, bus: &mut impl Bus, op: u8) -> u32 {
+        match op {
+            0x00..=0x3F => {
+                // BA (00-1F) or HL (20-3F) with BA, HL, X or Y: ADD, ADC, SUB, SBC, then the
+                // same again (10-17 / 30-37) except CMP in 18-1B / 38-3B, and SBC on BA in
+                // 1C-1F and 3C-3F.
+                let dst = if op < 0x20 { 0 } else { 1 };
+                let src = self.r16(op & 3);
+                let row = (op >> 2) & 7;
+                let (kind, dst) = match row {
+                    6 => (4, dst),
+                    7 => (3, 0),
+                    _ => (row & 3, dst),
+                };
+                let a = self.r16(dst);
+                let r = match kind {
+                    0 => self.add16(a, src, false),
+                    1 => self.add16(a, src, true),
+                    2 => self.sub16(a, src, false),
+                    3 => self.sub16(a, src, true),
+                    _ => {
+                        self.sub16(a, src, false);
+                        return 16;
+                    }
+                };
+                self.set_r16(dst, r);
+                16
+            }
+            0x40..=0x5F => {
+                let target = (op >> 1) & 3;
+                let src = if op & 1 == 0 { self.ba } else { self.hl };
+                if target == 3 {
+                    return 16;
+                }
+                let sub = op & 8 != 0;
+                let a = match target {
+                    0 => self.x,
+                    1 => self.y,
+                    _ => self.sp,
+                };
+                let cmp = sub && target == 2 && op >= 0x5C;
+                let r = if sub { self.sub16(a, src, false) } else { self.add16(a, src, false) };
+                if !cmp {
+                    match target {
+                        0 => self.x = r,
+                        1 => self.y = r,
+                        _ => self.sp = r,
+                    }
+                }
+                16
             }
             0x60..=0x63 => {
                 let k = self.fetch16(bus);
-                let old = [self.ba, self.hl, self.x, self.y][(op & 3) as usize];
-                self.add16(old, k, true);
+                let reg = op & 1;
+                let r = if op < 0x62 { self.add16(self.r16(reg), k, true) } else { self.sub16(self.r16(reg), k, true) };
+                self.set_r16(reg, r);
+                16
             }
-            0x68 => {
+            0x68 | 0x6A | 0x6C | 0x6E => {
                 let k = self.fetch16(bus);
-                self.sp = self.add16(self.sp, k, false)
-            }
-            0x6a => {
-                let k = self.fetch16(bus);
-                self.sp = self.sub16(self.sp, k, false)
-            }
-            0x6c => {
-                let k = self.fetch16(bus);
-                self.sub16(self.sp, k, false);
-            }
-            0x6e => self.sp = self.fetch16(bus),
-            0x70..=0x77 => {
-                let a = self.sp.wrapping_add(self.fetch(bus) as u16) as u32;
-                if op < 0x74 {
-                    let v = self.read16(bus, a);
-                    match op & 3 {
-                        0 => self.ba = v,
-                        1 => self.hl = v,
-                        2 => self.x = v,
-                        _ => self.y = v,
+                match op {
+                    0x68 => self.sp = self.add16(self.sp, k, false),
+                    0x6A => self.sp = self.sub16(self.sp, k, false),
+                    0x6C => {
+                        self.sub16(self.sp, k, false);
                     }
-                } else {
-                    let v = [self.ba, self.hl, self.x, self.y][(op & 3) as usize];
-                    self.write16(bus, a, v)
+                    _ => self.sp = k,
                 }
+                16
+            }
+            0x64..=0x6F => 16,
+            0x70..=0x77 => {
+                let k = self.fetch(bus);
+                let a = self.sp.wrapping_add(sext(k));
+                if op < 0x74 {
+                    let v = Self::read16_in(bus, 0, a);
+                    self.set_r16(op & 3, v);
+                } else {
+                    Self::write16_in(bus, 0, a, self.r16(op & 3));
+                }
+                24
             }
             0x78 => {
-                let a = self.addr_i16(bus);
-                self.sp = self.read16(bus, a)
+                let a = self.fetch16(bus);
+                self.sp = Self::read16_in(bus, self.i, a);
+                24
             }
-            0x7c => {
-                let a = self.addr_i16(bus);
-                self.write16(bus, a, self.sp)
+            0x7C => {
+                let a = self.fetch16(bus);
+                Self::write16_in(bus, self.i, a, self.sp);
+                24
             }
-            0xb0 => self.push8(bus, self.a()),
-            0xb1 => self.push8(bus, self.b()),
-            0xb2 => self.push8(bus, self.l()),
-            0xb3 => self.push8(bus, self.h()),
-            0xb4 => {
-                let v = self.pop8(bus);
-                self.set_a(v)
+            0x79..=0x7B | 0x7D..=0xAF | 0xBA | 0xBB | 0xBE | 0xBF => {
+                let k = self.fetch(bus);
+                self.special(k)
             }
-            0xb5 => {
-                let v = self.pop8(bus);
-                self.set_b(v)
+            0xB0..=0xB3 => {
+                let v = self.r8(op & 3);
+                self.push(bus, v);
+                12
             }
-            0xb6 => {
-                let v = self.pop8(bus);
-                self.set_l(v)
+            0xB4..=0xB7 => {
+                let v = self.pop(bus);
+                self.set_r8(op & 3, v);
+                12
             }
-            0xb7 => {
-                let v = self.pop8(bus);
-                self.set_h(v)
-            }
-            0xb8 | 0xb9 => {
-                self.push16(bus, self.ba);
-                self.push16(bus, self.hl);
-                self.push16(bus, self.x);
-                self.push16(bus, self.y);
-                self.push8(bus, self.n);
-                if op == 0xb9 {
-                    self.push8(bus, self.i);
-                    self.push8(bus, self.xi);
-                    self.push8(bus, self.yi)
+            0xB8 | 0xB9 => {
+                for v in [self.ba, self.hl, self.x, self.y] {
+                    self.push(bus, (v >> 8) as u8);
+                    self.push(bus, v as u8);
                 }
-            }
-            0xbc | 0xbd => {
-                if op == 0xbd {
-                    self.yi = self.pop8(bus);
-                    self.xi = self.pop8(bus);
-                    self.i = self.pop8(bus)
-                }
-                self.n = self.pop8(bus);
-                self.y = self.pop16(bus);
-                self.x = self.pop16(bus);
-                self.hl = self.pop16(bus);
-                self.ba = self.pop16(bus)
-            }
-            0xc0..=0xc7 => {
-                let a = self.addr_ihl();
-                if op < 0xc4 {
-                    let v = self.read16(bus, a);
-                    match op & 3 {
-                        0 => self.ba = v,
-                        1 => self.hl = v,
-                        2 => self.x = v,
-                        _ => self.y = v,
-                    }
+                self.push(bus, self.n);
+                if op == 0xB9 {
+                    self.push(bus, self.i);
+                    self.push(bus, self.xi);
+                    self.push(bus, self.yi);
+                    60
                 } else {
-                    let v = [self.ba, self.hl, self.x, self.y][(op & 3) as usize];
-                    self.write16(bus, a, v)
+                    48
                 }
             }
-            0xd0..=0xdf => {
-                let a = if op < 0xd8 {
-                    self.addr_x()
+            0xBC | 0xBD => {
+                if op == 0xBD {
+                    self.yi = self.pop(bus);
+                    self.xi = self.pop(bus);
+                    self.i = self.pop(bus);
+                }
+                self.n = self.pop(bus);
+                for k in [3, 2, 1, 0] {
+                    let lo = self.pop(bus);
+                    let hi = self.pop(bus);
+                    self.set_r16(k, u16::from_le_bytes([lo, hi]));
+                }
+                if op == 0xBD {
+                    56
                 } else {
-                    self.addr_y()
+                    44
+                }
+            }
+            0xC0..=0xC7 | 0xD0..=0xDF => {
+                let (bank, at) = match op {
+                    0xC0..=0xC7 => (self.i, self.hl),
+                    0xD0..=0xD7 => (self.xi, self.x),
+                    _ => (self.yi, self.y),
                 };
                 if op & 4 == 0 {
-                    let v = self.read16(bus, a);
-                    match op & 3 {
-                        0 => self.ba = v,
-                        1 => self.hl = v,
-                        2 => self.x = v,
-                        _ => self.y = v,
-                    }
+                    let v = Self::read16_in(bus, bank, at);
+                    self.set_r16(op & 3, v);
                 } else {
-                    let v = [self.ba, self.hl, self.x, self.y][(op & 3) as usize];
-                    self.write16(bus, a, v)
+                    Self::write16_in(bus, bank, at, self.r16(op & 3));
                 }
+                20
             }
-            0xe0..=0xef => {
-                let src = [self.ba, self.hl, self.x, self.y][(op & 3) as usize];
-                match (op >> 2) & 3 {
-                    0 => self.ba = src,
-                    1 => self.hl = src,
-                    2 => self.x = src,
-                    _ => self.y = src,
-                }
+            0xC8..=0xCF => {
+                self.set_b(self.v);
+                12
             }
-            0xf0 => self.sp = self.ba,
-            0xf1 => self.sp = self.hl,
-            0xf2 => self.sp = self.x,
-            0xf3 => self.sp = self.y,
-            0xf4 => self.hl = self.sp,
-            0xf5 => self.hl = self.pc,
-            0xf8 => self.ba = self.sp,
-            0xf9 => self.ba = self.pc,
-            0xfa => self.x = self.sp,
-            0xfe => self.y = self.sp,
-            _ => {}
+            0xE0..=0xEF => {
+                let v = self.r16(op & 3);
+                self.set_r16((op >> 2) & 3, v);
+                8
+            }
+            0xF0..=0xF3 => {
+                self.sp = self.r16(op & 3);
+                8
+            }
+            0xF4 => {
+                self.hl = self.sp;
+                8
+            }
+            0xF5 => {
+                self.hl = self.pc;
+                8
+            }
+            0xF6 => {
+                self.x = (self.x & 0x00FF) | u16::from(self.v) << 8;
+                12
+            }
+            0xF7 => {
+                self.y = (self.y & 0x00FF) | u16::from(self.v) << 8;
+                12
+            }
+            0xF8 => {
+                self.ba = self.sp;
+                8
+            }
+            0xF9 => {
+                self.ba = self.pc;
+                8
+            }
+            0xFA => {
+                self.x = self.sp;
+                8
+            }
+            0xFB | 0xFC => 12,
+            0xFD => {
+                self.set_a(self.e);
+                12
+            }
+            0xFE => {
+                self.y = self.sp;
+                8
+            }
+            _ => 64,
         }
-        16
+    }
+
+    /// The three-byte CF instructions, by their third byte.
+    fn special(&mut self, k: u8) -> u32 {
+        match k {
+            0x00..=0x3F => {
+                let hl = k >= 0x20;
+                let reg = u8::from(hl);
+                let up = k & 8 != 0;
+                let only_no_carry = k & 4 != 0;
+                let keep = k & 0x1C != 0x18;
+                if only_no_carry && self.f & FLAG_C != 0 {
+                    return 16;
+                }
+                let v = self.r16(reg);
+                let r = self.count16(if up { v.wrapping_add(1) } else { v.wrapping_sub(1) });
+                if keep {
+                    self.set_r16(reg, r);
+                }
+                16
+            }
+            0x40..=0x5F => {
+                let what = (k >> 1) & 3;
+                let up = k & 8 != 0;
+                match what {
+                    0 | 1 => {
+                        let r = self.count16(if up { self.x.wrapping_add(1) } else { self.x.wrapping_sub(1) });
+                        self.x = r;
+                    }
+                    2 => {
+                        let r = self.count16(if up { self.sp.wrapping_add(1) } else { self.sp.wrapping_sub(1) });
+                        self.sp = r;
+                    }
+                    _ => {}
+                }
+                16
+            }
+            0x60..=0x6F => 16,
+            0x70..=0x73 => {
+                self.set_r16(k & 3, 0x4D00 | u16::from(self.v));
+                24
+            }
+            0x74..=0xAF => 24,
+            0xB0..=0xBF => 12,
+            0xC0..=0xC3 | 0xD0..=0xD3 | 0xD8..=0xDB => {
+                let high = if k == 0xD3 { 0 } else { 0x2000 };
+                self.set_r16(k & 3, high | u16::from(self.v));
+                20
+            }
+            0xC4..=0xDF => 20,
+            _ => 24,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Ram(Vec<u8>);
+    impl Bus for Ram {
+        fn read(&mut self, a: u32) -> u8 {
+            self.0[a as usize & 0xFFFF]
+        }
+        fn write(&mut self, a: u32, v: u8) {
+            self.0[a as usize & 0xFFFF] = v
+        }
+    }
+
+    fn run(code: &[u8], n: usize) -> (Minx, Ram) {
+        let mut ram = Ram(vec![0; 0x10000]);
+        ram.0[0x1000..0x1000 + code.len()].copy_from_slice(code);
+        let mut cpu = Minx { pc: 0x1000, sp: 0x2000, ..Minx::default() };
+        for _ in 0..n {
+            cpu.step(&mut ram);
+        }
+        (cpu, ram)
+    }
+
+    #[test]
+    fn adding_in_decimal_and_on_the_low_four_bits() {
+        // MOV A,#50 / MOV B,#50 / OR F,#10 (decimal) / ADD A,B: 50 + 50 = 100, A is 00, carry.
+        let (cpu, _) = run(&[0xB0, 0x50, 0xB1, 0x50, 0x9D, 0x10, 0x01], 4);
+        assert_eq!(cpu.a(), 0x00);
+        assert_ne!(cpu.f & FLAG_C, 0);
+        assert_ne!(cpu.f & FLAG_Z, 0);
+        // Unpack: the low four bits only, A's high four cleared.
+        let (cpu, _) = run(&[0xB0, 0x5C, 0xB1, 0x07, 0x9D, 0x20, 0x01], 4);
+        assert_eq!(cpu.a(), 0x03);
+        assert_ne!(cpu.f & FLAG_C, 0, "C + 7 carries out of the low four bits");
+    }
+
+    #[test]
+    fn a_jump_takes_the_bank_written_to_u_only_right_after_it() {
+        // MOV U,#02 / JMP $8010 (from $1006: $700B, less one): the jump lands in bank 2.
+        let (cpu, _) = run(&[0xCE, 0xC4, 0x02, 0xF3, 0x0B, 0x70], 2);
+        assert_eq!((cpu.v, cpu.pc), (2, 0x8010));
+        // MOV U,#02 / NOP / NOP / JMP: by then U is V again.
+        let (cpu, _) = run(&[0xCE, 0xC4, 0x02, 0xFF, 0xFF, 0xF3, 0x0B, 0x70], 4);
+        assert_eq!(cpu.v, 0);
+    }
+
+    #[test]
+    fn calls_and_returns_and_their_cycles() {
+        // CALL $1012 (from $1003: $0010, less one), then the RET there.
+        let mut code = vec![0xF2, 0x10, 0x00];
+        code.resize(0x13, 0xFF);
+        code[0x12] = 0xF8;
+        let (cpu, _) = run(&code, 1);
+        assert_eq!((cpu.pc, cpu.sp, cpu.cycles), (0x1012, 0x1FFD, 24));
+        let (cpu, _) = run(&code, 2);
+        assert_eq!((cpu.pc, cpu.sp, cpu.cycles), (0x1003, 0x2000, 40));
     }
 }
