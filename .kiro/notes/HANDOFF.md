@@ -15,20 +15,14 @@ batch starts the one build).
 - Done and pushed: cGear cheat codes (5d138cb, Game Genie, Pro Action Replay and raw, like
   Gearsystem), cBoy cheat codes (1588cf4, every kind mGBA reads; matched mGBA's own cheat code on
   23,075 generated lists, `.kiro/notes/docs/CBOY_CHEATS.md`).
-- cMini's processor is done (73ff305): written again, and all 768 opcodes match PokeMini's own
-  processor on 42,768 random states (`tests/cpu_pokemini.rs`, harness built by
-  `.kiro/notes/wip/tools/pokemini/build.sh`). Next: the rest of the console (interrupts, timers,
-  picture chip, LCD, sound, I/O) the same way, against `pmharness` (PokeMini's whole console).
-- Now: cMini. Its only check against another emulator so far was one stand-in program writing one
-  byte (`examples/reference.rs`); the crate has no tests. Plan: build PokeMini's own core headless
-  (the emulator cMini replaces, GPL v3, `DS-Homebrew/PokeMini`, read for behaviour only) and the
-  reference MAME (`/projects/sandbox/.scratch/mame/build-minref.sh`, pokemini driver only, 9
-  minutes), run PokeMini's GPL example programs (`dev-misc/examples`: bouncing, framebuffer,
-  mapview, sound_tst, template) and its free BIOS on both and on cMini, compare frame by frame and
-  instruction by instruction, and fix cMini until they agree. Known simplifications seen in
-  `machine.rs`: the picture chip draws and raises its interrupts once at the end of each frame,
-  and the timers have no 16-bit mode and no 32 kHz clock.
-- After cMini: cBoy's Game Boy Advance timing (64 of 133 of Alyosha's timing tests pass).
+- cMini is done (73ff305 the processor, 20b5cff the rest): every part written again to match
+  PokeMini, and checked against PokeMini itself (`tests/console_pokemini.rs`, harness from
+  `.kiro/notes/wip/tools/pokemini/build.sh`): every instruction and frame agree over 29 programs.
+  Its own start-up program (`src/bios.rs`) replaces the stand-in that crashed games. Write-up and
+  the deliberate differences: `.kiro/notes/docs/POKEMON_MINI_CORE.md`. Phone steps 13-21 in
+  TESTING.md. Open question for the owner: the infrared setting has no two-phone transport behind
+  it (PokeMini has no infrared at all); build one, or take the setting out?
+- Now: cBoy's Game Boy Advance timing (64 of 133 of Alyosha's timing tests pass).
 - Then ONE build with everything since 244 (cAtari, cMini, cArcade's second round, the Saturn and
   C64 updates, cGear's and cBoy's work), check the .ipa, hand over the link and the steps in
   TESTING.md "Next install (after 244)".

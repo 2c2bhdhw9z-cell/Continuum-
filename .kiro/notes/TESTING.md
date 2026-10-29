@@ -7,10 +7,10 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
-## Next install (after 244): cAtari, Continuum's own Atari 7800 emulator
+## Next install (after 244): cAtari, cMini, and cheat codes on cGear and cBoy
 
-Not built yet: it goes in one build with cMini (the Pokémon Mini), when both are done. ProSystem
-stays the 7800's default until you've played cAtari.
+Not built yet: one build when the batch is done. ProSystem stays the 7800's default and PokeMini
+the Pokémon Mini's until you've played cAtari and cMini.
 
 1. Settings → Cores → Core for Atari 7800 games → cAtari. Open a 7800 game. ✅ It starts straight
    away, with picture and sound; the pad moves, B and A are the two fire buttons.
@@ -43,6 +43,26 @@ stays the 7800's default until you've played cAtari.
 12. The same on a Game Boy Advance game (Pokémon FireRed or Emerald are easy: their code lists are
     everywhere). ✅ The line lists GameShark, Action Replay and CodeBreaker, and a code for your exact
     version works, including one that needs a "master code" line first.
+
+**cMini, Continuum's own Pokémon Mini emulator** (Settings → Cores → Core for Pokémon Mini games →
+cMini first)
+
+13. Open a Pokémon Mini game. ✅ After a moment of blank screen it starts, with picture and sound.
+    The pad, A, B and C (R) work.
+14. Play a few minutes. ✅ It runs smoothly at full speed, nothing freezes, sprites and music are
+    as on PokeMini.
+15. A game that saves (Pokémon Puzzle Collection, Pokémon Party mini, Pokémon Race mini): save in
+    the game, close it, open it again. ✅ The save is there. A game you had saved on PokeMini
+    before: ✅ that save is there too.
+16. Save a state, play on, load it. ✅ Back where you were.
+17. Pokémon Pinball mini, if you have it: hit things with the ball. ✅ The phone buzzes and the
+    picture shakes, as on PokeMini.
+18. Shake the console (L) in a game that uses it (Pokémon Pinball mini's tilt). ✅ The game feels it.
+19. In the game, ⋯ → Core settings → LCD shades: Analog, 3 shades, 2 shades. ✅ The look changes
+    (Analog keeps the real screen's fading). Contrast and Brightness ✅ change it too.
+20. Core settings → 60 Hz display on. ✅ The game runs at the same speed as before, not slower.
+21. If you have the console's `bios.min` in Continuum's system files: Core settings → Real console
+    start-up on, then restart the game. ✅ It starts through the console's own program.
 
 ## Build 244 (26 October, 6:20 PM): the Pokémon Box's Items, Gifts, Events, Migration, Showcase
 Commit 52b9f7c. Checked: 0.8.0 build 244, 39 emulators, JIT helper, the new tools' text in the app.

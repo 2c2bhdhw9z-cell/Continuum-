@@ -337,9 +337,11 @@ our own test programs
 (`.kiro/notes/docs/ATARI7800_CORE.md`; settings: `docs/A7800_OPTIONS_INVENTORY.md`; checklist:
 `tasks/atari7800.json`). Also Rikki & Vikki's own music player chip (the BupChip: CoreTone in
 Rust under its zlib licence, matching the original sample for sample).
-**cMini** (the Pokémon Mini) is being built by a workflow in its own clone
-(`/projects/sandbox/.scratch/pokemini-work`). Then ONE build with both, and the phone checks in
-TESTING.md "Next install (after 244)".
+**cMini** (the Pokémon Mini), 29 October: **Built, untested.** Written again part for part to
+match PokeMini, the emulator it replaces, and checked against PokeMini itself on every instruction
+and every frame of 29 test programs; it has its own start-up program for players without
+`bios.min` (the old stand-in crashed games). `.kiro/notes/docs/POKEMON_MINI_CORE.md`. PokeMini stays
+the default. Then ONE build, and the phone checks in TESTING.md "Next install (after 244)".
 
 **18 October 2026, 9:20 AM Eastern, read this first.** **Build 192** (`006c199`) is the newest
 install:

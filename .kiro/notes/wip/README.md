@@ -21,3 +21,8 @@ Apply with `git apply .kiro/notes/wip/<file>`. Both applied cleanly to master on
 - `mgba-cheats/`: our harness around mGBA's own Advance cheat code, for
   `cores/continuum-gb/tests/gba_cheats_mgba.rs` (`bash .kiro/notes/wip/tools/mgba-cheats/build.sh`,
   under a minute; `.kiro/notes/docs/CBOY_CHEATS.md`).
+- `pokemini/`: PokeMini (the emulator cMini replaces) built headless: `cpuharness` (its processor
+  alone) and `pmharness` (the whole console, started as its libretro core starts it), for
+  `cores/continuum-mini/tests/cpu_pokemini.rs` and `console_pokemini.rs`
+  (`bash .kiro/notes/wip/tools/pokemini/build.sh`, under a minute;
+  `.kiro/notes/docs/POKEMON_MINI_CORE.md`).
