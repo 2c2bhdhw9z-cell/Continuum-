@@ -10,12 +10,14 @@
 //! RAM, the memory control port, the picture chip's ports, registers, memory, line counter,
 //! interrupts and counters, the Master System picture (mode 4), the SN76489 sound chip, the pads,
 //! and the SDSC debug console that test programs print to. Also the YM2413 FM chip (`fm`, on a Japanese Master System
-//! or with the FM setting on), the other mappers, the Game Gear, the SG-1000 and the libretro entry points.
+//! or with the FM setting on), the other mappers, the Game Gear, the SG-1000, cheat codes (`cheats`: Game Genie,
+//! Pro Action Replay and raw ones) and the libretro entry points.
 
 #[path = "../../continuum-arcade/src/z80.rs"]
 pub mod z80;
 
 pub mod bus;
+pub mod cheats;
 pub mod fm;
 pub mod libretro;
 pub mod link;

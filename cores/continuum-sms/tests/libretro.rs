@@ -232,3 +232,98 @@ fn a_cartridge_through_the_entry_points() {
     let per_frame = o.samples as f64 / o.frames.len() as f64;
     assert!((per_frame - 48_000.0 / 59.92).abs() < 3.0, "{per_frame}");
 }
+
+/// A game that reads a byte of its own cartridge ($0100, which is $11) into $C000 over and over,
+/// writes $11 to $C001 once and copies $C001 to $C003 over and over, with the frame interrupt on
+/// (its handler only acknowledges it): what a cheat code changes shows in its work RAM.
+fn cheat_cartridge() -> Vec<u8> {
+    let code: &[u8] = &[
+        0xF3, // DI
+        0xED, 0x56, // IM 1
+        0x31, 0xF0, 0xDF, // LD SP,$DFF0
+        0x3E, 0x11, 0x32, 0x01, 0xC0, // LD A,$11 / LD ($C001),A
+        0x3E, 0x60, 0xD3, 0xBF, 0x3E, 0x81, 0xD3, 0xBF, // register 1 = $60: screen and frame interrupt on
+        0xFB, // EI
+        0x3A, 0x00, 0x01, 0x32, 0x00, 0xC0, // loop: LD A,($0100) / LD ($C000),A
+        0x3A, 0x01, 0xC0, 0x32, 0x03, 0xC0, // LD A,($C001) / LD ($C003),A
+        0x18, 0xF2, // JR loop
+    ];
+    let mut rom = vec![0u8; 0x8000];
+    rom[..code.len()].copy_from_slice(code);
+    // At $0038: PUSH AF / IN A,($BF) / POP AF / EI / RETI.
+    rom[0x38..0x3F].copy_from_slice(&[0xF5, 0xDB, 0xBF, 0xF1, 0xFB, 0xED, 0x4D]);
+    rom[0x100] = 0x11;
+    rom
+}
+
+#[test]
+fn cheat_codes_reach_the_game() {
+    let _t = TURN.lock().unwrap_or_else(|e| e.into_inner());
+    *OPTS.lock().unwrap() = Vec::new();
+    let rom = cheat_cartridge();
+    let code = |s: &str| std::ffi::CString::new(s).unwrap();
+    unsafe {
+        retro_set_environment(env);
+        retro_set_video_refresh(video);
+        retro_set_audio_sample_batch(audio);
+        retro_set_input_poll(poll);
+        retro_set_input_state(input);
+        retro_init();
+        let info = RetroGameInfo { path: std::ptr::null(), data: rom.as_ptr() as *const c_void, size: rom.len(), meta: std::ptr::null() };
+        assert!(retro_load_game(&info));
+        let ram = retro_get_memory_data(2) as *const u8;
+        let frames = |n: usize| {
+            for _ in 0..n {
+                retro_run();
+            }
+        };
+        frames(3);
+        assert_eq!((*ram, *ram.add(3)), (0x11, 0x11), "no codes: the game's own bytes");
+
+        // A Game Genie code for $0100 (771-00F: byte 77, the sixth digit F xor F = 0 on top).
+        let gg = code("771-00F");
+        retro_cheat_set(0, true, gg.as_ptr());
+        frames(1);
+        assert_eq!(*ram, 0x77, "the game reads the code's byte from its cartridge");
+        // With a compare byte: $11 (digits A and E) matches, $12 (A and 2) doesn't.
+        let matching = code("771-00F-A0E");
+        retro_cheat_set(0, true, matching.as_ptr());
+        frames(1);
+        assert_eq!(*ram, 0x77);
+        let other = code("771-00F-A02");
+        retro_cheat_set(0, true, other.as_ptr());
+        frames(1);
+        assert_eq!(*ram, 0x11, "the cartridge's byte isn't the compare byte, so nothing changes");
+        retro_cheat_set(0, false, other.as_ptr());
+
+        // A Pro Action Replay code, written at each interrupt, and the game sees it.
+        let par = code("00C0-015A");
+        retro_cheat_set(1, true, par.as_ptr());
+        frames(2);
+        assert_eq!((*ram.add(1), *ram.add(3)), (0x5A, 0x5A));
+        // A raw one and a Game Genie one joined in one entry, as cheat lists write them.
+        let joined = code("C001:5B+771-00F");
+        retro_cheat_set(1, true, joined.as_ptr());
+        frames(2);
+        assert_eq!((*ram, *ram.add(3)), (0x77, 0x5B));
+
+        // They stay on across a save state and a reset.
+        let size = retro_serialize_size();
+        let mut state = vec![0u8; size];
+        assert!(retro_serialize(state.as_mut_ptr() as *mut c_void, size));
+        assert!(retro_unserialize(state.as_ptr() as *const c_void, size));
+        frames(1);
+        assert_eq!(*ram, 0x77, "still on after loading a state");
+        retro_reset();
+        let ram = retro_get_memory_data(2) as *const u8;
+        frames(3);
+        assert_eq!((*ram, *ram.add(3)), (0x77, 0x5B), "still on after a reset");
+
+        // All off: the game's own byte again.
+        retro_cheat_reset();
+        frames(1);
+        assert_eq!(*ram, 0x11);
+        retro_unload_game();
+        retro_deinit();
+    }
+}

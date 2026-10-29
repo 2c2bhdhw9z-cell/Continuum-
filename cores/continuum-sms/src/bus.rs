@@ -15,6 +15,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::cheats::Cheats;
 use crate::fm::Fm;
 use crate::peripherals::{self, Device, Port};
 use crate::psg::Psg;
@@ -150,6 +151,9 @@ pub struct Bus {
     /// The last SDSC console command (1 asks the emulator to stop).
     #[serde(skip)]
     pub console_stop: bool,
+    /// The cheat codes switched on (cheats.rs). Not part of a save state: the app sets them.
+    #[serde(skip)]
+    pub cheats: Cheats,
 }
 
 /// How far into an IN or OUT instruction its port access comes, in CPU cycles: the end of its
@@ -209,6 +213,7 @@ impl Bus {
             export: true,
             console: String::new(),
             console_stop: false,
+            cheats: Cheats::default(),
         }
     }
 
@@ -324,29 +329,49 @@ impl Bus {
         self.rom.get(a).copied().unwrap_or(0xFF)
     }
 
+    /// What the console reads below $C000: its own start-up program while that is switched in,
+    /// nothing with the cartridge slot switched off, else the cartridge, through any Game Genie
+    /// codes (the device sits on the cartridge, so it sees only what the cartridge answers).
     fn cart_read(&self, addr: u16) -> u8 {
-        if self.sg {
-            return self.rom.get(usize::from(addr)).copied().unwrap_or(0xFF);
-        }
-        if !self.bios.is_empty() && self.mem_ctrl & 0x08 == 0 {
-            if self.gg {
-                if addr < 0x400 {
-                    return self.bios.get(usize::from(addr)).copied().unwrap_or(0xFF);
-                }
-            } else {
-                let banks = self.bios.len().div_ceil(0x4000).max(1);
-                let at = |bank: u8, off: u16| (usize::from(bank) % banks) * 0x4000 + usize::from(off);
-                let a = match addr {
-                    0x0000..=0x03FF => usize::from(addr),
-                    0x0000..=0x3FFF => at(self.banks[0], addr),
-                    0x4000..=0x7FFF => at(self.banks[1], addr - 0x4000),
-                    _ => at(self.banks[2], addr - 0x8000),
-                };
-                return self.bios.get(a % self.bios.len()).copied().unwrap_or(0xFF);
+        if !self.sg {
+            if let Some(v) = self.bios_read(addr) {
+                return v;
+            }
+            if self.mem_ctrl & 0x40 != 0 {
+                return 0xFF;
             }
         }
-        if self.mem_ctrl & 0x40 != 0 {
-            return 0xFF;
+        let v = self.cartridge(addr);
+        if self.cheats.genie.is_empty() {
+            v
+        } else {
+            self.cheats.read(addr, v)
+        }
+    }
+
+    /// The start-up program's byte at `addr`, while it is switched in and answers there.
+    fn bios_read(&self, addr: u16) -> Option<u8> {
+        if self.bios.is_empty() || self.mem_ctrl & 0x08 != 0 {
+            return None;
+        }
+        if self.gg {
+            return (addr < 0x400).then(|| self.bios.get(usize::from(addr)).copied().unwrap_or(0xFF));
+        }
+        let banks = self.bios.len().div_ceil(0x4000).max(1);
+        let at = |bank: u8, off: u16| (usize::from(bank) % banks) * 0x4000 + usize::from(off);
+        let a = match addr {
+            0x0000..=0x03FF => usize::from(addr),
+            0x0000..=0x3FFF => at(self.banks[0], addr),
+            0x4000..=0x7FFF => at(self.banks[1], addr - 0x4000),
+            _ => at(self.banks[2], addr - 0x8000),
+        };
+        Some(self.bios.get(a % self.bios.len()).copied().unwrap_or(0xFF))
+    }
+
+    /// The cartridge's own byte at `addr` (below $C000), through its mapper.
+    fn cartridge(&self, addr: u16) -> u8 {
+        if self.sg {
+            return self.rom.get(usize::from(addr)).copied().unwrap_or(0xFF);
         }
         if self.mapper == Mapper::Codemasters && (0xA000..0xC000).contains(&addr) && self.banks[1] & 0x80 != 0 {
             return self.cart_ram[usize::from(addr - 0xA000)];
@@ -380,8 +405,13 @@ impl Bus {
 impl z80::Bus for Bus {
     fn read(&mut self, addr: u16) -> u8 {
         if self.sc3000 && addr >= 0x8000 && !(addr < 0xC000 && self.rom.len() > 0x8000) {
-            // 2 KiB of work RAM at $C000, and the cartridge's 16 KiB at $8000 (kept with the save).
-            return if addr >= 0xC000 { self.ram[usize::from(addr & 0x7FF)] } else { self.cart_ram[usize::from(addr & 0x3FFF)] };
+            // 2 KiB of work RAM at $C000, and the cartridge's 16 KiB at $8000 (kept with the save),
+            // which is the cartridge answering, so a Game Genie code sees it.
+            if addr >= 0xC000 {
+                return self.ram[usize::from(addr & 0x7FF)];
+            }
+            let v = self.cart_ram[usize::from(addr & 0x3FFF)];
+            return if self.cheats.genie.is_empty() { v } else { self.cheats.read(addr, v) };
         }
         if self.sg && addr >= 0xC000 {
             return self.ram[usize::from(addr & 0x3FF)];
@@ -477,6 +507,16 @@ impl z80::Bus for Bus {
             }
             _ => {}
         }
+    }
+
+    /// The console takes an interrupt: a Pro Action Replay steps in here and writes its codes
+    /// (cheats.rs). Nothing on these consoles answers the acknowledge itself (they run in mode 1).
+    fn int_ack(&mut self) -> u8 {
+        for i in 0..self.cheats.writes.len() {
+            let (addr, v) = self.cheats.writes[i];
+            self.write(addr, v);
+        }
+        0xFF
     }
 
     fn input(&mut self, port: u16) -> u8 {
@@ -621,6 +661,47 @@ mod tests {
         assert_eq!(b.read(0xDFFF), 7, "the register write lands in work RAM too");
         b.write(0xFFFF, 9);
         assert_eq!(b.read(0x8000), 1, "banks past the end wrap");
+    }
+
+    #[test]
+    fn a_game_genie_code_changes_the_address_the_console_reads_and_nothing_else() {
+        let mut b = Bus::new(rom(8));
+        // $8005 = byte EE: the sixth digit is 8 xor F = 7.
+        b.cheats = Cheats::from_codes(["EE0-057"]);
+        b.write(0xFFFE, 3);
+        b.write(0xFFFF, 3);
+        assert_eq!(b.read(0x8005), 0xEE);
+        assert_eq!(b.read(0x4005), 3, "the same bank in another slot is left alone");
+        assert_eq!(b.read(0x8006), 3);
+        // With a compare byte of 2 (digits E and 2: $E2 rotated right by two is $B8, xor BA $02):
+        // only while bank 2 is paged in there.
+        b.cheats = Cheats::from_codes(["EE0-057-E02"]);
+        assert_eq!(crate::cheats::parse("EE0-057-E02").map(|c| matches!(c, crate::cheats::Code::Genie(g) if g.compare == Some(2))), Some(true));
+        assert_eq!(b.read(0x8005), 3);
+        b.write(0xFFFF, 2);
+        assert_eq!(b.read(0x8005), 0xEE);
+        // The console's own memory isn't on the cartridge: a code for work RAM does nothing.
+        b.cheats = Cheats::from_codes(["EE0-003"]); // $C000
+        b.write(0xC000, 0x42);
+        assert_eq!(b.read(0xC000), 0x42);
+        // Nor does one for the start-up program while it answers.
+        let mut b = Bus::new(rom(8));
+        b.bios = vec![0x5A; 0x2000];
+        b.mem_ctrl = 0xE3; // the BIOS in, the cartridge out
+        b.cheats = Cheats::from_codes(["EE0-05F"]); // $0005
+        assert_eq!(b.read(0x0005), 0x5A);
+        b.mem_ctrl = 0xAB;
+        assert_eq!(b.read(0x0005), 0xEE, "the cartridge's own byte is changed");
+    }
+
+    #[test]
+    fn a_pro_action_replay_code_is_written_when_the_console_takes_an_interrupt() {
+        let mut b = Bus::new(rom(4));
+        b.cheats = Cheats::from_codes(["00C1-2399", "C124:01"]);
+        b.write(0xC123, 0x10);
+        assert_eq!(b.read(0xC123), 0x10, "nothing until an interrupt");
+        b.int_ack();
+        assert_eq!((b.read(0xC123), b.read(0xC124)), (0x99, 0x01));
     }
 
     #[test]

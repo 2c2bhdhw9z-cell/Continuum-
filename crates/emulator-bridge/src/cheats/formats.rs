@@ -52,7 +52,10 @@ pub fn code_support(core_id: &str) -> CodeSupport {
             "GameShark, Action Replay or CodeBreaker on the GBA; GameShark or Game Genie on the \
              Game Boy",
         ),
-        "gearsystem" => reads("Game Genie, Pro Action Replay, or a raw address:value like C000:FF"),
+        // cGear reads the same three kinds as Gearsystem (cores/continuum-sms/src/cheats.rs).
+        "gearsystem" | "continuum_sms" => {
+            reads("Game Genie, Pro Action Replay, or a raw address:value like C000:FF")
+        }
         // The Continuum patch (scripts/patches/blastem-continuum-memory.patch) reads these;
         // BlastEm's own retro_cheat_set does nothing.
         "blastem" => {
@@ -69,8 +72,8 @@ pub fn code_support(core_id: &str) -> CodeSupport {
         "virtualjaguar" => reads(""),
         "azahar" | "flycast" | "stella2023" | "mednafen_pce" | "mednafen_vb" | "puae"
         | "vice_x64sc" | "handy" | "a5200" | "pokemini" | "yabause" | "continuum_gb"
-        | "continuum_sms" | "continuum_arcade" | "continuum_atari" | "continuum_mini"
-        | "continuum_gc" | "continuum_symbian" => IGNORES,
+        | "continuum_arcade" | "continuum_atari" | "continuum_mini" | "continuum_gc"
+        | "continuum_symbian" => IGNORES,
         _ => reads(""),
     }
 }
@@ -89,6 +92,8 @@ pub fn code_support_on(core_id: &str, system: &str) -> CodeSupport {
 ///
 /// - Gearsystem takes one code per entry and reads Pro Action Replay as `00AAAAVV`, so a
 ///   `+`-joined code becomes one entry per part and a raw `AAAA:VV` its Pro Action Replay form.
+///   cGear gets the same entries (it reads the raw and joined forms too, but this keeps the two
+///   Master System emulators fed alike).
 /// - bsnes reads Pro Action Replay `AAAAAADD` and Game Genie, not `AAAAAA:DD`, so a raw part is
 ///   rewritten and the `+` join kept.
 /// - BlastEm reads one code per entry, so a `+`-joined code becomes one entry per part. The
@@ -103,7 +108,7 @@ pub fn normalise_for_core(core_id: &str, code: &str) -> Vec<String> {
             .filter(|part| !part.is_empty())
             .map(str::to_owned)
             .collect(),
-        "gearsystem" => code
+        "gearsystem" | "continuum_sms" => code
             .split('+')
             .map(str::trim)
             .filter(|part| !part.is_empty())
@@ -293,7 +298,6 @@ mod tests {
             "pokemini",
             "yabause",
             "continuum_gb",
-            "continuum_sms",
             "continuum_arcade",
             "continuum_atari",
             "continuum_mini",
@@ -312,6 +316,7 @@ mod tests {
         assert!(code_support("mesen2").kinds.contains("Game Genie"));
         assert!(code_support("bsnes").kinds.contains("Pro Action Replay"));
         assert!(code_support("gearsystem").kinds.contains("C000:FF"));
+        assert_eq!(code_support("continuum_sms"), code_support("gearsystem"), "cGear reads Gearsystem's codes");
         assert!(code_support("pcsx_rearmed").kinds.contains("GameShark"));
         assert!(code_support("melonds").kinds.contains("Action Replay"));
         assert!(code_support("ppsspp").kinds.contains("CWCheat"));
@@ -334,6 +339,7 @@ mod tests {
         assert_eq!(normalise_for_core("gearsystem", "C000:FF+C001:01"), vec!["00C000FF", "00C00101"]);
         // Game Genie and Pro Action Replay pass through untouched.
         assert_eq!(normalise_for_core("gearsystem", "3A6-5BF+00C0A0FF"), vec!["3A6-5BF", "00C0A0FF"]);
+        assert_eq!(normalise_for_core("continuum_sms", "C000:FF+3A6-5BF"), vec!["00C000FF", "3A6-5BF"]);
         assert_eq!(normalise_for_core("bsnes", "7e0019:02"), vec!["7E001902"]);
         assert_eq!(normalise_for_core("bsnes", "7E0019=02+7E001A:03"), vec!["7E001902+7E001A03"]);
         assert_eq!(normalise_for_core("bsnes", "DD32-6DAD"), vec!["DD32-6DAD"]);

@@ -122,6 +122,8 @@ impl Sms {
             .deserialize(body)
             .map_err(|e| e.to_string())?;
         next.bus.rom = std::mem::take(&mut self.bus.rom);
+        // The cheat codes the app switched on stay on (they're not in the state).
+        next.bus.cheats = std::mem::take(&mut self.bus.cheats);
         next.rate = self.rate;
         next.bus.vdp.frame = std::mem::take(&mut self.bus.vdp.frame);
         // The app keeps pointers to these (cheats, achievements, the battery save), so the state

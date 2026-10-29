@@ -29,6 +29,13 @@ stays the 7800's default until you've played cAtari.
    - every file in its Music folder (the .smp, .ins and .mus files).
    Open the .cdf in the Library. ✅ It plays with its music.
 
+**cGear cheat codes**
+
+9. Open a Master System or Game Gear game on cGear, then tap **⋯ → Cheats and RAM search...**.
+   ✅ The line at the top lists Game Genie, Pro Action Replay and codes like C000:FF.
+10. Add a Game Genie or Pro Action Replay code for your copy of that game and turn it on. ✅ It
+    does what it says. Turn it off. ✅ The game goes back to normal.
+
 ## Build 244 (26 October, 6:20 PM): the Pokémon Box's Items, Gifts, Events, Migration, Showcase
 Commit 52b9f7c. Checked: 0.8.0 build 244, 39 emulators, JIT helper, the new tools' text in the app.
 Engine tested on save files built from the documented layouts; not yet on the owner's real saves.

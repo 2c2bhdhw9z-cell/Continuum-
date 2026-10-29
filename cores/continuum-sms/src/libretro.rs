@@ -207,6 +207,24 @@ struct Callbacks {
 
 static CB: Mutex<Callbacks> = Mutex::new(Callbacks { env: None, video: None, audio_batch: None, poll: None, input: None });
 static CORE: Mutex<Option<Core>> = Mutex::new(None);
+/// The cheat codes the app has set, by its index (empty: switched off). Kept apart from the
+/// machine so codes set before a game opens, or across a reset, still apply.
+static CHEATS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// The codes switched on now, read (cheats.rs).
+fn cheats_now() -> crate::cheats::Cheats {
+    let codes = CHEATS.lock().map(|c| c.clone()).unwrap_or_default();
+    crate::cheats::Cheats::from_codes(codes.iter().map(String::as_str).filter(|c| !c.is_empty()))
+}
+
+/// Puts the codes switched on now into both consoles (two Game Gears play the same cartridge).
+fn install_cheats(core: &mut Core) {
+    let cheats = cheats_now();
+    if let Some(two) = core.second.as_mut() {
+        two.m.bus.cheats = cheats.clone();
+    }
+    core.m.bus.cheats = cheats;
+}
 
 /// The machine and its settings: `s` as the player has them now, `at_start` as they were when
 /// the game opened (the ones that say "next start" keep those until it is opened again).
@@ -532,6 +550,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     }
     let mut core = Core { m, s: s.clone(), at_start: s, prev: Vec::new(), lp: [0.0; 2], shown_size: (0, 0), eq: [[0.0; 2]; 2], second, gg_sms };
     core.apply();
+    install_cheats(&mut core);
     if let Ok(mut c) = CORE.lock() {
         *c = Some(core);
         return true;
@@ -548,6 +567,10 @@ pub extern "C" fn retro_load_game_special(_t: u32, _info: *const RetroGameInfo, 
 pub extern "C" fn retro_unload_game() {
     if let Ok(mut c) = CORE.lock() {
         *c = None;
+    }
+    // The next game starts with none: codes are written for one game.
+    if let Ok(mut codes) = CHEATS.lock() {
+        codes.clear();
     }
 }
 
@@ -591,6 +614,7 @@ fn power_cycle(m: &mut Box<Sms>) {
     fresh.bus.cart_ram = cart_ram;
     fresh.rate = m.rate;
     fresh.use_bios(std::mem::take(&mut m.bus.bios));
+    fresh.bus.cheats = std::mem::take(&mut m.bus.cheats);
     **m = fresh;
 }
 
@@ -1074,9 +1098,42 @@ fn state_of(m: &Core) -> Vec<u8> {
 }
 
 #[no_mangle]
-pub extern "C" fn retro_cheat_reset() {}
+pub extern "C" fn retro_cheat_reset() {
+    if let Ok(mut codes) = CHEATS.lock() {
+        codes.clear();
+    }
+    if let Ok(mut c) = CORE.lock() {
+        if let Some(core) = c.as_mut() {
+            install_cheats(core);
+        }
+    }
+}
+
+/// A code switched on or off. Game Genie, Pro Action Replay and raw `C000:FF` codes, several
+/// joined with `+` (cheats.rs); anything else is kept and does nothing.
+///
+/// # Safety
+/// `code` is null or a NUL-terminated string, as the libretro API passes it.
 #[no_mangle]
-pub extern "C" fn retro_cheat_set(_index: u32, _enabled: bool, _code: *const c_char) {}
+pub unsafe extern "C" fn retro_cheat_set(index: u32, enabled: bool, code: *const c_char) {
+    let text = if code.is_null() { String::new() } else { std::ffi::CStr::from_ptr(code).to_string_lossy().into_owned() };
+    if let Ok(mut codes) = CHEATS.lock() {
+        let i = index as usize;
+        if enabled {
+            if codes.len() <= i {
+                codes.resize(i + 1, String::new());
+            }
+            codes[i] = text;
+        } else if let Some(slot) = codes.get_mut(i) {
+            slot.clear();
+        }
+    }
+    if let Ok(mut c) = CORE.lock() {
+        if let Some(core) = c.as_mut() {
+            install_cheats(core);
+        }
+    }
+}
 
 #[no_mangle]
 pub extern "C" fn retro_get_memory_data(id: u32) -> *mut c_void {

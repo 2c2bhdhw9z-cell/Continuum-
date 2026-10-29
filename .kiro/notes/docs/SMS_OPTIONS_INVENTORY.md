@@ -191,3 +191,14 @@ are printed by the script and recorded in FEAT-002's findings.
 This is off-phone evidence only. Gearsystem remains the default. Real games and the final default
 choice remain for the owner's phone, and this record does not call them done. The reference material
 above was rephrased for compliance with its licensing restrictions.
+
+## Cheat codes (29 October 2026)
+
+cGear reads the same typed codes as Gearsystem (`cores/continuum-sms/src/cheats.rs`), so a code from
+any cheat list works on either: Game Genie (`XXX-XXX`, or `XXX-XXX-XXX` with a compare byte), Pro Action
+Replay (`00AAAAVV` or `00AA-AAVV`) and raw `C000:FF`, several joined with `+`. One difference, on
+purpose: Gearsystem rewrites the byte in every bank of the cartridge at the code's offset, so a code
+meant for one address also changes the same offset in the other two slots. cGear matches the address
+the console reads, as the device does, and with a compare byte only while the cartridge's own byte
+there is that one. Pro Action Replay codes are written whenever the console takes an interrupt, as on
+Gearsystem. The app's cheat screen names the three kinds for cGear (`formats.rs` in the engine).
