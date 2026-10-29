@@ -5530,7 +5530,7 @@ final class EngineHost: ObservableObject {
     }
 
     /// The engine's answer for the source area a finger controls: the DS/3DS digitizer or the
-    /// full visible picture used by the Atari 7800 light gun.
+    /// full visible picture used by the Master System and Atari 7800 light guns.
     func touchMapper(for system: GameSystem) -> TouchScreenMapper? {
         guard let surface = system.picturePointerSurface else { return nil }
         let engine = self.engine

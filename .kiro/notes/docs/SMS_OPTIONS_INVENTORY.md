@@ -160,3 +160,34 @@ _smstype, _smsmapper, _ggghost, _sprlim; smsplus_hardware, _region, _hide_left_b
 | smsplus | `smsplus_fm_sound` | Use FM (YM2413) (Restart Required) | done | `cgear_fm` | auto,disabled |
 | smsplus | `smsplus_hide_left_border` | Hide SMS Left Border | done | `cgear_hide_left` | disabled,enabled |
 | smsplus | `smsplus_ntsc_filter` | Blargg NTSC Filter | done | `cgear_tv` | disabled,composite,svideo,rgb,monochrome |
+
+## YM2413 real-chip comparison (28 October 2026)
+
+The independent reference is the real-YM2413 ADC capture set in
+[`andete/ym2413`](https://github.com/andete/ym2413/tree/4893d1c09faa0450b5d3355f19b7682d72822501),
+revision `4893d1c09faa0450b5d3355f19b7682d72822501`. It is measurement data, not another
+emulator substituted as the answer. The untracked comparator is
+`/projects/sandbox/.scratch/in-house-core-continuation/cgear/compare-ym2413.sh`.
+
+It pins these five real-chip rhythm captures before running cGear:
+
+| Voice | Capture | SHA-256 |
+|---|---|---|
+| Bass drum | `gold-bd-1ff` | `c630798a20e0c1fd82b387c32ba3f533376c8119caa39b72ba21ed0164d7e597` |
+| Snare | `gold-sd-300` | `e0b086f1ded11abf84e34a2c131e2525d9d0202ff22740030d60221c803bf0d4` |
+| Tom | `gold-tom-1c0` | `26859f567dafcbbc4c43247cca93cf2b808da3d61517974c3e6b0a4a3d6f2df0` |
+| Top cymbal | `gold-top-L10000-300-300` | `bb7fa797047d178bfc66217654044ec7cbc6223e739d502614530b13244b08d1` |
+| Hi-hat | `gold-hh-L2000-100-300` | `a279dd2ccb8f044759b75ea8a537dfdcc16a71b198ca4b3ab07967066f6c2821` |
+
+The comparison found measured differences in cGear's old continuous envelope approximation,
+sine-wave vibrato, 13,432-sample tremolo, key-level scaling and rhythm noise. `fm.rs` now follows
+the captured integer envelope steps and damp phase, the measured eight-step pitch modulation,
+the 13,440-chip-sample amplitude modulation cycle (4.8 dB), the measured key-scaling table, and
+the 23-bit rhythm noise polynomial. The comparator drives all 15 preset instruments and all five
+rhythm voices, then checks envelope/release, pitch, key scaling, amplitude and pitch modulation,
+live register changes, and FM mixed into an existing PSG signal. The exact cGear hashes and levels
+are printed by the script and recorded in FEAT-002's findings.
+
+This is off-phone evidence only. Gearsystem remains the default. Real games and the final default
+choice remain for the owner's phone, and this record does not call them done. The reference material
+above was rephrased for compliance with its licensing restrictions.

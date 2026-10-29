@@ -223,8 +223,8 @@ struct MouseFrame: Sendable, Equatable {
 
 /// Where a framebuffer source area is drawn, answered by the engine.
 ///
-/// DS/3DS use their hardware digitizer crop. Atari 7800 uses the whole visible picture for its
-/// light gun. The engine owns the arithmetic because it owns the renderer placements.
+/// DS/3DS use their hardware digitizer crop. Master System and Atari 7800 use the whole visible
+/// picture for light guns. The engine owns the arithmetic because it owns the renderer placements.
 struct TouchScreenMapper {
     /// The touch screen's rect as fractions of a picture view of this size, or nil for none.
     let rect: (CGSize) -> CGRect?
@@ -439,10 +439,16 @@ enum GameSystem: String, Sendable, CaseIterable {
     /// D-pad and sending both costs nothing.
     var dpadDrivesAnalogStick: Bool {
         switch self {
-        case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .ds, .fds, .sg1000,
-             .tg16, .atari2600, .atari7800:
+        case .nes, .snes, .gb, .gbc, .gba, .gg, .genesis, .ps1, .ds, .fds, .sg1000,
+             .tg16, .atari2600:
             return false
         case .n64:
+            return true
+        case .sms:
+            return false
+        case .atari7800:
+            // cAtari reads paddle position from the left analog X axis. The same continuous
+            // D-pad surface still sends the ordinary digital joystick directions alongside it.
             return true
         case .n3ds:
             // Azahar binds the Circle Pad to analog axis 0, the left stick. A 3DS game that
@@ -476,11 +482,12 @@ enum GameSystem: String, Sendable, CaseIterable {
 
     /// Which source area a finger on the game picture controls.
     ///
-    /// The DS and 3DS keep their hardware digitizer crops. Atari 7800 uses the whole actually
-    /// drawn picture for its light gun. Every other libretro system has no picture pointer.
+    /// The DS and 3DS keep their hardware digitizer crops. Master System and Atari 7800 use the
+    /// whole actually drawn picture for their light guns. Every other libretro system has no
+    /// picture pointer.
     var picturePointerSurface: PicturePointerSurface? {
         switch self {
-        case .atari7800:
+        case .sms, .atari7800:
             return .wholePicture
         case .ds:
             return .digitizer(CGRect(x: 0, y: 0.5, width: 1, height: 0.5))
@@ -488,7 +495,7 @@ enum GameSystem: String, Sendable, CaseIterable {
             // Stacked default: both screens are 240 tall in a 480-tall frame, and the bottom
             // screen is 320 wide inside a 400-wide frame, centred.
             return .digitizer(CGRect(x: 0.1, y: 0.5, width: 0.8, height: 0.5))
-        case .nes, .snes, .gb, .gbc, .gba, .sms, .gg, .genesis, .ps1, .fds, .sg1000,
+        case .nes, .snes, .gb, .gbc, .gba, .gg, .genesis, .ps1, .fds, .sg1000,
              .tg16, .atari2600, .n64, .psp, .wswan, .ngp, .pcecd, .sgx, .amiga,
              .c64, .dos, .doom, .jaguar, .lynx, .atari5200, .arcade, .pokemini,
              .vb, .saturn, .segacd, .sega32x, .dreamcast, .symbian, .gamecube,

@@ -46,9 +46,6 @@ pub const RATE_DIV: f64 = 72.0;
 /// The multiplier field's meaning, times two (so "half" is 1).
 const MUL2: [u32; 16] = [1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 20, 24, 24, 30, 30];
 
-/// Key scale level: attenuation in 3/4 dB steps by the top four F-number bits, at block 7.
-const KSL: [u8; 16] = [0, 24, 32, 37, 40, 43, 45, 47, 48, 50, 51, 52, 53, 54, 55, 56];
-
 fn log_sin(i: usize) -> u16 {
     // -log2(sin) of a quarter wave in 256 steps, in 1/256 units (the OPL family's table).
     let x = ((i as f64) + 0.5) * std::f64::consts::PI / 512.0;
@@ -100,6 +97,8 @@ enum Eg {
     Release,
     #[default]
     Off,
+    /// A key-on first drives the old sound down before a fresh attack starts.
+    Damp,
 }
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
@@ -195,8 +194,7 @@ impl Fm {
                     c.key = key;
                     for op in c.ops.iter_mut() {
                         if key {
-                            op.eg = Eg::Attack;
-                            op.phase = 0;
+                            op.eg = Eg::Damp;
                         } else if op.eg != Eg::Off {
                             op.eg = Eg::Release;
                         }
@@ -225,8 +223,7 @@ impl Fm {
         for &o in targets {
             let x = &mut self.ch[ch].ops[o];
             if on {
-                x.eg = Eg::Attack;
-                x.phase = 0;
+                x.eg = Eg::Damp;
             } else if x.eg != Eg::Off {
                 x.eg = Eg::Release;
             }
@@ -243,64 +240,125 @@ impl Fm {
         }
     }
 
-    /// One sample of an envelope. `rate4` is the 4-bit rate of the phase it is in; with the key
-    /// scale it makes a 6-bit rate r, four to a factor of two. Speeds from Yamaha's tables for
-    /// the OPL family: at rate 1 (r = 4) a decay takes 39.3 s for 96 dB, so 19.6 s for this chip's
-    /// 48 dB, and an attack from silence 2.83 s; each step of the 4-bit rate halves them, and r 60
-    /// and up attacks at once. The attack is exponential (fast at first, slowing near full), the
-    /// rest straight lines in dB.
-    fn step_env(op: &mut Op, rate4: u8, ksr_val: u8, sustain_level: u32, percussive: bool, release_rate: u8) {
-        const FS: f32 = 3_579_545.0 / 72.0;
-        let rate = |r: u8| -> u32 { if r == 0 { 0 } else { (u32::from(r) * 4 + u32::from(ksr_val)).min(63) } };
-        let r = match op.eg {
-            Eg::Attack => rate(rate4),
-            Eg::Decay => rate(rate4),
-            Eg::Sustain => if percussive { rate(release_rate) } else { 0 },
-            Eg::Release => rate(release_rate),
-            Eg::Off => return,
-        };
-        if r == 0 {
-            return;
-        }
-        let speed = 2f32.powf((r as f32 - 4.0) / 4.0);
+    /// Advances one operator's measured 7-bit envelope on the chip's shared sample counter.
+    ///
+    /// The four low rate patterns and the high-rate exceptions come from the real-chip transition
+    /// captures. Keeping the integer envelope in the existing `f32` field preserves old save-state
+    /// layout while replacing the former continuous approximation.
+    fn step_env(op: &mut Op, ar: u8, dr: u8, ksr_val: u8, sustain_level: u8, percussive: bool, release_rate: u8, counter: u32) {
+        let mut env = op.env.round().clamp(0.0, 127.0) as u8;
         match op.eg {
-            Eg::Attack => {
-                if r >= 60 {
-                    op.env = 0.0;
-                } else {
-                    // dE/dt = -(E/8 + 1) * a reaches 0 from 128 in 8/a * ln(17) samples.
-                    let a = 8.0 * 17f32.ln() / (2.826 * FS) * speed;
-                    op.env -= (op.env / 8.0 + 1.0) * a;
-                }
-                if op.env <= 0.0 {
-                    op.env = 0.0;
+            Eg::Damp if env >= 124 => {
+                op.phase = 0;
+                if ar == 15 {
+                    env = 0;
                     op.eg = Eg::Decay;
+                } else {
+                    op.eg = Eg::Attack;
                 }
             }
-            _ => {
-                op.env = (op.env + 128.0 / (19.64 * FS) * speed).min(128.0);
-                if op.eg == Eg::Decay && op.env >= sustain_level as f32 {
-                    op.eg = Eg::Sustain;
+            Eg::Attack if env == 0 => op.eg = Eg::Decay,
+            Eg::Decay if env >> 3 == sustain_level => op.eg = Eg::Sustain,
+            _ => {}
+        }
+
+        let (attack, base_rate) = match op.eg {
+            Eg::Damp => (false, 12),
+            Eg::Attack => (true, ar),
+            Eg::Decay => (false, dr),
+            Eg::Sustain => (false, if percussive { release_rate } else { 0 }),
+            Eg::Release => (false, release_rate),
+            Eg::Off => {
+                op.env = f32::from(env);
+                return;
+            }
+        };
+        let rate = if base_rate == 0 { 0 } else { (base_rate.saturating_mul(4).saturating_add(ksr_val)).min(63) };
+        let pattern = [
+            [0u8, 1, 0, 1, 0, 1, 0, 1],
+            [0u8, 1, 0, 1, 1, 1, 0, 1],
+            [0u8, 1, 1, 1, 0, 1, 1, 1],
+            [0u8, 1, 1, 1, 1, 1, 1, 1],
+        ];
+        let row = usize::from(rate & 3);
+        if attack {
+            match rate / 4 {
+                0 | 15 => {}
+                1..=11 => {
+                    let shift = 13 - u32::from(rate / 4);
+                    let mask = ((1u32 << shift) - 1) & !3;
+                    if (counter.wrapping_add(3) & mask) == 0 {
+                        let column = ((counter.wrapping_add(3) >> shift) & 7) as usize;
+                        if pattern[row][column] != 0 {
+                            env = env.saturating_sub((env >> 4).saturating_add(1));
+                        }
+                    }
                 }
-                if op.env >= 128.0 && op.eg == Eg::Release {
-                    op.eg = Eg::Off;
+                12..=14 => {
+                    let column = ((counter & 0x0c) >> 1) as usize;
+                    let shift = 16 - u32::from(rate / 4) - u32::from(pattern[row][column]);
+                    env = env.saturating_sub((env >> shift).saturating_add(1));
                 }
+                _ => {}
+            }
+        } else {
+            match rate / 4 {
+                0 => {}
+                1..=12 => {
+                    let shift = 13 - u32::from(rate / 4);
+                    if counter & ((1u32 << shift) - 1) == 0 {
+                        let column = ((counter >> shift) & 7) as usize;
+                        env = env.saturating_add(pattern[row][column]).min(127);
+                    }
+                }
+                13 => {
+                    let column = (((counter & 0x0c) >> 1) | (counter & 1)) as usize;
+                    env = env.saturating_add(pattern[row][column]).min(127);
+                }
+                14 => {
+                    let column = ((counter & 0x0c) >> 1) as usize;
+                    env = env.saturating_add(pattern[row][column] + 1).min(127);
+                }
+                _ => env = env.saturating_add(2).min(127),
             }
         }
+        if op.eg == Eg::Release && env == 127 {
+            op.eg = Eg::Off;
+        }
+        op.env = f32::from(env);
     }
 
     /// One of the chip's own samples (49.7 kHz), mixed.
     fn sample(&mut self) -> i32 {
-        self.am_phase = (self.am_phase + 1) % 13_432; // 3.7 Hz
-        self.pm_phase = (self.pm_phase + 1) % 7_766; // 6.4 Hz
-        // The noise for the drums: a 23-bit register.
-        let bit = (self.noise ^ (self.noise >> 14)) & 1;
-        self.noise = (self.noise >> 1) | bit << 22;
-        let am = {
-            let t = self.am_phase as f64 / 13_432.0;
-            ((1.0 - (t * 2.0 - 1.0).abs()) * 13.0 * 8.0) as u32 // up to 4.8 dB, in 3/8 dB units x8
+        self.am_phase = (self.am_phase + 1) % 13_440;
+        self.pm_phase = (self.pm_phase + 1) & 0x1fff;
+        // The measured 23-bit LFSR, polynomial x^23 + x^9 + x^8 + x + 1.
+        if self.noise & 1 != 0 {
+            self.noise ^= 0x800302;
+        }
+        self.noise >>= 1;
+        let am_step = self.am_phase / 64;
+        let am_raw = if am_step < 7 {
+            0
+        } else if am_step < 107 {
+            1 + (am_step - 7) / 4
+        } else if am_step < 110 {
+            26
+        } else {
+            25 - (am_step - 110) / 4
         };
-        let pm = ((self.pm_phase as f64 / 7_766.0 * std::f64::consts::TAU).sin() * 7.0) as i32;
+        let am = am_raw / 2;
+        const PM: [[i32; 8]; 8] = [
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 1, 0, 0, 0, -1, 0],
+            [0, 1, 2, 1, 0, -1, -2, -1],
+            [0, 1, 3, 1, 0, -1, -3, -1],
+            [0, 2, 4, 2, 0, -2, -4, -2],
+            [0, 2, 5, 2, 0, -2, -5, -2],
+            [0, 3, 6, 3, 0, -3, -6, -3],
+            [0, 3, 7, 3, 0, -3, -7, -3],
+        ];
+        let pm_step = ((self.pm_phase >> 10) & 7) as usize;
         let mut mix = 0i32;
         let rhythm = self.rhythm & 0x20 != 0;
         for n in 0..9 {
@@ -315,7 +373,7 @@ impl Fm {
                 let ksr_val = if ksr { ksr_base } else { ksr_base >> 2 };
                 let ar = p[4 + o] >> 4;
                 let dr = p[4 + o] & 15;
-                let sl = u32::from(p[6 + o] >> 4) * 8; // 3 dB steps, 8 of 3/8 dB
+                let sl = p[6 + o] >> 4;
                 let rr_patch = p[6 + o] & 15;
                 let release_rate = if c.ops[o].eg == Eg::Release {
                     if c.sustain { 5 } else if eg_type { rr_patch } else { 7 }
@@ -323,29 +381,31 @@ impl Fm {
                     rr_patch
                 };
                 let percussive = !eg_type;
-                let rate4 = if c.ops[o].eg == Eg::Attack { ar } else { dr };
                 let mut op = c.ops[o];
-                Self::step_env(&mut op, rate4, ksr_val, sl, percussive, release_rate);
-                // The phase: F-number shifted by the block, times the multiplier, with vibrato.
-                let f = (fnum as i32 + if pm_on { pm * ((fnum >> 6) as i32) / 8 } else { 0 }).max(0) as u32;
-                op.phase = op.phase.wrapping_add(((f << block) * MUL2[usize::from(mult)]) >> 1);
+                Self::step_env(&mut op, ar, dr, ksr_val, sl, percussive, release_rate, self.pm_phase);
+                // The phase step and its eight-step, 6.4 Hz vibrato pattern are measured from the
+                // real chip. `MUL2` keeps the half multiplier exact without floating point.
+                let pm = if pm_on { PM[(fnum >> 6) as usize][pm_step] } else { 0 };
+                let f = (2 * fnum as i32 + pm).max(0) as u32;
+                op.phase = op.phase.wrapping_add(((f * MUL2[usize::from(mult)]) << block) >> 2);
                 self.ch[n].ops[o] = op;
                 // Attenuation, in 3/8 dB: envelope, total level (modulator, 3/4 dB steps) or volume
                 // (carrier, 3 dB steps), key scale, AM.
                 let ksl_bits = if o == 0 { p[2] >> 6 } else { p[3] >> 6 };
                 let ksl_att = {
-                    let k = i32::from(KSL[usize::from(c.fnum >> 5) & 15]) * 2 - 8 * (7 - block as i32) * 2;
+                    const BASE: [i32; 16] = [112, 64, 48, 38, 32, 26, 22, 18, 16, 12, 10, 8, 6, 4, 2, 0];
+                    let k = 16 * block as i32 - BASE[usize::from(c.fnum >> 5) & 15];
                     if ksl_bits == 0 || k <= 0 { 0 } else { (k as u32) >> (3 - ksl_bits) }
                 };
                 let level = if o == 0 { u32::from(p[2] & 0x3F) * 2 } else { u32::from(c.vol) * 8 };
-                let env = op.env as u32 + level + ksl_att + if am_on { am / 8 } else { 0 };
+                let env = op.env as u32 + level + ksl_att + if am_on { am } else { 0 };
                 // 3/8 dB is 0.0623 of a factor of two: 16 of the tables' 1/256 steps.
                 let att = env.min(255) * 16;
                 let half = if o == 0 { p[3] & 0x08 != 0 } else { p[3] & 0x10 != 0 };
                 let phase10 = op.phase >> 9;
                 let modulated = if o == 0 {
                     let fb = p[3] & 7;
-                    let fbm = if fb == 0 { 0 } else { (op.out[0] + op.out[1]) >> (10 - fb) };
+                    let fbm = if fb == 0 { 0 } else { (op.out[0] + op.out[1]) >> (9 - fb) };
                     phase10.wrapping_add(fbm as u32)
                 } else {
                     phase10.wrapping_add(outs[0] as u32)

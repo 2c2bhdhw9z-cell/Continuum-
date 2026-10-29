@@ -45,7 +45,7 @@
    "done": true,
    "title": "Controls",
    "detail": "Two-button ProLine joysticks and one-button 2600 joysticks, Pause, Select, Reset and the two difficulty switches, the light gun games, paddles.",
-   "result": "Two-button and one-button joysticks, Pause/Select/Reset and both difficulty switches (proved against MAME, tests/references/inputs.txt), the light gun (sensor on INPT4, trigger on the stick's up line, as the a7800 emulator models it), paddles (VBLANK bit 7 dumps the capacitors), SaveKey/AtariVox on port 2; pad mapping as ProSystem's so the app's touch layout fits. The app now maps a tap through the renderer's exact visible-picture placement, so bars cannot begin a shot. The cAtari app path is proved by the FEAT-002 scratch pointer probe; a real light-gun game remains a phone check."
+   "result": "Two-button and one-button joysticks, Pause/Select/Reset and both difficulty switches (proved against MAME, tests/references/inputs.txt), the light gun (sensor on INPT4, trigger on the stick's up line, as the a7800 emulator models it), paddles (VBLANK bit 7 dumps the capacitors), SaveKey/AtariVox on port 2; pad mapping as ProSystem's so the app's touch layout fits. The app now maps a tap through the renderer's exact visible-picture placement, so bars cannot begin a shot, and sends the continuous D-pad position on the analog axes for paddles while retaining the joystick direction bits. The full app contract is proved by the FEAT-002 scratch pointer probe; a real light-gun game remains a phone check."
   },
   {
    "id": "A6",
@@ -66,7 +66,7 @@
    "done": true,
    "title": "In the app",
    "detail": "Second choice next to ProSystem: CoreSpec, coreChoices, build-core.sh recipe, project.yml, not-in-ios-yml.txt, check-core-cache.sh, engine frontend test, touch controls.",
-   "result": "Second choice for the 7800 next to ProSystem (ContinuumApp.swift CoreSpec continuumAtari, coreChoices[.atari7800], its picture shape from the core), its own regions in scripts/build-core.sh, project.yml, not-in-ios-yml.txt, check-core-cache.sh (229 checks pass); crates/emulator-bridge/tests/catari_frontend.rs opens it through the app engine. The app touch layout keeps the ProSystem button mapping and adds renderer-owned whole-picture pointer mapping for cAtari's light gun. ProSystem remains first/default."
+   "result": "Second choice for the 7800 next to ProSystem (ContinuumApp.swift CoreSpec continuumAtari, coreChoices[.atari7800], its picture shape from the core), its own regions in scripts/build-core.sh, project.yml, not-in-ios-yml.txt, check-core-cache.sh (229 checks pass); crates/emulator-bridge/tests/catari_frontend.rs opens it through the app engine. The app touch layout keeps the ProSystem button mapping, adds renderer-owned whole-picture pointer mapping for cAtari's light gun, and feeds its continuous D-pad position to cAtari's paddle axis. ProSystem remains first/default."
   },
   {
    "id": "A9",
