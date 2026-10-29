@@ -3,7 +3,8 @@
 // Reads cases from stdin, one per line, hex:
 //   seed BA HL X Y SP PC F E N I XI YI V U SHIFTU b0 b1 b2 b3 b4 b5
 // (the six bytes are written at PC's address; every other byte reads as a pattern of the seed).
-// Prints: BA HL X Y SP PC F E N I XI YI V U1 SHIFTU cycles status | writes addr:val ...
+// Prints: BA HL X Y SP PC F E N I XI YI V U1 SHIFTU cycles status | writes addr:val ... | the
+// interrupt check points the instruction passed (F:shift_u, in order)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,7 +44,9 @@ void MinxCPU_OnWrite(int cpu, uint32_t addr, uint8_t data) {
 }
 void MinxCPU_OnException(int type, uint32_t opc) { (void) type; (void) opc; }
 void MinxCPU_OnSleep(int type) { (void) type; }
-void MinxCPU_OnIRQHandle(uint8_t flag, uint8_t shift_u) { (void) flag; (void) shift_u; }
+static uint8_t chkf[64], chks[64];
+static int nchk;
+void MinxCPU_OnIRQHandle(uint8_t flag, uint8_t shift_u) { if (nchk < 64) { chkf[nchk] = flag; chks[nchk] = shift_u; ++nchk; } }
 void MinxCPU_OnIRQAct(uint8_t intr) { (void) intr; }
 
 int main(void) {
@@ -80,12 +83,15 @@ int main(void) {
 		np = 0;
 		for (int k = 0; k < 6; ++k) { paddr[np] = (pc + k) & 0x1FFFFF; pval[np] = v[16 + k]; ++np; }
 		nw = 0;
+		nchk = 0;
 		int c = MinxCPU_Exec();
 		printf("%04X %04X %04X %04X %04X %04X %02X %02X %02X %02X %02X %02X %02X %02X %d %d %d |",
 			MinxCPU.BA.W.L, MinxCPU.HL.W.L, MinxCPU.X.W.L, MinxCPU.Y.W.L, MinxCPU.SP.W.L, MinxCPU.PC.W.L,
 			MinxCPU.F, MinxCPU.E, MinxCPU.N.B.H, MinxCPU.HL.B.I, MinxCPU.X.B.I, MinxCPU.Y.B.I,
 			MinxCPU.PC.B.I, MinxCPU.U1, MinxCPU.Shift_U, c, MinxCPU.Status);
 		for (int k = 0; k < nw; ++k) printf(" %06X:%02X", waddr[k], wval[k]);
+		printf(" |");
+		for (int k = 0; k < nchk; ++k) printf(" %02X:%d", chkf[k], chks[k]);
 		printf("\n");
 	}
 	return 0;

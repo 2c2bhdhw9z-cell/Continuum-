@@ -1,34 +1,26 @@
-//! The console's infrared pin and deterministic two-console byte transport.
+//! The console's infrared line. With nothing connected the receiver reads dark, as on PokeMini
+//! (the emulator cMini replaces); a link to a second console sets `connected` and feeds `rx`.
 
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Infrared {
-    pub enabled: bool,
+    /// A second console is on the other end.
+    pub connected: bool,
+    /// The transmitter is enabled, and what it sends.
+    pub tx_on: bool,
     pub tx: bool,
+    /// What the other console sends.
     pub rx: bool,
-    incoming: VecDeque<bool>,
 }
 
 impl Infrared {
-    pub fn write(&mut self, enabled: bool, bit: bool) {
-        self.enabled = enabled;
-        self.tx = enabled && bit;
+    pub fn transmit(&mut self, on: bool, bit: bool) {
+        self.tx_on = on;
+        self.tx = on && bit;
     }
 
-    pub fn receive(&mut self, bit: bool) {
-        self.incoming.push_back(bit);
-    }
-
-    pub fn clock(&mut self) -> bool {
-        if self.enabled {
-            if let Some(bit) = self.incoming.pop_front() {
-                self.rx = bit;
-            }
-        } else {
-            self.rx = false;
-        }
-        self.rx
+    pub fn receiving(&self) -> bool {
+        self.connected && self.rx
     }
 }

@@ -1,7 +1,8 @@
 //! cMini's MINX processor against PokeMini's, one instruction at a time (the way SingleStepTests
 //! check other processors): every opcode, primary and both extension pages, from many random
 //! starting states over the same memory, must leave the same registers, flags, bank registers,
-//! cycle count and writes. PokeMini is the Pokémon Mini emulator cMini replaces, the one whose
+//! cycle count and writes, and pass the same interrupt check points (where the chip asks the
+//! interrupt controller again, with F and the pending-U count as they stood). PokeMini is the Pokémon Mini emulator cMini replaces, the one whose
 //! timings came from measuring the real console; its processor is built on its own by
 //! `.kiro/notes/wip/tools/pokemini/build.sh` (`POKEMINI_CPU_HARNESS`; nothing of it is committed).
 //! Without the variable this test does nothing.
@@ -17,6 +18,7 @@ struct Flat {
     seed: u32,
     code: Vec<(u32, u8)>,
     writes: Vec<(u32, u8)>,
+    checks: Vec<(u8, u8)>,
 }
 
 impl Flat {
@@ -41,6 +43,9 @@ impl Bus for Flat {
     }
     fn write(&mut self, a: u32, v: u8) {
         self.writes.push((a & 0x1F_FFFF, v));
+    }
+    fn irq_check(&mut self, f: u8, u_hold: u8) {
+        self.checks.push((f, u_hold));
     }
 }
 
@@ -98,7 +103,7 @@ fn ours(c: &Case) -> String {
         ..Minx::default()
     };
     let at = if cpu.pc & 0x8000 != 0 { (u32::from(cpu.v) << 15) | u32::from(cpu.pc & 0x7FFF) } else { u32::from(cpu.pc) };
-    let mut mem = Flat { seed: c.seed, code: (0..6).map(|k| ((at + k) & 0x1F_FFFF, c.code[k as usize])).collect(), writes: Vec::new() };
+    let mut mem = Flat { seed: c.seed, code: (0..6).map(|k| ((at + k) & 0x1F_FFFF, c.code[k as usize])).collect(), writes: Vec::new(), checks: Vec::new() };
     let cycles = cpu.step(&mut mem);
     let status = cpu.status;
     let mut s = format!(
@@ -107,6 +112,10 @@ fn ours(c: &Case) -> String {
     );
     for (a, v) in mem.writes {
         s += &format!(" {a:06X}:{v:02X}");
+    }
+    s += " |";
+    for (f, h) in mem.checks {
+        s += &format!(" {f:02X}:{h}");
     }
     s
 }
@@ -191,6 +200,9 @@ fn every_instruction_does_what_pokemini_s_does() {
             }
             if theirs.split('|').nth(1) != mine.split('|').nth(1) {
                 *count.entry("writes").or_default() += 1;
+            }
+            if theirs.split('|').nth(2) != mine.split('|').nth(2) {
+                *count.entry("checks").or_default() += 1;
             }
         }
         eprintln!("fields differing: {count:?}");

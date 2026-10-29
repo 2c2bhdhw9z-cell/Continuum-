@@ -1,9 +1,16 @@
-//! cMini's libretro boundary: 96×64 video, stereo audio, controls, settings, EEPROM and states.
+//! cMini's libretro boundary, behaving as PokeMini's libretro core does (the emulator cMini
+//! replaces): 96×64 video at 72 Hz (or 60, by running six frames to every five), 44100 Hz sound
+//! in both channels, the same buttons and turbo, the screen shake and rumble the motor drives,
+//! the console's clock set from the phone's local time at every start, reset and loaded state,
+//! the save chip's 8 KiB as save RAM, and RAM with the I/O registers (8 KiB, laid out as
+//! PokeMini lays it out) as system RAM for achievements.
 
 use crate::{
-    machine::Machine,
+    audio::{LowPass, RATE},
+    lcd::{self, HEIGHT, WIDTH},
+    machine::{Machine, BIOS_SIZE, MEMORY},
     options::Settings,
-    prc::{HEIGHT, WIDTH},
+    ports::EEPROM_SIZE,
 };
 use serde::{Deserialize, Serialize};
 use std::ffi::{c_char, c_void, CStr};
@@ -67,7 +74,9 @@ const PIXEL_XRGB: u32 = 1;
 const JOY: u32 = 1;
 const MEMORY_SAVE: u32 = 0;
 const MEMORY_SYSTEM: u32 = 2;
-const STATE_SIZE: usize = 4 * 1024 * 1024;
+/// A saved state's room: the machine without its cartridge comes to well under this.
+const STATE_SIZE: usize = 256 * 1024;
+const STATE_VERSION: u32 = 2;
 struct Cb {
     env: Option<Env>,
     video: Option<Video>,
@@ -89,10 +98,19 @@ struct Core {
     m: Machine,
     s: Settings,
     frame: Vec<u32>,
-    history: Vec<f32>,
-    audio: Vec<i16>,
     frame_no: u64,
     cart_tag: u64,
+    /// The phone's time goes to the console's clock before the next frame.
+    clock_due: bool,
+    turbo: u16,
+    /// 60 Hz: the frame of the six-to-five cycle, and the sound waiting to go out.
+    hz60_count: u8,
+    pending: Vec<i16>,
+    low_pass: LowPass,
+    stereo: Vec<i16>,
+    /// The motor's strength last sent, and the shake's place in its pattern.
+    rumble_sent: u16,
+    shake_step: usize,
 }
 #[derive(Serialize, Deserialize)]
 struct State {
@@ -100,8 +118,11 @@ struct State {
     version: u32,
     cart_tag: u64,
     machine: Machine,
-    history: Vec<f32>,
     frame_no: u64,
+    turbo: u16,
+    hz60_count: u8,
+    low_pass: LowPass,
+    shake_step: usize,
 }
 fn tag(b: &[u8]) -> u64 {
     let mut h = 0xcbf29ce484222325u64;
@@ -118,12 +139,42 @@ unsafe fn system_dir(env: Env) -> Option<std::path::PathBuf> {
         None
     }
 }
-unsafe fn bios(env: Env) -> Option<Vec<u8>> {
+/// The player's own start-up program, when there is a whole one.
+unsafe fn players_bios(env: Env) -> Option<Vec<u8>> {
     let p = system_dir(env)?.join("bios.min");
     let b = std::fs::read(p).ok()?;
-    (b.len() == 4096).then_some(b)
+    (b.len() == BIOS_SIZE).then_some(b)
 }
-#[no_mangle]
+
+/// The phone's local time as the console's clock keeps it: year within the century, month,
+/// day, hour, minute, second.
+fn local_time() -> Option<[u8; 6]> {
+    #[repr(C)]
+    struct Tm {
+        sec: i32,
+        min: i32,
+        hour: i32,
+        mday: i32,
+        mon: i32,
+        year: i32,
+        wday: i32,
+        yday: i32,
+        isdst: i32,
+        gmtoff: i64,
+        zone: *const c_char,
+    }
+    extern "C" {
+        fn time(t: *mut i64) -> i64;
+        fn localtime_r(t: *const i64, out: *mut Tm) -> *mut Tm;
+    }
+    let mut tm = Tm { sec: 0, min: 0, hour: 0, mday: 0, mon: 0, year: 0, wday: 0, yday: 0, isdst: 0, gmtoff: 0, zone: std::ptr::null() };
+    // SAFETY: both are the C library's, called with valid pointers.
+    let ok = unsafe {
+        let now = time(std::ptr::null_mut());
+        !localtime_r(&now, &mut tm).is_null()
+    };
+    ok.then(|| [(tm.year % 100) as u8, (tm.mon + 1) as u8, tm.mday as u8, tm.hour as u8, tm.min as u8, tm.sec as u8])
+}
 pub extern "C" fn retro_api_version() -> u32 {
     1
 }
@@ -158,7 +209,7 @@ pub unsafe extern "C" fn retro_get_system_av_info(p: *mut RetroSystemAvInfo) {
             },
             timing: RetroSystemTiming {
                 fps: if s.hz60 { 60.0 } else { 72.0 },
-                sample_rate: s.sample_rate as f64,
+                sample_rate: f64::from(RATE),
             },
         }
     }
@@ -287,19 +338,26 @@ pub unsafe extern "C" fn retro_load_game(g: *const RetroGameInfo) -> bool {
         return false;
     };
     let s = crate::options::read(env);
-    let cart_tag = tag(&rom);
-    let Ok(m) = Machine::new(rom, bios(env), s.real_bios) else {
+    let bios = if s.real_bios { players_bios(env) } else { None }.unwrap_or_else(crate::bios::image);
+    let Ok(mut m) = Machine::new(&rom, bios) else {
         return false;
     };
+    apply(&mut m, &s);
     let k = s.scale as usize;
     *CORE.lock().unwrap() = Some(Core {
         m,
         s,
         frame: vec![0; WIDTH * HEIGHT * k * k],
-        history: vec![0.0; WIDTH * HEIGHT],
-        audio: Vec::with_capacity(2048),
         frame_no: 0,
-        cart_tag,
+        cart_tag: tag(&rom),
+        clock_due: true,
+        turbo: 0,
+        hz60_count: 0,
+        pending: Vec::with_capacity(4096),
+        low_pass: LowPass::default(),
+        stereo: Vec::with_capacity(4096),
+        rumble_sent: 0,
+        shake_step: 0,
     });
     true
 }
@@ -309,22 +367,42 @@ pub extern "C" fn retro_unload_game() {
         *c = None
     }
 }
-fn colour(p: u8, v: f32) -> u32 {
-    let (v0, v1) = match p {
-        1 => ([255., 255., 255.], [15., 15., 15.]),
-        2 => ([210., 245., 190.], [20., 65., 25.]),
-        3 => ([205., 235., 255.], [15., 30., 80.]),
-        4 => ([255., 220., 210.], [85., 20., 15.]),
-        5 => ([250., 235., 190.], [65., 45., 20.]),
-        6 => ([255., 220., 240.], [80., 20., 60.]),
-        _ => ([255., 251., 135.], [78., 78., 78.]),
+/// The settings the machine itself follows.
+fn apply(m: &mut Machine, s: &Settings) {
+    m.lcd_mode = match s.shades {
+        2 => lcd::TWO_SHADES,
+        3 => lcd::THREE_SHADES,
+        _ => lcd::ANALOG,
     };
-    let t = v.clamp(0., 1.);
-    let r = (v0[0] + (v1[0] - v0[0]) * t) as u32;
-    let g = (v0[1] + (v1[1] - v0[1]) * t) as u32;
-    let b = (v0[2] + (v1[2] - v0[2]) * t) as u32;
-    0xff000000 | r << 16 | g << 8 | b
+    m.audio.piezo = s.piezo;
+    m.ports.infrared.connected = false;
 }
+/// The panel's colours: unlit and lit.
+fn palette(p: u8) -> ([i32; 3], [i32; 3]) {
+    match p {
+        1 => ([255, 255, 255], [15, 15, 15]),
+        2 => ([210, 245, 190], [20, 65, 25]),
+        3 => ([205, 235, 255], [15, 30, 80]),
+        4 => ([255, 220, 210], [85, 20, 15]),
+        5 => ([250, 235, 190], [65, 45, 20]),
+        6 => ([255, 220, 240], [80, 20, 60]),
+        _ => ([255, 251, 135], [78, 78, 78]),
+    }
+}
+/// A pixel's colour from its darkness (0-255), the contrast setting deepening the middle shades
+/// and the brightness one moving them all, as PokeMini's do.
+fn colour(light: [i32; 3], dark: [i32; 3], darkness: i32, contrast: i32, brightness: i32) -> u32 {
+    let v = (darkness - brightness * 255 / 100).clamp(0, 255);
+    let strength = contrast * 255 / 100;
+    let curve = 255 - (255 - v) * (255 - v) * (255 - v) / 65_536;
+    let t = ((255 - strength) * v + strength * curve) >> 8;
+    let mix = |k: usize| (((255 - t) * light[k] + t * dark[k]) >> 8) as u32;
+    0xff00_0000 | mix(0) << 16 | mix(1) << 8 | mix(2)
+}
+/// PokeMini's screen shake: the rows the picture moves by, frame after frame, at each level.
+const SHAKE: [[i32; 4]; 4] = [[0, 0, 0, 0], [-1, 0, 1, 0], [-1, 1, -1, 1], [-2, 1, -1, 2]];
+/// The 72 Hz frames' share of a 60 Hz frame's sound.
+const HZ60_SAMPLES: usize = (RATE as f64 / 60.0) as usize;
 #[no_mangle]
 pub extern "C" fn retro_run() {
     let (cb_env, video, audio, poll, input, rumble) = match CB.lock() {
@@ -339,113 +417,125 @@ pub extern "C" fn retro_run() {
     let Some(c) = lock.as_mut() else { return };
     unsafe {
         if crate::options::changed(env) {
-            c.s = crate::options::read(env)
+            let was_60 = c.s.hz60;
+            c.s = crate::options::read(env);
+            apply(&mut c.m, &c.s);
+            if was_60 != c.s.hz60 {
+                c.hz60_count = 0;
+                c.pending.clear();
+            }
         }
+    }
+    if c.clock_due {
+        if let Some(t) = local_time() {
+            c.m.set_clock(t);
+        }
+        c.clock_due = false;
     }
     if let Some(p) = poll {
         unsafe { p() }
     }
     let pressed = |id| input.map_or(false, |f| unsafe { f(0, JOY, 0, id) != 0 });
-    let mut keys = 0xffu8;
-    if pressed(8) {
-        keys &= !1
+    let mut held = 0u8;
+    for (id, bit) in [(8, 0x01), (0, 0x02), (11, 0x04), (4, 0x08), (5, 0x10), (6, 0x20), (7, 0x40), (2, 0x80)] {
+        if pressed(id) {
+            held |= bit;
+        }
     }
-    if pressed(0) {
-        keys &= !2
+    // Turbo A: held for half the period (2 to 18 frames), let go for the rest.
+    if pressed(9) {
+        let period = u16::from(c.s.turbo).clamp(4, 120);
+        let width = (period >> 1).clamp(2, 18);
+        if c.turbo < width {
+            held |= 0x01;
+        }
+        c.turbo += 1;
+        if c.turbo >= period {
+            c.turbo = 0;
+        }
+    } else {
+        c.turbo = 0;
     }
-    if pressed(11) {
-        keys &= !4
+    c.m.set_buttons(held, pressed(10));
+    // The frames: one, or at 60 Hz an extra one every fifth call.
+    let runs = if c.s.hz60 && c.hz60_count == 0 { 2 } else { 1 };
+    for _ in 0..runs {
+        c.m.run_frame();
+        c.pending.extend_from_slice(&c.m.audio.samples);
     }
-    if pressed(4) {
-        keys &= !8
-    }
-    if pressed(5) {
-        keys &= !16
-    }
-    if pressed(6) {
-        keys &= !32
-    }
-    if pressed(7) {
-        keys &= !64
-    }
-    if pressed(2) {
-        keys &= !128
-    }
-    if pressed(9) && c.frame_no % (c.s.turbo.max(2) as u64) < (c.s.turbo.max(2) as u64) / 2 {
-        keys &= !1
-    }
-    c.m.set_buttons(keys, pressed(10));
-    c.m.infrared.enabled = c.s.infrared;
-    c.audio.clear();
-    c.m.run_frame(
-        c.s.sample_rate,
-        c.s.piezo,
-        c.s.lowpass,
-        c.s.volume,
-        &mut c.audio,
-    );
-    if let Some(r) = rumble {
-        let strength = if c.m.rumble {
-            u16::MAX.saturating_mul(c.s.rumble as u16) / 10
+    let out = if c.s.hz60 {
+        c.hz60_count += 1;
+        if c.hz60_count >= 5 {
+            c.hz60_count = 0;
+            c.pending.len()
         } else {
-            0
-        };
-        unsafe {
-            r(0, 0, strength);
-            r(0, 1, strength);
+            HZ60_SAMPLES.min(c.pending.len())
+        }
+    } else {
+        c.pending.len()
+    };
+    let mut mono: Vec<i16> = c.pending.drain(..out).collect();
+    if c.s.lowpass != 0 {
+        c.low_pass.run(&mut mono, c.s.lowpass);
+    }
+    c.stereo.clear();
+    for &s in &mono {
+        c.stereo.extend_from_slice(&[s, s]);
+    }
+    // The motor: the controller's rumble and the screen shake follow it.
+    let rumbling = c.m.rumbling();
+    if let Some(r) = rumble {
+        let strength = if rumbling && c.s.rumble > 0 { 0x1999 * u16::from(c.s.rumble.min(10)) + 5 } else { 0 };
+        if strength != c.rumble_sent {
+            unsafe {
+                r(0, 0, strength);
+                r(0, 1, strength);
+            }
+            c.rumble_sent = strength;
         }
     }
     let k = c.s.scale as usize;
-    if c.frame.len() != WIDTH * HEIGHT * k * k {
-        c.frame.resize(WIDTH * HEIGHT * k * k, 0);
+    let (w, h) = (WIDTH * k, HEIGHT * k);
+    if c.frame.len() != w * h {
+        c.frame.resize(w * h, 0);
     }
+    let (light, dark) = palette(c.s.palette);
+    let (contrast, brightness) = (i32::from(c.s.contrast), i32::from(c.s.brightness));
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
-            let now = c.m.prc.lcd[y * WIDTH + x] as f32;
-            let old = c.history[y * WIDTH + x];
-            let mut shade = match c.s.shades {
-                2 => now,
-                3 => (now * 2. + old).round() / 3.,
-                _ => now * 0.72 + old * 0.28,
-            };
-            c.history[y * WIDTH + x] = shade;
-            shade = ((shade * 128. + c.s.contrast as f32 - 64. + c.s.brightness as f32) / 128.)
-                .clamp(0., 1.);
+            let d = i32::from(c.m.lcd.darkness(c.m.lcd_mode, y * WIDTH + x));
             for yy in 0..k {
                 for xx in 0..k {
-                    let cell = if c.s.filter == 1 && k > 1 && (xx == k - 1 || yy == k - 1) {
-                        (shade * 0.72).min(1.)
-                    } else if c.s.filter == 2 && yy == k - 1 {
-                        (shade * 0.55).min(1.)
-                    } else {
-                        shade
-                    };
-                    c.frame[(y * k + yy) * WIDTH * k + x * k + xx] = colour(c.s.palette, cell)
+                    // The cells' edges (dot matrix) or the lines' (scanlines) show lighter.
+                    let edge = (c.s.filter == 1 && k > 1 && (xx == k - 1 || yy == k - 1)) || (c.s.filter == 2 && k > 1 && yy == k - 1);
+                    let level = if edge { (d * if c.s.filter == 1 { 184 } else { 141 }) >> 8 } else { d };
+                    c.frame[(y * k + yy) * w + x * k + xx] = colour(light, dark, level, contrast, brightness);
                 }
             }
         }
     }
+    if rumbling && c.s.shake > 0 {
+        let rows = SHAKE[usize::from(c.s.shake.min(3))][c.shake_step & 3] * k as i32;
+        c.shake_step = c.shake_step.wrapping_add(1);
+        let by = rows.unsigned_abs() as usize * w;
+        if by > 0 && by < c.frame.len() {
+            let n = c.frame.len();
+            if rows > 0 {
+                c.frame.copy_within(..n - by, by);
+                c.frame[..by].fill(0xff00_0000);
+            } else {
+                c.frame.copy_within(by.., 0);
+                c.frame[n - by..].fill(0xff00_0000);
+            }
+        }
+    }
     c.frame_no += 1;
-    if c.m.rumble && c.s.shake > 0 {
-        let shift = (c.s.shake as usize * k).min(c.frame.len().saturating_sub(1));
-        c.frame.rotate_left(shift);
+    if let Some(v) = video {
+        unsafe { v(c.frame.as_ptr() as *const c_void, w as u32, h as u32, w * 4) }
     }
     if let Some(a) = audio {
         unsafe {
-            a(c.audio.as_ptr(), c.audio.len() / 2);
-        }
-    }
-    if c.s.hz60 && c.frame_no % 6 == 0 {
-        return;
-    }
-    if let Some(v) = video {
-        unsafe {
-            v(
-                c.frame.as_ptr() as *const c_void,
-                (WIDTH * k) as u32,
-                (HEIGHT * k) as u32,
-                WIDTH * k * 4,
-            )
+            a(c.stereo.as_ptr(), c.stereo.len() / 2);
         }
     }
 }
@@ -453,8 +543,9 @@ pub extern "C" fn retro_run() {
 pub extern "C" fn retro_reset() {
     if let Ok(mut c) = CORE.lock() {
         if let Some(c) = c.as_mut() {
-            c.m.reset(c.s.real_bios);
-            c.history.fill(0.0)
+            c.m.reset();
+            c.low_pass.reset();
+            c.clock_due = true;
         }
     }
 }
@@ -474,11 +565,14 @@ pub unsafe extern "C" fn retro_serialize(data: *mut c_void, size: usize) -> bool
     let Some(c) = c.as_ref() else { return false };
     let s = State {
         magic: *b"CMINISTA",
-        version: 1,
+        version: STATE_VERSION,
         cart_tag: c.cart_tag,
         machine: c.m.clone(),
-        history: c.history.clone(),
         frame_no: c.frame_no,
+        turbo: c.turbo,
+        hz60_count: c.hz60_count,
+        low_pass: c.low_pass.clone(),
+        shake_step: c.shake_step,
     };
     let Ok(bytes) = bincode::serialize(&s) else {
         return false;
@@ -505,7 +599,7 @@ pub unsafe extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> 
     let Ok(s): Result<State, _> = bincode::deserialize(&input[4..4 + n]) else {
         return false;
     };
-    if s.magic != *b"CMINISTA" || s.version != 1 {
+    if s.magic != *b"CMINISTA" || s.version != STATE_VERSION {
         return false;
     }
     let mut c = match CORE.lock() {
@@ -513,12 +607,19 @@ pub unsafe extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> 
         Err(_) => return false,
     };
     let Some(c) = c.as_mut() else { return false };
-    if s.cart_tag != c.cart_tag {
+    if s.cart_tag != c.cart_tag || s.machine.mem.len() != MEMORY || s.machine.ports.eeprom.len() != EEPROM_SIZE {
         return false;
     }
-    c.m = s.machine;
-    c.history = s.history;
+    c.m.take_state(s.machine);
+    apply(&mut c.m, &c.s);
     c.frame_no = s.frame_no;
+    c.turbo = s.turbo;
+    c.hz60_count = s.hz60_count;
+    c.low_pass = s.low_pass;
+    c.shake_step = s.shake_step;
+    c.pending.clear();
+    // As PokeMini does after a state: the console's clock is the phone's again.
+    c.clock_due = true;
     true
 }
 #[no_mangle]
@@ -531,16 +632,16 @@ pub extern "C" fn retro_get_memory_data(id: u32) -> *mut c_void {
         return std::ptr::null_mut();
     };
     match id {
-        MEMORY_SAVE => c.m.eeprom.data.as_mut_ptr() as *mut c_void,
-        MEMORY_SYSTEM => c.m.ram.as_mut_ptr() as *mut c_void,
+        MEMORY_SAVE => c.m.ports.eeprom.as_mut_ptr() as *mut c_void,
+        MEMORY_SYSTEM => c.m.mem.as_mut_ptr() as *mut c_void,
         _ => std::ptr::null_mut(),
     }
 }
 #[no_mangle]
 pub extern "C" fn retro_get_memory_size(id: u32) -> usize {
     match id {
-        MEMORY_SAVE => 8192,
-        MEMORY_SYSTEM => 4096,
+        MEMORY_SAVE => EEPROM_SIZE,
+        MEMORY_SYSTEM => MEMORY,
         _ => 0,
     }
 }

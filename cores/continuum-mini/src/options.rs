@@ -1,5 +1,5 @@
-//! cMini settings. The first thirteen match PokeMini's current controls; BIOS and infrared are
-//! hardware-backed additions.
+//! cMini settings. The first thirteen match PokeMini's current controls; the start-up program
+//! and infrared are hardware-backed additions.
 
 use std::ffi::{c_char, c_void, CStr};
 #[repr(C)]
@@ -233,7 +233,7 @@ const SPECS: &[Spec] = &[
         c"system",
         c"cmini_bios",
         c"Real console start-up",
-        c"Uses your bios.min. Off starts the game directly.",
+        c"Uses your bios.min. Off uses cMini's own start-up program.",
         OFFON,
         c"off",
     ),

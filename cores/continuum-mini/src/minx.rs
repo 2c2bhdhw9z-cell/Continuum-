@@ -32,12 +32,27 @@ pub const FLAG_I: u8 = FLAG_I0 | FLAG_I1;
 pub const RUNNING: u8 = 0;
 pub const HALTED: u8 = 1;
 pub const STOPPED: u8 = 2;
-/// An interrupt has been accepted: its call comes before the next instruction.
+/// As the machine reports it: an interrupt has been accepted and its call comes before the
+/// next instruction (the processor itself never holds this; the machine's interrupt
+/// controller does, see `Bus::take_irq`).
 pub const ENTERING: u8 = 3;
 
 pub trait Bus {
     fn read(&mut self, address: u32) -> u8;
     fn write(&mut self, address: u32, value: u8);
+    /// Every byte the processor fetches (its opcodes and operands): what a read of nothing
+    /// gives back.
+    fn fetched(&mut self, _byte: u8) {}
+    /// The chip asks the interrupt controller again whether an interrupt may come in: at every
+    /// point where it changes F's level bits or U, and when a pending change of U runs out
+    /// (the points PokeMini checks at). `u_hold` is nonzero while a change of U is pending,
+    /// and no interrupt comes in then.
+    fn irq_check(&mut self, _f: u8, _u_hold: u8) {}
+    /// The vector address of an interrupt the machine has accepted. Its call is made before
+    /// the next instruction, and a halted or stopped processor wakes for it.
+    fn take_irq(&mut self) -> Option<u8> {
+        None
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -62,10 +77,8 @@ pub struct Minx {
     pub i: u8,
     pub xi: u8,
     pub yi: u8,
-    /// RUNNING, HALTED, STOPPED or ENTERING.
+    /// RUNNING, HALTED or STOPPED.
     pub status: u8,
-    /// The vector address of an interrupt being entered.
-    pub vector: u8,
     /// The last byte fetched (what an unmapped read returns).
     pub ir: u8,
     pub cycles: u64,
@@ -77,38 +90,24 @@ fn sext(v: u8) -> u16 {
 }
 
 impl Minx {
-    /// As the console starts: from the reset vector (the start-up program's), or straight at
-    /// the cartridge's entry, $2102, when the console's own program isn't there to run.
-    pub fn reset(&mut self, bus: &mut impl Bus, direct: bool) {
-        *self = Self::default();
-        self.f = FLAG_I;
+    /// The chip as power arrives: every register clear and interrupts held off (F's level 3).
+    pub fn new() -> Self {
+        Self { f: FLAG_I, ..Self::default() }
+    }
+
+    /// The reset line: the program counter from the start-up program's vector 0 (power-on) or
+    /// 1 (the reset that waking and the reset button give), E's lines high, interrupts held off
+    /// and U cleared. The other registers keep what they held, and so does the code bank.
+    pub fn reset(&mut self, bus: &mut impl Bus, power_on: bool) {
+        self.status = RUNNING;
+        self.pc = Self::read16(bus, if power_on { 0 } else { 2 });
         self.e = 0x1F;
-        if direct {
-            self.pc = 0x2102;
-            self.sp = 0x2000;
-        } else {
-            self.pc = u16::from_le_bytes([bus.read(0), bus.read(1)]);
-        }
+        self.f = FLAG_I;
+        self.set_u(bus, 0);
+        bus.irq_check(self.f, self.u_hold);
     }
 
-    /// Whether an interrupt may be taken now: not while a write to U is still pending.
-    pub fn interruptible(&self) -> bool {
-        self.u_hold == 0
-    }
-
-    /// The interrupt level in F (0 lets every interrupt in, 3 only the non-maskable ones).
-    pub fn level(&self) -> u8 {
-        self.f >> 6
-    }
-
-    /// The machine accepts an interrupt: its call is made before the next instruction, and a
-    /// halted or stopped processor wakes for it.
-    pub fn interrupt(&mut self, vector: u8) {
-        self.status = ENTERING;
-        self.vector = vector;
-    }
-
-    /// Kept for the libretro layer and older callers.
+    /// Halted or stopped, waiting for an interrupt.
     pub fn halted(&self) -> bool {
         self.status == HALTED || self.status == STOPPED
     }
@@ -126,6 +125,7 @@ impl Minx {
         let v = bus.read(self.address());
         self.pc = self.pc.wrapping_add(1);
         self.ir = v;
+        bus.fetched(v);
         v
     }
     fn fetch16(&mut self, bus: &mut impl Bus) -> u16 {
@@ -466,20 +466,22 @@ impl Minx {
         self.f |= FLAG_I;
         self.take_u();
         self.pc = Self::read16(bus, u32::from(vector));
+        bus.irq_check(self.f, self.u_hold);
     }
-    fn set_u(&mut self, v: u8) {
+    fn set_u(&mut self, bus: &mut impl Bus, v: u8) {
         if v != self.u_next {
             self.u_hold = 2;
         }
         self.u = v;
         self.u_next = v;
+        bus.irq_check(self.f, self.u_hold);
     }
     fn ret(&mut self, bus: &mut impl Bus) {
         let lo = self.pop(bus);
         let hi = self.pop(bus);
         self.pc = u16::from_le_bytes([lo, hi]);
         self.v = self.pop(bus);
-        self.set_u(self.v);
+        self.set_u(bus, self.v);
     }
 
     /// The conditions of the CE page's branches and calls (CE E0-FF), by their low four bits.
@@ -501,24 +503,23 @@ impl Minx {
 
     // ------------------------------------------------------------------ running
 
-    /// One instruction (or an interrupt's entry, or a cycle of sleep). Returns its cycles.
+    /// One instruction (or an interrupt's entry, or 8 cycles of sleep). Returns its cycles.
     pub fn step(&mut self, bus: &mut impl Bus) -> u32 {
         if self.u_hold > 0 {
             self.u = self.u_next;
             self.u_next = self.v;
             self.u_hold -= 1;
+            bus.irq_check(self.f, self.u_hold);
         }
-        let c = match self.status {
-            ENTERING => {
-                self.status = RUNNING;
-                self.call_vector(bus, u16::from(self.vector), true);
-                20
-            }
-            HALTED | STOPPED => 8,
-            _ => {
-                let op = self.fetch(bus);
-                self.main(bus, op)
-            }
+        let c = if let Some(vector) = bus.take_irq() {
+            self.status = RUNNING;
+            self.call_vector(bus, u16::from(vector), true);
+            20
+        } else if self.status != RUNNING {
+            8
+        } else {
+            let op = self.fetch(bus);
+            self.main(bus, op)
         };
         self.cycles += u64::from(c);
         c
@@ -665,6 +666,7 @@ impl Minx {
                     0x9E => self.f ^ k,
                     _ => k,
                 };
+                bus.irq_check(self.f, self.u_hold);
                 12
             }
             0xA0..=0xA3 => {
@@ -711,6 +713,7 @@ impl Minx {
             }
             0xAF => {
                 self.f = self.pop(bus);
+                bus.irq_check(self.f, self.u_hold);
                 8
             }
             0xB0..=0xB3 => {
@@ -917,6 +920,7 @@ impl Minx {
             0xF9 => {
                 self.f = self.pop(bus);
                 self.ret(bus);
+                bus.irq_check(self.f, self.u_hold);
                 16
             }
             0xFA => {
@@ -1146,11 +1150,12 @@ impl Minx {
             }
             0xC3 => {
                 self.f = self.a();
+                bus.irq_check(self.f, self.u_hold);
                 8
             }
             0xC4 => {
                 let k = self.fetch(bus);
-                self.set_u(k);
+                self.set_u(bus, k);
                 16
             }
             0xC5..=0xC7 => {
@@ -1173,7 +1178,8 @@ impl Minx {
                 8
             }
             0xCC => {
-                self.set_u(self.a());
+                let a = self.a();
+                self.set_u(bus, a);
                 8
             }
             0xCD..=0xCF => {
