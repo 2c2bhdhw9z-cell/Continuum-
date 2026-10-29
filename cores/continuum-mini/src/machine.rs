@@ -70,6 +70,10 @@ pub struct ColorPrc {
 }
 
 impl ColorPrc {
+    fn consistent(&self) -> bool {
+        self.memory.is_empty() && !self.unlocked || self.memory.len() == 0x4000
+    }
+
     fn reset(&mut self) {
         *self = Self { colors: [0, 0, 0xF0, 0xF0], ..Self::default() };
     }
@@ -437,6 +441,12 @@ impl Machine {
                 self.hw(false, ir).read(a)
             }
         }
+    }
+
+    /// Every part at its size, as a machine cMini made has them: what a saved state must show
+    /// before it replaces the running one.
+    pub fn consistent(&self) -> bool {
+        self.mem.len() == MEMORY && self.ports.eeprom.len() == crate::ports::EEPROM_SIZE && self.lcd.consistent() && self.color.consistent()
     }
 
     pub fn io(&self) -> &[u8] {

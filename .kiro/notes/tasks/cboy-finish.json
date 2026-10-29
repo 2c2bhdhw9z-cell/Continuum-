@@ -90,6 +90,12 @@
       "result": "29 October: Game Genie, GameShark (with its banks), CodeBreaker and raw codes on the Game Boy (src/cheats.rs); GameShark v1/v2, Action Replay v3, CodeBreaker and raw codes on the Advance, encrypted or plain, with hooks, ROM patches, fills, conditions and blocks (src/gba/cheats.rs). Checked through the libretro entry points (tests/cheats_e2e.rs) and against mGBA's own cheat code on 36,000 generated lists: 23,075 alike, none different, the rest the deliberate differences in .kiro/notes/docs/CBOY_CHEATS.md (tests/gba_cheats_mgba.rs)."
     },
     {
+      "id": "B11",
+      "done": false,
+      "title": "Game Boy Advance timing, second round (owner, 29 October 2026: finish cBoy)",
+      "result": "29 October, 4:40 AM Eastern, stopped for the night's build; nothing of it is in the app. Where it stands: cBoy passes 65 of Alyosha's 133 timing tests (pinned in tests/gba.rs). mGBA, the Advance emulator cBoy replaces, at the commit the app ships, passes 39 of the same 133 (run headless by .kiro/notes/wip/tools/mgba-timing). cBoy passes 30 that mGBA fails; mGBA passes 4 that cBoy fails, the next ones to do: DMA/DMA_pause_timing_ROM_to_IWRAM (cBoy 117), fifo_dma/fifo_6 (146), Interactions/Internal_Cycle_DMA_IRQ_br1_IWRAM (90) and Interactions/Internal_Cycle_DMA_IRQ_nop_IWRAM (94). Tried: a higher DMA channel cutting into a lower one between units (.kiro/notes/wip/cboy-gba-dma-preempt.patch, applies to master); on its own it changed no result. Untried lead: mGBA starts a game without the BIOS at display line 126 with its next video event 117 cycles away (gba.c GBASkipBIOS), cBoy at line 0, and the first DMA test's timing hangs on the HBlank that starts its DMA. The other 64 failures mostly need the serial port's own timing, interrupts taken a few cycles late, or the real BIOS's start-up timing."
+    },
+    {
       "id": "S1",
       "done": false,
       "title": "Start the Sega 8-bit core: Master System, Game Gear, SG-1000 (working name continuum-sms; owner: never ask about names, decide and note)",

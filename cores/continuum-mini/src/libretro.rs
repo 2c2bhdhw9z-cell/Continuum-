@@ -607,7 +607,7 @@ pub unsafe extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> 
         Err(_) => return false,
     };
     let Some(c) = c.as_mut() else { return false };
-    if s.cart_tag != c.cart_tag || s.machine.mem.len() != MEMORY || s.machine.ports.eeprom.len() != EEPROM_SIZE {
+    if s.cart_tag != c.cart_tag || !s.machine.consistent() {
         return false;
     }
     c.m.take_state(s.machine);

@@ -154,6 +154,11 @@ impl Default for Lcd {
 }
 
 impl Lcd {
+    /// Every buffer at its size (a saved state's are checked before it is used).
+    pub fn consistent(&self) -> bool {
+        self.memory.len() == MEMORY && [&self.pixels, &self.shade, &self.history].iter().all(|v| v.len() == WIDTH * HEIGHT)
+    }
+
     /// The reset line: memory, pixels and settings cleared, contrast $1F. (The read latch
     /// keeps its byte.)
     pub fn reset(&mut self) {

@@ -6,6 +6,7 @@ that lands the work.
 
 | File | Job, item | What it holds |
 |---|---|---|
+| `cboy-gba-dma-preempt.patch` | `tasks/cboy-finish.json` B11 | A higher Advance DMA channel cutting into a lower one between units (cores/continuum-gb/src/gba/bus.rs). Builds, keeps the 65 pinned timing tests; changed no result on its own. |
 
 Apply with `git apply .kiro/notes/wip/<file>`. Both applied cleanly to master on 14 October at
 1:40 PM; if master has moved on and one doesn't, use `git apply --3way`.
@@ -26,3 +27,7 @@ Apply with `git apply .kiro/notes/wip/<file>`. Both applied cleanly to master on
   `cores/continuum-mini/tests/cpu_pokemini.rs` and `console_pokemini.rs`
   (`bash .kiro/notes/wip/tools/pokemini/build.sh`, under a minute;
   `.kiro/notes/docs/POKEMON_MINI_CORE.md`).
+- `mgba-timing/`: mGBA's core (the Advance emulator cBoy replaces, at the commit the app ships)
+  built headless, and `runner`, which runs it on test ROMs that report in r12 (Alyosha's timing
+  tests): `bash .kiro/notes/wip/tools/mgba-timing/build.sh` (about 3 minutes), then
+  `/projects/sandbox/.scratch/mgba-build/runner <roms...>`. On 29 October it passed 39 of the 133.

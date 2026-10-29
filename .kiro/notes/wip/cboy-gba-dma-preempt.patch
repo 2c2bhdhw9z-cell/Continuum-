@@ -1,0 +1,202 @@
+diff --git a/cores/continuum-gb/src/gba/bus.rs b/cores/continuum-gb/src/gba/bus.rs
+index 40828f2..4fda411 100644
+--- a/cores/continuum-gb/src/gba/bus.rs
++++ b/cores/continuum-gb/src/gba/bus.rs
+@@ -293,6 +293,19 @@ pub struct Bus {
+     pub frame_ready: bool,
+     #[serde(skip)]
+     in_dma: bool,
++    /// While a DMA runs: the channels waiting their turn in it (bit per channel; a lower one
++    /// waits while a higher one it let in runs), the cycle each may take over from, and the
++    /// units each still has to move. A DMA always ends inside one bus access, so none of this
++    /// is in a saved state.
++    #[serde(skip)]
++    dma_wait: u8,
++    #[serde(skip)]
++    dma_from: [u64; 4],
++    #[serde(skip)]
++    dma_left: [u32; 4],
++    /// The cycle the machine's event being run (a line's HBlank or end) fell on.
++    #[serde(skip)]
++    event_at: u64,
+     /// Saved on its own after the rest (see `BusTiming`).
+     #[serde(skip)]
+     pub tm: BusTiming,
+@@ -368,6 +381,10 @@ impl Bus {
+             seq_acc: 0,
+             frame_ready: false,
+             in_dma: false,
++            dma_wait: 0,
++            dma_from: [0; 4],
++            dma_left: [0; 4],
++            event_at: 0,
+             tm: BusTiming::default(),
+             rom_patches: Vec::new(),
+         }
+@@ -529,12 +546,14 @@ impl Bus {
+             if self.io16(0xBA + ch * 12) & 0x8000 == 0 || !self.dma[ch].active {
+                 continue;
+             }
+-            let start = due.max(self.tm.bus_end);
+-            let before = self.pending;
++            // It starts at its own time; the CPU's internal cycles since then ran alongside.
++            let start = due.max(self.tm.bus_end).max(self.cycles).min(now);
++            self.pending -= (now - start) as u32;
+             self.run_dma(ch);
+-            let took = self.pending - before;
+-            let overlap = (now.saturating_sub(start)).min(u64::from(took)) as u32;
+-            self.pending -= overlap;
++            let after = self.now();
++            if after < now {
++                self.pending += (now - after) as u32;
++            }
+         }
+     }
+ 
+@@ -1108,7 +1127,59 @@ impl Bus {
+         }
+     }
+ 
++    /// A DMA starts (switched on, or its moment came). It runs to its end unless a channel of
++    /// higher priority comes due meanwhile: that one takes over after the unit being moved,
++    /// and the first carries on after it, its next unit read and written afresh (not
++    /// sequentially). Channels that come due while one runs wait their turn in the same run.
++    /// The run has two internal cycles (four when both ends of the first channel are on the
++    /// cartridge), half before it and half after.
+     fn run_dma(&mut self, ch: usize) {
++        if self.in_dma {
++            // Due while another runs: from two cycles after its moment.
++            if self.dma_wait & (1 << ch) == 0 {
++                self.dma_wait |= 1 << ch;
++                self.dma_from[ch] = self.event_at.max(self.cycles) + 2;
++                self.dma_left[ch] = 0;
++            }
++            return;
++        }
++        let cart = |a: u32| (0x08..=0x0F).contains(&(a >> 24));
++        let internal = if cart(self.dma[ch].src) && cart(self.dma[ch].dst) { 2 } else { 1 };
++        self.in_dma = true;
++        self.idle(internal);
++        self.dma_wait = 1 << ch;
++        self.dma_from[ch] = 0;
++        self.dma_left[ch] = 0;
++        while self.dma_wait != 0 {
++            let now = self.now();
++            // The highest-priority channel whose moment has come (the one started first always has).
++            let Some(next) = (0..4).find(|&c| self.dma_wait & (1 << c) != 0 && self.dma_from[c] <= now) else {
++                // Only channels whose moment is still a cycle or two off: wait for it.
++                let soonest = (0..4).filter(|&c| self.dma_wait & (1 << c) != 0).map(|c| self.dma_from[c]).min().unwrap();
++                self.idle((soonest - now) as u32);
++                self.dma_advance();
++                continue;
++            };
++            if self.dma_channel(next) {
++                self.dma_wait &= !(1 << next);
++            }
++        }
++        self.idle(internal);
++        self.in_dma = false;
++    }
++
++    /// The rest of the machine catches up with a DMA (its events' DMAs wait in the run).
++    fn dma_advance(&mut self) {
++        while self.pending > 0 {
++            let n = self.pending;
++            self.pending = 0;
++            self.advance(n);
++        }
++    }
++
++    /// Moves channel `ch`'s units. True when it finished; false when a higher channel came due
++    /// and takes over.
++    fn dma_channel(&mut self, ch: usize) -> bool {
+         let cntaddr = 0xBA + ch * 12;
+         let cnt = self.io16(cntaddr);
+         let fifo = (cnt >> 12) & 3 == 3 && (ch == 1 || ch == 2);
+@@ -1116,21 +1187,26 @@ impl Bus {
+         let step: u32 = if word { 4 } else { 2 };
+         let dctl = if fifo { 2 } else { (cnt >> 5) & 3 };
+         let sctl = (cnt >> 7) & 3;
+-        let count = if fifo { 4 } else { self.dma[ch].count };
+-        if self.dma[ch].dst >> 24 == 0x0D {
+-            self.save.eeprom_dma(count);
++        if self.dma_left[ch] == 0 {
++            let count = if fifo { 4 } else { self.dma[ch].count };
++            self.dma_left[ch] = count;
++            if self.dma[ch].dst >> 24 == 0x0D {
++                self.save.eeprom_dma(count);
++            }
+         }
+-        let was = self.in_dma;
+-        self.in_dma = true;
+         let (mut s, mut d) = (self.dma[ch].src, self.dma[ch].dst);
+-        // Two internal cycles (four when both ends are on the cartridge), half before the
+-        // transfer and half after it; the first unit is a non-sequential read and write, and
+-        // every one after it sequential.
+-        let cart = |a: u32| (0x08..=0x0F).contains(&(a >> 24));
+-        let internal = if cart(s) && cart(d) { 2 } else { 1 };
+-        self.idle(internal);
+-        for i in 0..count {
+-            let seq = i > 0;
++        // The first unit is a non-sequential read and write, every one after it sequential.
++        let mut seq = false;
++        while self.dma_left[ch] > 0 {
++            if seq {
++                self.dma_advance();
++                let now = self.now();
++                if (0..ch).any(|c| self.dma_wait & (1 << c) != 0 && self.dma_from[c] <= now) {
++                    self.dma[ch].src = s;
++                    self.dma[ch].dst = d;
++                    return false;
++                }
++            }
+             if word {
+                 self.data(s & !3, true, seq);
+                 let v = self.peek32(s & !3);
+@@ -1143,11 +1219,11 @@ impl Bus {
+                 self.data(d & !1, false, seq);
+                 self.poke16(d & !1, v as u16);
+             }
++            seq = true;
+             s = match sctl { 0 | 3 => s.wrapping_add(step), 1 => s.wrapping_sub(step), _ => s };
+             d = match dctl { 0 | 3 => d.wrapping_add(step), 1 => d.wrapping_sub(step), _ => d };
++            self.dma_left[ch] -= 1;
+         }
+-        self.idle(internal);
+-        self.in_dma = was;
+         self.dma[ch].src = s;
+         self.dma[ch].dst = d;
+         if cnt & 0x4000 != 0 {
+@@ -1167,6 +1243,7 @@ impl Bus {
+             self.dma[ch].active = false;
+             self.set_io16(cntaddr, cnt & 0x7FFF);
+         }
++        true
+     }
+ 
+     // ------------------------------------------------------------ sound
+@@ -1381,6 +1458,7 @@ impl Bus {
+     }
+ 
+     fn timer_overflow(&mut self, i: usize, at: u64) {
++        self.event_at = at;
+         self.timers[i].counter = self.timers[i].reload;
+         self.tm.timer_at[i] = at;
+         if self.timers[i].ctrl & 0x40 != 0 {
+@@ -1419,6 +1497,7 @@ impl Bus {
+ 
+     /// Runs the rest of the machine for `n` cycles.
+     fn advance(&mut self, mut n: u32) {
++        let mut at = self.cycles;
+         self.cycles += u64::from(n);
+         self.run_timers();
+         self.sound(n);
+@@ -1427,6 +1506,8 @@ impl Bus {
+             let step = n.min(boundary - self.line_cycle);
+             self.line_cycle += step;
+             n -= step;
++            at += u64::from(step);
++            self.event_at = at;
+             if self.line_cycle == HBLANK_AT {
+                 self.hblank();
+             } else if self.line_cycle == LINE {

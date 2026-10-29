@@ -22,7 +22,11 @@ batch starts the one build).
   the deliberate differences: `.kiro/notes/docs/POKEMON_MINI_CORE.md`. Phone steps 13-21 in
   TESTING.md. Open question for the owner: the infrared setting has no two-phone transport behind
   it (PokeMini has no infrared at all); build one, or take the setting out?
-- Now: cBoy's Game Boy Advance timing (64 of 133 of Alyosha's timing tests pass).
+- cBoy's Game Boy Advance timing: started, stopped for the build (owner, 29 October 4:30 AM:
+  "Finish what you're doing make sure everything's pushed and a new build with everything I'm
+  done for now"). Nothing of it is in the app. cBoy passes 65 of Alyosha's 133, mGBA (the
+  emulator it replaces) 39; the 4 mGBA passes and cBoy doesn't, the leads, the tool and the saved
+  patch: `tasks/cboy-finish.json` B11.
 - Then ONE build with everything since 244 (cAtari, cMini, cArcade's second round, the Saturn and
   C64 updates, cGear's and cBoy's work), check the .ipa, hand over the link and the steps in
   TESTING.md "Next install (after 244)".
