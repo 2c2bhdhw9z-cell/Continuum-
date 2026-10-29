@@ -327,6 +327,13 @@ launch with an empty library.
 
 ## Next up
 
+**29 October 2026, 5:10 AM Eastern, read this first.** **Build 246** (`82f6631`) is the newest
+install: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-246-82f6631/Continuum-246.ipa
+(checked: 0.8.0 build 246, 41 emulators). New since 244: cAtari (Atari 7800), cMini (Pokémon
+Mini, matching PokeMini on every instruction and frame), cGear's and cBoy's cheat codes, cArcade's
+second round, the Saturn and C64 updates. All Built, untested; the phone steps are TESTING.md
+"Build 246", 1 to 21. Next: cBoy's Advance timing (`tasks/cboy-finish.json` B11).
+
 **27 October 2026, evening Eastern.** **cAtari, Continuum's own Atari 7800 emulator, is finished
 and on master: Built, untested** (no phone has run it). It is the second choice next to ProSystem
 (still the default) in Settings, Cores, Core for Atari 7800 games. It plays every board ProSystem

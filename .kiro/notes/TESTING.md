@@ -7,10 +7,14 @@ passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
 
-## Next install (after 244): cAtari, cMini, and cheat codes on cGear and cBoy
+## Build 246 (29 October, 5:10 AM): cAtari, cMini, and cheat codes on cGear and cBoy
 
-Not built yet: one build when the batch is done. ProSystem stays the 7800's default and PokeMini
-the Pokémon Mini's until you've played cAtari and cMini.
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-246-82f6631/Continuum-246.ipa
+Commit 82f6631. Checked: 0.8.0 build 246, 41 emulators, cMini and cAtari inside, cBoy's and
+cGear's cheat lines in the app. (Build 245 came out without cMini: the check that every emulator
+file has all its entry points caught one missing, fixed in 246.) ProSystem stays the 7800's default
+and PokeMini the Pokémon Mini's until you've played cAtari and cMini. Not in it: cBoy's Advance
+timing work (`tasks/cboy-finish.json` B11).
 
 1. Settings → Cores → Core for Atari 7800 games → cAtari. Open a 7800 game. ✅ It starts straight
    away, with picture and sound; the pad moves, B and A are the two fire buttons.

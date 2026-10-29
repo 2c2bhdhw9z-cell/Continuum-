@@ -5,7 +5,16 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (29 October 2026, 3 AM Eastern): finish cGear, cBoy and cMini, then one build
+## START HERE (29 October 2026, 5:15 AM Eastern): build 246 is out; the owner tests next
+
+Build 246 (82f6631, checked: 0.8.0 (246), 41 emulators, cMini and cAtari inside) has everything
+since 244:
+https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-246-82f6631/Continuum-246.ipa
+Its phone steps are TESTING.md "Build 246", 1 to 21. While the owner tests, record what he reports
+and fix nothing until he says he's done. Then: cBoy's Advance timing (B11 in
+`tasks/cboy-finish.json`), and the open infrared question below.
+
+## Earlier the same night (3 AM Eastern): finish cGear, cBoy and cMini, then one build
 
 The owner's order (29 October, about 1:15 AM): "finish cGear, cBoy, and cMini". The chat that had
 seven workflows going broke and the owner deleted it; whatever it hadn't pushed is gone. This chat
