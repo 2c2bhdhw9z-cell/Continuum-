@@ -120,7 +120,7 @@ These come straight from the owner. They are not suggestions.
 - The skin layout editor is not Done until the owner says the skin is right.
 - iOS controls keep Apple's glass look; Android will use Material's own look. Same behaviour,
   different appearance, on purpose (.kiro/notes/docs/PRODUCT_SCOPE.md).
-- Only Kiro works on this repository. No other AI tool's files, instructions or branches belong
+- Only Kiro and MAIPA-G work on this repository. No other AI tool's files, instructions or branches belong
   in it (they were removed on 5 October 2026); do not add any.
 - Public beta from 6 October 2026: strangers download and test the app. Keep what a tester sees
   plain: technical read-outs only behind the (i) button and Settings, Technical details. The owner
