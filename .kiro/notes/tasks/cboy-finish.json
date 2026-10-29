@@ -84,6 +84,12 @@
       "result": "Build 234 handed over. Owner: cBoy not the default for now; mGBA stays first."
     },
     {
+      "id": "B10",
+      "done": true,
+      "title": "Cheat codes, the kinds mGBA reads (owner, 29 October 2026: finish cBoy)",
+      "result": "29 October: Game Genie, GameShark (with its banks), CodeBreaker and raw codes on the Game Boy (src/cheats.rs); GameShark v1/v2, Action Replay v3, CodeBreaker and raw codes on the Advance, encrypted or plain, with hooks, ROM patches, fills, conditions and blocks (src/gba/cheats.rs). Checked through the libretro entry points (tests/cheats_e2e.rs) and against mGBA's own cheat code on 36,000 generated lists: 23,075 alike, none different, the rest the deliberate differences in .kiro/notes/docs/CBOY_CHEATS.md (tests/gba_cheats_mgba.rs)."
+    },
+    {
       "id": "S1",
       "done": false,
       "title": "Start the Sega 8-bit core: Master System, Game Gear, SG-1000 (working name continuum-sms; owner: never ask about names, decide and note)",

@@ -6,13 +6,15 @@
 //! Camera, and the cut-off-file check), `ppu` (with the two picture drawers; fifo.rs is the exact
 //! one), `apu`, `timer`, `sgb` (Super Game Boy), `link` (the cable between two phones), `dual` (two
 //! Game Boys on one phone), `gb` (the machine), `compat` (the colours a Game Boy Color picks for a black-and-white game), `gba` (the
-//! Advance), `options` (the core options) and `libretro` (the entry points).
+//! Advance), `cheats` (Game Boy cheat codes; the Advance's are in `gba::cheats`), `options` (the core options) and
+//! `libretro` (the entry points).
 //! Game Boy Color mode is keyed by the header's CGB flag (VRAM and WRAM banks and colour palettes
 //! in `ppu` and `bus`).
 
 pub mod apu;
 pub mod bus;
 pub mod cart;
+pub mod cheats;
 pub mod compat;
 pub mod cpu;
 pub mod dual;

@@ -615,6 +615,24 @@ struct Callbacks {
 }
 
 static CORE: Mutex<Option<Core>> = Mutex::new(None);
+/// The cheat codes the app has set, by its index (empty: switched off). Kept apart from the
+/// machine so codes set before a game opens, or across a restart, still apply.
+static CHEATS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Puts the codes switched on now into the console the app's game plays on: the Advance's cheat
+/// device (gba/cheats.rs), or the Game Boy's (cheats.rs). Not the second Game Boy, whose game
+/// may be another.
+fn install_cheats(core: &mut Core) {
+    let codes = CHEATS.lock().map(|c| c.clone()).unwrap_or_default();
+    let on = codes.iter().map(String::as_str).filter(|c| !c.trim().is_empty());
+    if let Some(g) = core.gba.as_mut() {
+        let device = gba::cheats::Device::from_codes(on);
+        g.bus.rom_patches = device.rom_patches.clone();
+        g.cheats = device;
+    } else {
+        core.gb.bus.cheats = crate::cheats::Cheats::from_codes(on);
+    }
+}
 
 /// libretro's log callback (printf-style, variadic).
 type LogFn = unsafe extern "C" fn(level: u32, fmt: *const std::ffi::c_char, ...);
@@ -912,6 +930,7 @@ impl Core {
             (None, None) => self.gb.load_state(s),
         };
         self.apply_live();
+        install_cheats(self);
         r
     }
 
@@ -1434,6 +1453,7 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     core.apply_live();
     core.write_rtc_block();
     core.rtc_block[16..24].fill(0); // "nothing saved yet" until the frontend writes its copy
+    install_cheats(&mut core);
     if let Ok(mut slot) = CORE.lock() {
         *slot = Some(core);
         return true;
@@ -1459,6 +1479,10 @@ pub extern "C" fn retro_unload_game() {
             }
         }
         *core = None;
+    }
+    // The next game starts with none: codes are written for one game.
+    if let Ok(mut codes) = CHEATS.lock() {
+        codes.clear();
     }
     if let Ok(mut f) = CAMERA_FRAME.lock() {
         *f = None;
@@ -1541,6 +1565,7 @@ impl Core {
                 }
             }
             core.apply_live();
+            install_cheats(core);
         }
     }
 }
@@ -1780,9 +1805,43 @@ pub unsafe extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> 
 }
 
 #[no_mangle]
-pub extern "C" fn retro_cheat_reset() {}
+pub extern "C" fn retro_cheat_reset() {
+    if let Ok(mut codes) = CHEATS.lock() {
+        codes.clear();
+    }
+    if let Ok(mut slot) = CORE.lock() {
+        if let Some(core) = slot.as_mut() {
+            install_cheats(core);
+        }
+    }
+}
+
+/// A code switched on or off: Game Genie, GameShark, CodeBreaker and raw codes on the Game Boy
+/// (cheats.rs); GameShark, Action Replay, CodeBreaker and raw codes on the Advance
+/// (gba/cheats.rs). Anything else is kept and does nothing.
+///
+/// # Safety
+/// `code` is null or a NUL-terminated string, as the libretro API passes it.
 #[no_mangle]
-pub extern "C" fn retro_cheat_set(_index: u32, _enabled: bool, _code: *const c_char) {}
+pub unsafe extern "C" fn retro_cheat_set(index: u32, enabled: bool, code: *const c_char) {
+    let text = if code.is_null() { String::new() } else { std::ffi::CStr::from_ptr(code).to_string_lossy().into_owned() };
+    if let Ok(mut codes) = CHEATS.lock() {
+        let i = index as usize;
+        if enabled {
+            if codes.len() <= i {
+                codes.resize(i + 1, String::new());
+            }
+            codes[i] = text;
+        } else if let Some(slot) = codes.get_mut(i) {
+            slot.clear();
+        }
+    }
+    if let Ok(mut slot) = CORE.lock() {
+        if let Some(core) = slot.as_mut() {
+            install_cheats(core);
+        }
+    }
+}
 
 #[no_mangle]
 pub extern "C" fn retro_get_memory_data(id: u32) -> *mut c_void {

@@ -48,7 +48,8 @@ pub fn code_support(core_id: &str) -> CodeSupport {
             reads("Game Genie, Pro Action Rocky, or a raw address:value like 0075:09")
         }
         "bsnes" => SNES_CODES,
-        "mgba" => reads(
+        // cBoy reads the same kinds as mGBA (cores/continuum-gb/src/cheats.rs and gba/cheats.rs).
+        "mgba" | "continuum_gb" => reads(
             "GameShark, Action Replay or CodeBreaker on the GBA; GameShark or Game Genie on the \
              Game Boy",
         ),
@@ -71,9 +72,8 @@ pub fn code_support(core_id: &str) -> CodeSupport {
         "prboom" => reads("DOOM's own cheat words, like iddqd or idkfa"),
         "virtualjaguar" => reads(""),
         "azahar" | "flycast" | "stella2023" | "mednafen_pce" | "mednafen_vb" | "puae"
-        | "vice_x64sc" | "handy" | "a5200" | "pokemini" | "yabause" | "continuum_gb"
-        | "continuum_arcade" | "continuum_atari" | "continuum_mini" | "continuum_gc"
-        | "continuum_symbian" => IGNORES,
+        | "vice_x64sc" | "handy" | "a5200" | "pokemini" | "yabause" | "continuum_arcade"
+        | "continuum_atari" | "continuum_mini" | "continuum_gc" | "continuum_symbian" => IGNORES,
         _ => reads(""),
     }
 }
@@ -297,7 +297,6 @@ mod tests {
             "stella2023",
             "pokemini",
             "yabause",
-            "continuum_gb",
             "continuum_arcade",
             "continuum_atari",
             "continuum_mini",
@@ -317,6 +316,7 @@ mod tests {
         assert!(code_support("bsnes").kinds.contains("Pro Action Replay"));
         assert!(code_support("gearsystem").kinds.contains("C000:FF"));
         assert_eq!(code_support("continuum_sms"), code_support("gearsystem"), "cGear reads Gearsystem's codes");
+        assert_eq!(code_support("continuum_gb"), code_support("mgba"), "cBoy reads mGBA's codes");
         assert!(code_support("pcsx_rearmed").kinds.contains("GameShark"));
         assert!(code_support("melonds").kinds.contains("Action Replay"));
         assert!(code_support("ppsspp").kinds.contains("CWCheat"));

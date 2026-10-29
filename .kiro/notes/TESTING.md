@@ -36,6 +36,14 @@ stays the 7800's default until you've played cAtari.
 10. Add a Game Genie or Pro Action Replay code for your copy of that game and turn it on. ✅ It
     does what it says. Turn it off. ✅ The game goes back to normal.
 
+**cBoy cheat codes** (Settings → Cores → pick cBoy for Game Boy, Color or Advance games first)
+
+11. Open a Game Boy or Color game on cBoy, then **⋯ → Cheats and RAM search...**. ✅ The line at the
+    top lists GameShark and Game Genie. Add a code for your copy and turn it on. ✅ It works.
+12. The same on a Game Boy Advance game (Pokémon FireRed or Emerald are easy: their code lists are
+    everywhere). ✅ The line lists GameShark, Action Replay and CodeBreaker, and a code for your exact
+    version works, including one that needs a "master code" line first.
+
 ## Build 244 (26 October, 6:20 PM): the Pokémon Box's Items, Gifts, Events, Migration, Showcase
 Commit 52b9f7c. Checked: 0.8.0 build 244, 39 emulators, JIT helper, the new tools' text in the app.
 Engine tested on save files built from the documented layouts; not yet on the owner's real saves.

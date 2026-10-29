@@ -3,6 +3,7 @@
 
 pub mod bios;
 pub mod bus;
+pub mod cheats;
 pub mod cpu;
 pub mod mp2k;
 pub mod ppu;
@@ -48,6 +49,9 @@ pub struct Gba {
     pub idle_skip: bool,
     #[serde(skip)]
     idle: IdleWatch,
+    /// The cheat device and its codes (cheats.rs). Not saved: the app sets them.
+    #[serde(skip)]
+    pub cheats: cheats::Device,
 }
 
 /// Spots a short backward loop that writes nothing (a game polling a register while it waits)
@@ -67,7 +71,7 @@ impl Gba {
     pub fn new(rom: Vec<u8>) -> Gba {
         let mut bus = Bus::new(rom);
         bus.post_bios();
-        Gba { cpu: Cpu::default(), bus, idle_skip: false, idle: IdleWatch::default() }
+        Gba { cpu: Cpu::default(), bus, idle_skip: false, idle: IdleWatch::default(), cheats: Default::default() }
     }
 
     /// Boots through a real BIOS image (16 KiB) from address 0: the logo and chime play, then
@@ -79,7 +83,7 @@ impl Gba {
         let mut bus = Bus::new(rom);
         bus.bios = bios;
         bus.real_bios = true;
-        Ok(Gba { cpu: Cpu::power_on(), bus, idle_skip: false, idle: IdleWatch::default() })
+        Ok(Gba { cpu: Cpu::power_on(), bus, idle_skip: false, idle: IdleWatch::default(), cheats: Default::default() })
     }
 
     pub fn step(&mut self) {
@@ -89,6 +93,15 @@ impl Gba {
             } else {
                 self.bus.halt_skip();
                 return;
+            }
+        }
+        if let Some(hook) = self.cheats.hook {
+            // The codes run where their hook code says, as the device makes the game call it:
+            // when the processor is about to run that instruction (not when an interrupt comes
+            // first, which runs it later).
+            let irq_first = self.bus.irq_line() && self.cpu.cpsr & 0x80 == 0;
+            if self.cpu.pc == hook && !irq_first {
+                self.cheats.run(&mut self.bus);
             }
         }
         self.cpu.step(&mut self.bus);
@@ -132,6 +145,10 @@ impl Gba {
         while !self.bus.frame_ready && self.bus.cycles - start < FRAME_CYCLES * 2 {
             self.step();
         }
+        // The blank has started: codes with no hook run now.
+        if self.cheats.hook.is_none() && !self.cheats.ops.is_empty() {
+            self.cheats.run(&mut self.bus);
+        }
     }
 
     pub fn set_keys(&mut self, keys: u16) {
@@ -171,6 +188,9 @@ impl Gba {
         next.bus.apu.agb = true;
         next.bus.rom = std::mem::take(&mut self.bus.rom);
         next.bus.bios = std::mem::take(&mut self.bus.bios);
+        // The cheat codes the app switched on stay on (they're not in the state).
+        next.cheats = std::mem::take(&mut self.cheats);
+        next.bus.rom_patches = std::mem::take(&mut self.bus.rom_patches);
         // The music engine's own notes are read back out of the machine's memory, so only the
         // player's setting and where this cartridge keeps its songs carry over.
         next.bus.mp2k = std::mem::take(&mut self.bus.mp2k);

@@ -18,3 +18,6 @@ Apply with `git apply .kiro/notes/wip/<file>`. Both applied cleanly to master on
   minutes; it says what to do if a run gets cut off).
 - `sbharness/`: our SameBoy reference harness for cBoy's exact drawer (`harness.c`, `mb.py`,
   `show.py`), built against a SameBoy checkout fetched with `GIT_CONFIG_GLOBAL=/dev/null`.
+- `mgba-cheats/`: our harness around mGBA's own Advance cheat code, for
+  `cores/continuum-gb/tests/gba_cheats_mgba.rs` (`bash .kiro/notes/wip/tools/mgba-cheats/build.sh`,
+  under a minute; `.kiro/notes/docs/CBOY_CHEATS.md`).

@@ -603,6 +603,21 @@ impl Cart {
         Some((bank * 0x2000 + (addr as usize & 0x1FFF)) % self.ram.len())
     }
 
+    /// A byte written into cartridge RAM bank `bank`, the game's own bank put back afterwards:
+    /// how a GameShark writes a code meant for one bank (cheats.rs). The cartridge's own rules
+    /// still apply, so nothing lands while the game has its RAM switched off.
+    pub fn write_ram_in_bank(&mut self, bank: u8, addr: u16, v: u8) {
+        let keep = (self.ram_bank, self.bank2, self.mode);
+        if self.kind == MbcKind::Mbc1 {
+            self.bank2 = bank & 3;
+            self.mode = 1;
+        } else {
+            self.ram_bank = bank;
+        }
+        self.write_ram(addr, v);
+        (self.ram_bank, self.bank2, self.mode) = keep;
+    }
+
     /// The Game Boy Camera's registers are in the A000-BFFF window: any RAM bank number with
     /// bit 4 set picks them, not only bank $10.
     fn cam_regs(&self) -> bool {

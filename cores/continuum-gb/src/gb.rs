@@ -276,6 +276,8 @@ impl GameBoy {
                 break;
             }
         }
+        // The blank has started: a GameShark writes its codes now.
+        self.bus.apply_cheat_pokes();
     }
 
     /// One instruction, or a run of skipped turns of a waiting loop (see `WaitLoop`).
@@ -385,6 +387,8 @@ impl GameBoy {
             None => next.bus.apu.adopt_legacy(),
         }
         next.bus.cart.rom = std::mem::take(&mut self.bus.cart.rom);
+        // The cheat codes the app switched on stay on (they're not in the state).
+        next.bus.cheats = std::mem::take(&mut self.bus.cheats);
         next.bus.link_loopback = self.bus.link_loopback;
         next.bus.link_connected = self.bus.link_connected;
         // Which console this is comes from the core option, not from the state, and so do the

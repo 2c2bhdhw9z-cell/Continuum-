@@ -42,6 +42,8 @@ pub fn run_frame(first: &mut GameBoy, second: &mut GameBoy, mut second_frame: im
             break;
         }
     }
+    // The cheat codes are the app's game's, the first console's (the second may play another).
+    first.bus.apply_cheat_pokes();
 }
 
 /// The cable between the two, both ways.

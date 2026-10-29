@@ -165,6 +165,9 @@ pub struct Bus {
     /// `landing`). Never across a frame boundary, where states are taken, so not saved.
     #[serde(skip)]
     land_next: Option<(u8, Land)>,
+    /// The cheat codes switched on (cheats.rs). Not part of a save state: the app sets them.
+    #[serde(skip)]
+    pub cheats: crate::cheats::Cheats,
 }
 
 impl Bus {
@@ -228,6 +231,26 @@ impl Bus {
             trace_bank: 0,
             hdma_watch: [0, 0, 0, 0x80, 0xFF],
             land_next: None,
+            cheats: crate::cheats::Cheats::default(),
+        }
+    }
+
+    /// The written cheat codes (GameShark, CodeBreaker, raw), at the start of a picture's blank,
+    /// when the device steps in. Not while the console's start-up program runs.
+    pub fn apply_cheat_pokes(&mut self) {
+        if self.boot_on || self.cheats.pokes.is_empty() {
+            return;
+        }
+        for i in 0..self.cheats.pokes.len() {
+            let p = self.cheats.pokes[i];
+            match p.target {
+                crate::cheats::Target::CartBank(bank) => self.cart.write_ram_in_bank(bank, p.addr, p.value),
+                crate::cheats::Target::WramBank(bank) if self.cgb => {
+                    let bank = usize::from((bank & 7).max(1));
+                    self.wram[bank * 0x1000 + usize::from(p.addr & 0x0FFF)] = p.value;
+                }
+                _ => self.raw_write(p.addr, p.value),
+            }
         }
     }
 
@@ -628,7 +651,11 @@ impl Bus {
             0x0000..=0x00FF | 0x0200..=0x08FF if self.boot_on && usize::from(addr) < self.boot.len() => {
                 self.boot[usize::from(addr)]
             }
-            0x0000..=0x7FFF => self.cart.read_rom(addr),
+            0x0000..=0x7FFF => {
+                // Through any Game Genie codes, which sit on the cartridge (cheats.rs).
+                let v = self.cart.read_rom(addr);
+                if self.cheats.genie.is_empty() { v } else { self.cheats.read(addr, v) }
+            }
             0x8000..=0x9FFF => self.ppu.vram[self.vram_index(addr)],
             0xA000..=0xBFFF => self.cart.read_ram(addr),
             0xC000..=0xFDFF => self.wram[self.wram_index(addr)],

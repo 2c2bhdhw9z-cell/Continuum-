@@ -308,6 +308,10 @@ pub struct Bus {
     /// RCNT's SD pin was driven high in general-purpose mode: the start of the adapter's reset.
     #[serde(skip)]
     rfu_sd_high: bool,
+    /// ROM bytes cheat codes change while they are on (cheats.rs): (offset into the cartridge,
+    /// byte), sorted. Not saved: the app sets the codes.
+    #[serde(skip)]
+    pub rom_patches: Vec<(u32, u8)>,
 }
 
 impl Bus {
@@ -365,7 +369,41 @@ impl Bus {
             frame_ready: false,
             in_dma: false,
             tm: BusTiming::default(),
+            rom_patches: Vec::new(),
         }
+    }
+
+    /// A cheat code's read: memory as the program sees it, with no time passing (cheats.rs).
+    pub fn cheat_read(&self, addr: u32, width: u8) -> u32 {
+        match width {
+            1 => self.peek8(addr),
+            2 => self.peek16(addr),
+            _ => self.peek32(addr),
+        }
+    }
+
+    /// A cheat code's write, made as the processor would make it (so registers answer), with no
+    /// time passing.
+    pub fn cheat_write(&mut self, addr: u32, width: u8, v: u32) {
+        let save = addr >> 25 == 7;
+        match width {
+            1 => self.poke8(addr, v as u8),
+            2 if save => self.save.write8(addr, (v >> ((addr & 1) * 8)) as u8),
+            2 => self.poke16(addr & !1, v as u16),
+            _ if save => self.save.write8(addr, (v >> ((addr & 3) * 8)) as u8),
+            _ => {
+                self.poke16(addr & !3, v as u16);
+                self.poke16((addr & !3) + 2, (v >> 16) as u16);
+            }
+        }
+    }
+
+    /// A ROM halfword at `off` through the cheat codes' patches.
+    fn patched(&self, off: u32, v: u32) -> u32 {
+        let byte = |o: u32, own: u32| {
+            self.rom_patches.binary_search_by_key(&o, |p| p.0).map_or(own, |i| u32::from(self.rom_patches[i].1))
+        };
+        byte(off, v & 0xFF) | byte(off + 1, v >> 8) << 8
     }
 
     pub fn post_bios(&mut self) {
@@ -755,7 +793,8 @@ impl Bus {
                 }
                 let a = (addr & 0x1FF_FFFF) as usize;
                 if a + 1 < self.rom.len() {
-                    r(&self.rom, a)
+                    let v = r(&self.rom, a);
+                    if self.rom_patches.is_empty() { v } else { self.patched(a as u32, v) }
                 } else {
                     (addr >> 1) & 0xFFFF
                 }
