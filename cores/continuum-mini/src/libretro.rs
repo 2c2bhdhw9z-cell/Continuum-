@@ -175,6 +175,7 @@ fn local_time() -> Option<[u8; 6]> {
     };
     ok.then(|| [(tm.year % 100) as u8, (tm.mon + 1) as u8, tm.mday as u8, tm.hour as u8, tm.min as u8, tm.sec as u8])
 }
+#[no_mangle]
 pub extern "C" fn retro_api_version() -> u32 {
     1
 }
