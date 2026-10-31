@@ -18,9 +18,12 @@ First finished piece (not built): cBoy's Advance serial port now runs at the con
 256 KHz and 2 MHz timings instead of once per picture line; its Start bit, interrupt flag and CPU
 interrupt delay land separately on their real clocks. Display- and sound-started DMA requests take
 the controller's three clocks instead of starting instantly. Alyosha's 133 hardware timing tests:
-65 -> 76, including all nine serial tests; cBoy's full suite passes. Continue B11 with DMA
-preemption and CPU/IRQ interactions, then the other queues. No `.ipa` until the non-Switch batch is
-complete unless the owner changes that order.
+65 -> 83, including all nine serial tests and all five bus-latch tests; cBoy's full suite passes.
+The ARM7TDMI's odd signed-halfword load and empty POP now match the chip, and slow timers start on
+the divider phase the real BIOS leaves. The CPU, work-RAM, object-memory and four DMA bus latches
+survive save states; states from before them still load. Continue B11 with DMA preemption and
+CPU/IRQ interactions, then the other queues. No `.ipa` until the non-Switch batch is complete
+unless the owner changes that order.
 
 ## Earlier (31 October 2026, 1:45 PM Eastern): the Switch, four questions open
 

@@ -161,7 +161,9 @@ impl Gba {
         out.extend(bincode::serialize(self).unwrap_or_default());
         // Added after the layout above was fixed, so they come after it and a state made before
         // them still loads: the CPU's pipeline and the bus's timing (prefetch buffer, timers).
-        out.extend(bincode::serialize(&(self.cpu.pipe, &self.bus.tm, &self.bus.apu.chip)).unwrap_or_default());
+        let timing = bincode::serialize(&(self.cpu.pipe, &self.bus.tm, &self.bus.apu.chip)).unwrap_or_default();
+        out.extend(timing);
+        out.extend(bincode::serialize(&self.bus.latches()).unwrap_or_default());
         out
     }
 
@@ -173,10 +175,15 @@ impl Gba {
         let used = 8 + bincode::serialized_size(&next).map_err(|e| e.to_string())? as usize;
         match data.get(used..).filter(|rest| !rest.is_empty()) {
             Some(rest) => {
-                let (pipe, tm, chip): (cpu::CpuPipe, bus::BusTiming, crate::apu::Chip) = crate::state_decode(rest)?;
+                let timing: (cpu::CpuPipe, bus::BusTiming, crate::apu::Chip) = crate::state_decode(rest)?;
+                let timing_bytes = bincode::serialized_size(&timing).map_err(|e| e.to_string())? as usize;
+                let (pipe, tm, chip) = timing;
                 next.cpu.pipe = pipe;
                 next.bus.tm = tm;
                 next.bus.apu.chip = chip;
+                if let Some(body) = rest.get(timing_bytes..).filter(|body| !body.is_empty()) {
+                    next.bus.restore_latches(crate::state_decode(body)?);
+                }
             }
             // An older state: its timers' counts are the counts at the moment it was made, and
             // the sound channels carry over from the way they were saved then.

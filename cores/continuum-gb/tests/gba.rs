@@ -306,7 +306,9 @@ fn eeprom_write_then_read() {
 /// can be interrupted by another, interrupts taken a few cycles late, the serial port's own
 /// timing, or the real BIOS's start-up timing.
 const ALYOSHA_PASS: &[&str] = &[
-    "Bus/DMA_Outside_Bios_Bus.gba", "DMA/DMA_Mode_Change.gba", "Interactions/Internal_Cycle_DMA_IRQ_Br_pre_tim.gba",
+    "Bus/DMA_CPU_Bus_Interaction.gba", "Bus/DMA_IWRAM_Bus.gba", "Bus/DMA_OAM_Bus.gba",
+    "Bus/DMA_Outside_Bios_Bus.gba", "Bus/LDRSH_misaligned.gba", "Bus/Unused_location_update_bus.gba",
+    "DMA/DMA_Mode_Change.gba", "Interactions/Internal_Cycle_DMA_IRQ_Br_pre_tim.gba",
     "Interactions/Internal_Cycle_DMA_IRQ_br.gba", "Interactions/Internal_Cycle_DMA_TIM_Br_pre.gba",
     "LDM/LDM_ALU.gba", "LDM/LDM_ALU_IMM.gba",
     "LDM/LDM_ALU_Store.gba", "LDM/LDM_Bx.gba", "LDM/LDM_LD.gba", "LDM/LDM_MUL_UL_32.gba", "LDM/LDM_MUL_UL_SL.gba",
@@ -328,8 +330,8 @@ const ALYOSHA_PASS: &[&str] = &[
     "prefetcher/prefetcher_branch_thumb_arm_4.gba", "prefetcher/prefetcher_dma.gba",
     "prefetcher/prefetcher_full_arm.gba", "prefetcher/prefetcher_full_arm_2.gba",
     "prefetcher/prefetcher_full_thumb.gba", "save/flash128.gba", "save/flash64.gba", "save/none.gba",
-    "save/sram.gba", "thumb/Push_no_regs.gba", "thumb/blx.gba", "thumb/cpy.gba", "thumb/thumb.gba",
-    "timer/timer_disable.gba", "timing/dma_long.gba", "timing/prefetch_enable.gba",
+    "save/sram.gba", "thumb/Pop_no_regs.gba", "thumb/Push_no_regs.gba", "thumb/blx.gba", "thumb/cpy.gba", "thumb/thumb.gba",
+    "timer/timer.gba", "timer/timer_disable.gba", "timing/dma_long.gba", "timing/prefetch_enable.gba",
     "timing/prefetch_enable_2.gba", "unsafe/fifo_dma_disable_jam.gba", "unsafe/fifo_dma_disable_jam_2.gba",
     "unsafe/unsafe.gba",
 ];

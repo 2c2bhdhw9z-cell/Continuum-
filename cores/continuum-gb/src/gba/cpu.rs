@@ -578,7 +578,10 @@ impl Cpu {
                 2 => bus.read8(addr) as i8 as i32 as u32,
                 _ => {
                     if addr & 1 != 0 {
-                        bus.read8(addr) as i8 as i32 as u32
+                        // An odd LDRSH returns the signed upper byte, but the bus still performs
+                        // the aligned halfword read. That distinction decides the open-bus value
+                        // a DMA can observe immediately afterwards.
+                        (bus.read16(addr & !1) >> 8) as u8 as i8 as i32 as u32
                     } else {
                         bus.read16(addr) as i16 as i32 as u32
                     }
@@ -777,7 +780,7 @@ impl Cpu {
                         }
                         _ => {
                             self.r[rd] = if a & 1 != 0 {
-                                bus.read8(a) as i8 as i32 as u32
+                                (bus.read16(a & !1) >> 8) as u8 as i8 as i32 as u32
                             } else {
                                 bus.read16(a) as i16 as i32 as u32
                             };
@@ -954,6 +957,16 @@ impl Cpu {
         let list = op & 0xFF;
         if pop {
             let mut a = self.r[13];
+            // The ARM7TDMI's empty POP encoding acts like an empty LDM: it reads the PC from
+            // [SP] and advances SP by $40. This is observable (and deliberately tested) even
+            // though assemblers normally refuse to spell `pop {}`.
+            if list == 0 && !extra {
+                let v = bus.read32(a & !3);
+                self.r[13] = a.wrapping_add(0x40);
+                self.set_reg(15, v);
+                bus.idle(1);
+                return;
+            }
             let mut seq = false;
             for i in 0..8 {
                 if list & (1 << i) != 0 {

@@ -160,6 +160,13 @@ impl Prefetch {
     }
 }
 
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+pub struct BusLatches {
+    iwram: u32,
+    oam: u32,
+    dma: [u32; 4],
+}
+
 /// Machine state added after the save-state layout was fixed. It is saved after the rest of the
 /// machine (`Gba::save_state`), so a state made before it was added still loads, and these then
 /// start from their defaults.
@@ -287,6 +294,14 @@ pub struct Bus {
     pub exec_pc: u32,
     pub bios_latch: u32,
     open_bus: u32,
+    /// The GBA keeps separate latches for its internal-work-RAM and object-memory buses, plus
+    /// one latch per DMA channel. Reads from holes in the address map expose these values.
+    #[serde(skip)]
+    iwram_bus: u32,
+    #[serde(skip)]
+    oam_bus: u32,
+    #[serde(skip)]
+    dma_bus: [u32; 4],
     gb_acc: u32,
     seq_acc: u32,
     #[serde(skip)]
@@ -369,6 +384,9 @@ impl Bus {
             exec_pc: 0x0800_0000,
             bios_latch: 0xE129_F000,
             open_bus: 0,
+            iwram_bus: 0,
+            oam_bus: 0,
+            dma_bus: [0; 4],
             gb_acc: 0,
             seq_acc: 0,
             frame_ready: false,
@@ -472,6 +490,16 @@ impl Bus {
 
     pub fn irq_requested(&self) -> bool {
         self.io16(0x200) & self.io16(0x202) & 0x3FFF != 0
+    }
+
+    pub fn latches(&self) -> BusLatches {
+        BusLatches { iwram: self.iwram_bus, oam: self.oam_bus, dma: self.dma_bus }
+    }
+
+    pub fn restore_latches(&mut self, latches: BusLatches) {
+        self.iwram_bus = latches.iwram;
+        self.oam_bus = latches.oam;
+        self.dma_bus = latches.dma;
     }
 
     // ------------------------------------------------------------ timing
@@ -700,16 +728,75 @@ impl Bus {
 
     // ------------------------------------------------------------ CPU access
 
+    fn open_half(&self, addr: u32) -> u32 {
+        (self.open_bus >> ((addr & 2) * 8)) & 0xFFFF
+    }
+
+    fn open_read(addr: u32) -> bool {
+        match addr >> 24 {
+            0x00 => addr >= 0x4000,
+            0x01 | 0x10..=0xFF => true,
+            0x04 => {
+                let a = addr & 0xFF_FFFF;
+                a >= 0x400 && a & 0xFFFC != 0x800
+            }
+            _ => false,
+        }
+    }
+
+    fn latch_read(&mut self, addr: u32, width: u32, value: u32) {
+        if Self::open_read(addr) {
+            return;
+        }
+        let word = match width {
+            1 => value.wrapping_mul(0x0101_0101),
+            2 => value | value << 16,
+            _ => value,
+        };
+        match addr >> 24 {
+            0x03 => {
+                if width == 4 {
+                    self.iwram_bus = value;
+                } else {
+                    let shift = (addr & (4 - width)) * 8;
+                    let mask = (((1u64 << (width * 8)) - 1) as u32) << shift;
+                    self.iwram_bus = (self.iwram_bus & !mask) | (value << shift & mask);
+                }
+                self.open_bus = self.iwram_bus;
+            }
+            0x07 => {
+                self.oam_bus = self.peek32(addr & !3);
+                self.open_bus = self.oam_bus;
+            }
+            _ => self.open_bus = word,
+        }
+    }
+
+    fn latch_write(&mut self, addr: u32, width: u32, value: u32) {
+        let shift = (addr & (4 - width)) * 8;
+        let mask = if width == 4 { u32::MAX } else { (((1u64 << (width * 8)) - 1) as u32) << shift };
+        self.open_bus = (self.open_bus & !mask) | (value << shift & mask);
+        if addr >> 24 == 0x03 {
+            self.iwram_bus = (self.iwram_bus & !mask) | (value << shift & mask);
+        } else if addr >> 24 == 0x07 && width != 1 {
+            self.oam_bus = (self.oam_bus & !mask) | (value << shift & mask);
+        }
+    }
+
     pub fn read8(&mut self, addr: u32) -> u32 {
         self.data(addr, false, false);
         self.run_pending();
-        self.peek8(addr)
+        let value = self.peek8(addr);
+        self.latch_read(addr, 1, value);
+        value
     }
 
     pub fn read16(&mut self, addr: u32) -> u32 {
         self.data(addr, false, false);
         self.run_pending();
-        self.peek16(addr)
+        let value = self.peek16(addr);
+        self.latch_read(addr, 2, value);
+        value
     }
 
     pub fn read32(&mut self, addr: u32) -> u32 {
@@ -720,7 +807,9 @@ impl Bus {
     pub fn read32_seq(&mut self, addr: u32, seq: bool) -> u32 {
         self.data(addr, true, seq);
         self.run_pending();
-        self.peek32(addr)
+        let value = self.peek32(addr);
+        self.latch_read(addr, 4, value);
+        value
     }
 
     pub fn write8(&mut self, addr: u32, v: u8) {
@@ -728,6 +817,7 @@ impl Bus {
         self.data(addr, false, false);
         self.run_pending();
         self.poke8(addr, v);
+        self.latch_write(addr, 1, u32::from(v));
         self.run_pending();
     }
 
@@ -741,6 +831,7 @@ impl Bus {
             return;
         }
         self.poke16(addr & !1, v);
+        self.latch_write(addr & !1, 2, u32::from(v));
         self.run_pending();
     }
 
@@ -759,6 +850,7 @@ impl Bus {
         }
         self.poke16(addr & !3, v as u16);
         self.poke16((addr & !3) + 2, (v >> 16) as u16);
+        self.latch_write(addr & !3, 4, v);
         self.run_pending();
     }
 
@@ -795,7 +887,7 @@ impl Bus {
                         (self.bios_latch >> ((addr & 2) * 8)) & 0xFFFF
                     }
                 } else {
-                    self.open_bus & 0xFFFF
+                    self.open_half(addr)
                 }
             }
             0x02 => r(&self.ewram, (addr & 0x3FFFF) as usize),
@@ -808,7 +900,7 @@ impl Bus {
                     // Internal memory control, mirrored every 64 KiB.
                     (self.tm.memcnt >> ((a & 2) * 8)) & 0xFFFF
                 } else {
-                    0
+                    self.open_half(addr)
                 }
             }
             0x05 => r(&self.pal, (addr & 0x3FF) as usize),
@@ -832,7 +924,7 @@ impl Bus {
                 }
             }
             0x0E | 0x0F => u32::from(self.save.read8(addr)) * 0x0101,
-            _ => self.open_bus & 0xFFFF,
+            _ => self.open_half(addr),
         }
     }
 
@@ -1155,6 +1247,88 @@ impl Bus {
         }
     }
 
+    fn dma_read16(&mut self, ch: usize, addr: u32) -> u16 {
+        let addr = addr & !1;
+        let region = addr >> 24;
+        let invalid_io = region == 0x04 && {
+            let a = addr & 0xFF_FFFF;
+            a >= 0x800 && a & 0xFFFC != 0x800
+        };
+        let no_update = addr < 0x0200_0000 || addr >= 0x1000_0000;
+        let value = if no_update {
+            (self.dma_bus[ch] >> ((addr & 2) * 8)) as u16
+        } else if invalid_io {
+            self.open_half(addr) as u16
+        } else {
+            self.peek16(addr) as u16
+        };
+        if !no_update {
+            if region == 0x03 {
+                let shift = (addr & 2) * 8;
+                self.iwram_bus = (self.iwram_bus & !(0xFFFF << shift)) | u32::from(value) << shift;
+            } else if region == 0x07 {
+                self.oam_bus = self.peek32(addr & !3);
+            }
+            self.dma_bus[ch] = u32::from(value) * 0x0001_0001;
+            self.open_bus = self.dma_bus[ch];
+        }
+        value
+    }
+
+    fn dma_read32(&mut self, ch: usize, addr: u32) -> u32 {
+        let addr = addr & !3;
+        let region = addr >> 24;
+        let invalid_io = region == 0x04 && {
+            let a = addr & 0xFF_FFFF;
+            a >= 0x800 && a & 0xFFFC != 0x800
+        };
+        let no_update = addr < 0x0200_0000 || addr >= 0x1000_0000;
+        let value = if no_update {
+            self.dma_bus[ch]
+        } else if invalid_io {
+            self.open_bus
+        } else {
+            self.peek32(addr)
+        };
+        if !no_update {
+            if region == 0x03 {
+                self.iwram_bus = value;
+            } else if region == 0x07 {
+                self.oam_bus = self.peek32(addr);
+            }
+            self.dma_bus[ch] = value;
+            self.open_bus = value;
+        }
+        value
+    }
+
+    fn dma_write16(&mut self, ch: usize, addr: u32, value: u16) {
+        let addr = addr & !1;
+        self.poke16(addr, value);
+        let shift = (addr & 2) * 8;
+        let mask = 0xFFFF << shift;
+        self.open_bus = (self.open_bus & !mask) | u32::from(value) << shift;
+        self.dma_bus[ch] = (self.dma_bus[ch] & !mask) | u32::from(value) << shift;
+        if addr >> 24 == 0x03 {
+            self.iwram_bus = (self.iwram_bus & !mask) | u32::from(value) << shift;
+        } else if addr >> 24 == 0x07 {
+            self.oam_bus = (self.oam_bus & !mask) | u32::from(value) << shift;
+        }
+    }
+
+    fn dma_write32(&mut self, ch: usize, addr: u32, value: u32) {
+        let addr = addr & !3;
+        self.poke16(addr, value as u16);
+        self.poke16(addr + 2, (value >> 16) as u16);
+        self.open_bus = value;
+        self.dma_bus[ch] = value;
+        if addr >> 24 == 0x03 {
+            self.iwram_bus = value;
+        } else if addr >> 24 == 0x07 {
+            self.oam_bus = value;
+        }
+    }
+
     fn run_dma(&mut self, ch: usize) {
         let cntaddr = 0xBA + ch * 12;
         let cnt = self.io16(cntaddr);
@@ -1180,15 +1354,14 @@ impl Bus {
             let seq = i > 0;
             if word {
                 self.data(s & !3, true, seq);
-                let v = self.peek32(s & !3);
+                let v = self.dma_read32(ch, s);
                 self.data(d & !3, true, seq);
-                self.poke16(d & !3, v as u16);
-                self.poke16((d & !3) + 2, (v >> 16) as u16);
+                self.dma_write32(ch, d, v);
             } else {
                 self.data(s & !1, false, seq);
-                let v = self.peek16(s & !1);
+                let v = self.dma_read16(ch, s);
                 self.data(d & !1, false, seq);
-                self.poke16(d & !1, v as u16);
+                self.dma_write16(ch, d, v);
             }
             s = match sctl { 0 | 3 => s.wrapping_add(step), 1 => s.wrapping_sub(step), _ => s };
             d = match dctl { 0 | 3 => d.wrapping_add(step), 1 => d.wrapping_sub(step), _ => d };
@@ -1404,7 +1577,11 @@ impl Bus {
                 return;
             }
             self.timers[i].counter = self.timers[i].reload;
-            self.tm.timer_at[i] = (now & !step) + 1;
+            // The four timers share the console's free-running divider. At the BIOS handoff its
+            // low phase is 23 clocks ahead of this core's cycle zero (Alyosha's hardware timer
+            // sequence observes edges at 682, 746 and 810, rather than 705, 769 and 833).
+            let phase = 23 & step;
+            self.tm.timer_at[i] = ((now + phase) & !step).saturating_add(1).saturating_sub(phase);
         } else {
             self.tm.timer_at[i] = now & !step;
         }
@@ -1577,6 +1754,18 @@ impl Bus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slow_timer_uses_the_post_bios_divider_phase() {
+        let mut bus = Bus::new(vec![0u8; 0x200]);
+        bus.cycles = 642;
+        bus.timers[0].reload = 0;
+        bus.timer_control(0, 0x81); // on, one tick per 64 CPU clocks
+        assert_eq!(bus.timer_count(0, 681), 0);
+        assert_eq!(bus.timer_count(0, 682), 1);
+        assert_eq!(bus.timer_count(0, 746), 2);
+        assert_eq!(bus.timer_count(0, 810), 3);
+    }
 
     #[test]
     fn interrupt_input_is_synchronised_after_the_flag_is_visible() {

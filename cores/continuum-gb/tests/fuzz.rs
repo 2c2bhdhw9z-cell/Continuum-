@@ -123,16 +123,17 @@ fn state_layout_is_pinned() {
     assert_eq!(&sa[..8], b"CGBASTA2");
     eprintln!("state sizes: gb {} gba {}", st.len(), sa.len());
     // The Advance state is the layout fixed under CGBASTA2, then the timing added after it
-    // (the CPU's pipeline, the prefetch buffer, the timers) and the sound chip, which an
-    // older state lacks.
+    // (the CPU's pipeline, the prefetch buffer, the timers), the sound chip, and the separate
+    // CPU/DMA bus latches. Each appended part is optional so every earlier state still loads.
     // The Game Boy state is the same, then the sound chip modelled tick by tick after it.
-    assert_eq!((st.len(), sa.len()), (GB_STATE_LEN + SOUND_CHIP_LEN, GBA_STATE_LEN + GBA_TIMING_LEN + SOUND_CHIP_LEN),
+    assert_eq!((st.len(), sa.len()), (GB_STATE_LEN + SOUND_CHIP_LEN, GBA_STATE_LEN + GBA_TIMING_LEN + SOUND_CHIP_LEN + GBA_BUS_LATCH_LEN),
                "the state layout changed: bump CGBSTAT/CGBASTA and update these sizes");
 }
 const GB_STATE_LEN: usize = 221_310;
 const GBA_STATE_LEN: usize = 550_530;
 const GBA_TIMING_LEN: usize = 114;
 const SOUND_CHIP_LEN: usize = 96;
+const GBA_BUS_LATCH_LEN: usize = 24;
 
 /// A Game Boy state made before the sound chip was modelled tick by tick (the layout fixed under
 /// CGBSTAT3 and nothing after it) still loads, its channels carried over, and plays on.
@@ -157,6 +158,23 @@ fn a_game_boy_state_from_before_the_new_sound_chip_still_loads() {
     for reg in (0xFF10..0xFF26u16).chain(0xFF30..0xFF40) {
         assert_eq!(h.bus.apu.read(reg), g.bus.apu.read(reg), "sound register {reg:04X}");
     }
+    h.run_frame();
+    assert!(h.bus.cycles > g.bus.cycles);
+}
+
+#[test]
+fn an_advance_state_from_before_bus_latches_were_saved_still_loads() {
+    let mut rom = vec![0u8; 0x1000];
+    rom[0..4].copy_from_slice(&0xEAFF_FFFEu32.to_le_bytes());
+    let mut g = Gba::new(rom.clone());
+    for _ in 0..3 {
+        g.run_frame();
+    }
+    let full = g.save_state();
+    let old_len = full.len() - GBA_BUS_LATCH_LEN;
+    let mut h = Gba::new(rom);
+    h.load_state(&full[..old_len]).expect("the preceding cBoy state must still load");
+    assert_eq!(h.bus.cycles, g.bus.cycles);
     h.run_frame();
     assert!(h.bus.cycles > g.bus.cycles);
 }
