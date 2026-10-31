@@ -15,6 +15,11 @@ certificate, LiveContainer-style, or JIT) and the four questions he was asked ar
 then start with the proof on his phone that the file names. Build 246's test round below still
 stands: record what he reports and fix nothing until he says he's done.
 
+Tools: this chat (Vibe mode) had no workflow tool. There was no run_workflow or inspect_workflow,
+not as a loaded tool, a deferred tool or a power, so no `bundled://ralph` loops. The owner asked
+how to reach such tools in a new chat. First thing in every chat, check your own tool list for
+them and tell him plainly whether they're there.
+
 ## Earlier (29 October 2026, 5:15 AM Eastern): build 246 is out; the owner tests next
 
 Build 246 (82f6631, checked: 0.8.0 (246), 41 emulators, cMini and cAtari inside) has everything
