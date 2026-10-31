@@ -16,9 +16,13 @@ then start with the proof on his phone that the file names. Build 246's test rou
 stands: record what he reports and fix nothing until he says he's done.
 
 Tools: this chat (Vibe mode) had no workflow tool. There was no run_workflow or inspect_workflow,
-not as a loaded tool, a deferred tool or a power, so no `bundled://ralph` loops. The owner asked
-how to reach such tools in a new chat. First thing in every chat, check your own tool list for
-them and tell him plainly whether they're there.
+not as a loaded tool, a deferred tool or a power, so no `bundled://ralph` loops. Workflows are a
+Kiro setting, off until turned on (kiro.dev/docs/workflows: Kiro Web, Settings, Workflows,
+Enable workflows). The owner turned it on during this chat (31 October 2026, about 3 PM Eastern).
+It didn't reach this chat: run_workflow was still missing afterwards. So a new chat should have
+it. First thing in every chat, check your own tool list for run_workflow and tell him plainly
+whether it's there. Workflows use more of his credits than one chat does (the same page), so
+keep them for big batches.
 
 ## Earlier (29 October 2026, 5:15 AM Eastern): build 246 is out; the owner tests next
 
