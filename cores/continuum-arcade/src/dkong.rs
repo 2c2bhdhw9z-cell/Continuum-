@@ -95,6 +95,38 @@ pub enum Variant {
     /// Donkey Kong Jr.: more ROM, a second tile bank, no tune ROM (its 8035 reads the command
     /// latch at every MOVX address) and its own analogue effects.
     DonkeyKongJr,
+    /// Donkey King Jr. and Up Maguila use the same Junior board, but their two palette PROM
+    /// dumps have the opposite electrical sense and are inverted before the resistor network.
+    DonkeyKongJrInverted,
+    /// Braze's high-score add-on for Donkey Kong: its encrypted 64 KiB program and 128-byte
+    /// serial EEPROM replace the base game's program reads.
+    DonkeyKongBraze,
+    /// Donkey Kong II uses the same add-on and can switch its program's A15 at E000h.
+    DonkeyKongBrazeBanked,
+    /// Braze's high-score add-on on Donkey Kong Jr.'s board.
+    DonkeyKongJrBraze,
+}
+
+impl Variant {
+    fn is_jr(self) -> bool {
+        matches!(self, Variant::DonkeyKongJr | Variant::DonkeyKongJrInverted | Variant::DonkeyKongJrBraze)
+    }
+
+    fn inverted_palette(self) -> bool {
+        self == Variant::DonkeyKongJrInverted
+    }
+
+    fn is_braze(self) -> bool {
+        matches!(self, Variant::DonkeyKongBraze | Variant::DonkeyKongBrazeBanked | Variant::DonkeyKongJrBraze)
+    }
+
+    fn braze_eeprom_address(self) -> Option<u16> {
+        match self {
+            Variant::DonkeyKongBraze | Variant::DonkeyKongJrBraze => Some(0xC000),
+            Variant::DonkeyKongBrazeBanked => Some(0xC800),
+            _ => None,
+        }
+    }
 }
 
 /// The chips, as MAME's regions hold them.
@@ -112,6 +144,8 @@ pub struct Roms {
     pub sprites: Vec<u8>,
     /// proms: the palette's low and high PROMs, then the tile colour codes (3 x 256).
     pub proms: Vec<u8>,
+    /// Braze add-on's encrypted program (64 KiB); empty on an original board.
+    pub braze: Vec<u8>,
 }
 
 /// The input ports, as the program reads them: the sticks and buttons (IN0 player 1, IN1
@@ -228,6 +262,141 @@ impl Default for Dma {
     }
 }
 
+/// The 93C46 serial EEPROM on Braze's add-on board, in its 128 x 8-bit wiring. The three bits a
+/// game writes are DI, clock and chip-select. Reads return DO. Data starts erased and is the
+/// board's battery save exposed through libretro.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Eeprom93c46 {
+    data: Vec<u8>,
+    cs: bool,
+    clk: bool,
+    di: bool,
+    dout: bool,
+    command: u16,
+    command_bits: u8,
+    write_address: Option<u8>,
+    write_byte: u8,
+    write_bits: u8,
+    read_byte: u8,
+    read_bits: u8,
+    write_enabled: bool,
+}
+
+impl Default for Eeprom93c46 {
+    fn default() -> Self {
+        Self {
+            data: vec![0xFF; 128],
+            cs: false,
+            clk: false,
+            di: false,
+            dout: true,
+            command: 0,
+            command_bits: 0,
+            write_address: None,
+            write_byte: 0,
+            write_bits: 0,
+            read_byte: 0,
+            read_bits: 0,
+            write_enabled: false,
+        }
+    }
+}
+
+impl Eeprom93c46 {
+    fn read(&self) -> u8 {
+        u8::from(self.dout)
+    }
+
+    fn select(&mut self, on: bool) {
+        if on && !self.cs {
+            self.command = 0;
+            self.command_bits = 0;
+            self.write_address = None;
+            self.write_byte = 0;
+            self.write_bits = 0;
+            self.read_bits = 0;
+            self.dout = true;
+        } else if !on {
+            self.command_bits = 0;
+            self.write_address = None;
+            self.read_bits = 0;
+            self.dout = true;
+        }
+        self.cs = on;
+    }
+
+    fn write_pins(&mut self, value: u8) {
+        let cs = value & 4 != 0;
+        self.select(cs);
+        self.di = value & 1 != 0;
+        let clk = value & 2 != 0;
+        if self.cs && clk && !self.clk {
+            self.rising_edge();
+        }
+        self.clk = clk;
+    }
+
+    fn rising_edge(&mut self) {
+        if self.read_bits > 0 {
+            self.read_bits -= 1;
+            self.dout = self.read_byte >> self.read_bits & 1 != 0;
+            return;
+        }
+        if let Some(address) = self.write_address {
+            self.write_byte = self.write_byte << 1 | u8::from(self.di);
+            self.write_bits += 1;
+            if self.write_bits == 8 {
+                if self.write_enabled {
+                    self.data[usize::from(address)] = self.write_byte;
+                }
+                self.write_address = None;
+                self.dout = true;
+            }
+            return;
+        }
+        // Ignore leading zeroes until the command's start bit.
+        if self.command_bits == 0 && !self.di {
+            return;
+        }
+        self.command = self.command << 1 | u16::from(self.di);
+        self.command_bits += 1;
+        if self.command_bits != 10 {
+            return;
+        }
+        let opcode = (self.command >> 7) & 3;
+        let address = (self.command & 0x7F) as u8;
+        match opcode {
+            0b10 => {
+                self.read_byte = self.data[usize::from(address)];
+                self.read_bits = 8;
+                self.dout = false; // the READ command's dummy zero
+            }
+            0b01 => {
+                self.write_address = Some(address);
+                self.write_byte = 0;
+                self.write_bits = 0;
+            }
+            0b11 => {
+                if self.write_enabled {
+                    self.data[usize::from(address)] = 0xFF;
+                }
+                self.dout = true;
+            }
+            _ => {
+                match address >> 5 {
+                    0b00 => self.write_enabled = false, // EWDS
+                    0b10 if self.write_enabled => self.data.fill(0xFF), // ERAL
+                    0b11 => self.write_enabled = true, // EWEN
+                    _ => {}
+                }
+                self.dout = true;
+            }
+        }
+        self.command = 0;
+        self.command_bits = 0;
+    }
+}
+
 /// The sound CPU's side of the board.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct SoundBoard {
@@ -271,6 +440,8 @@ struct Hw {
     sprite_bank: u8,
     palette_bank: u8,
     gfx_bank: u8,
+    braze_bank: u8,
+    eeprom: Eeprom93c46,
     nmi_mask: bool,
     nmi_line: bool,
     dma: Dma,
@@ -468,7 +639,7 @@ fn bus_layout(start: u64, len: u32, cycles: &[(u8, u16)], block: bool, times: &m
 
 impl Hw {
     fn jr(&self) -> bool {
-        self.variant == Variant::DonkeyKongJr
+        self.variant.is_jr()
     }
 
     /// When a Z80 cycle starts, in attoseconds.
@@ -593,6 +764,10 @@ impl Hw {
         let a = usize::from(addr);
         let jr = self.jr();
         match a {
+            a if self.variant.braze_eeprom_address() == Some(a as u16) => self.eeprom.read(),
+            0x0000..=0x5FFF | 0x8000..=0xFFFF if self.variant.is_braze() => {
+                rom[usize::from(self.braze_bank) * 0x8000 + (a & 0x7FFF)]
+            }
             0x0000..=0x4FFF => rom[a],
             0x5000..=0x5FFF | 0x8000..=0x9FFF | 0xB000..=0xBFFF | 0xD000..=0xDFFF if jr => rom[a],
             0x6000..=0x6BFF => self.ram[a - 0x6000],
@@ -704,9 +879,30 @@ impl mcs48::Bus for SoundView<'_> {
     }
 }
 
+fn braze_decrypt(src: &[u8]) -> Result<Vec<u8>, String> {
+    if src.len() < 0x10000 {
+        return Err(format!("the Braze program is {} bytes, not 65536", src.len()));
+    }
+    fn permute(value: u8, sources_for_output_7_to_0: [u8; 8]) -> u8 {
+        let mut out = 0;
+        for (out_bit, source_bit) in (0..8).rev().zip(sources_for_output_7_to_0) {
+            out |= (value >> source_bit & 1) << out_bit;
+        }
+        out
+    }
+    let mut out = vec![0; 0x10000];
+    for address in 0..0x10000usize {
+        // The add-on crosses these address and data pins between its ROM and the Z80.
+        let high = permute((address >> 8) as u8, [7, 2, 3, 1, 0, 6, 4, 5]);
+        let at = usize::from(high) << 8 | (address & 0xFF);
+        out[at] = permute(src[address], [1, 4, 5, 7, 6, 0, 3, 2]);
+    }
+    Ok(out)
+}
+
 impl Dkong {
     pub fn new(variant: Variant, roms: &Roms) -> Result<Dkong, String> {
-        let jr = variant == Variant::DonkeyKongJr;
+        let jr = variant.is_jr();
         let need = |name: &str, v: &[u8], len: usize| {
             if v.len() < len {
                 Err(format!("the {name} ROMs are {} bytes, not {len}", v.len()))
@@ -715,18 +911,28 @@ impl Dkong {
             }
         };
         need("program", &roms.program, 0x10000)?;
+        if variant.is_braze() {
+            need("Braze program", &roms.braze, 0x10000)?;
+        }
         need("sound", &roms.sound, if jr { 0x1000 } else { 0x1800 })?;
         need("tile", &roms.tiles, if jr { 0x2000 } else { 0x1000 })?;
         need("sprite", &roms.sprites, 0x2000)?;
         need("colour", &roms.proms, 0x300)?;
         let sprites = if roms.sprites.len() >= 0x4000 { 0x4000 } else { 0x2000 };
+        let mut palette_proms = roms.proms[..0x300].to_vec();
+        if variant.inverted_palette() {
+            for byte in &mut palette_proms[..0x200] {
+                *byte ^= 0xFF;
+            }
+        }
+        let program = if variant.is_braze() { braze_decrypt(&roms.braze)? } else { roms.program[..0x10000].to_vec() };
         let rom = Rom {
-            program: roms.program[..0x10000].to_vec(),
+            program,
             sound: roms.sound.clone(),
             tiles: roms.tiles[..if jr { 0x2000 } else { 0x1000 }].to_vec(),
             sprites: roms.sprites[..sprites].to_vec(),
             colour_codes: roms.proms[0x200..0x300].to_vec(),
-            palette: palette(&roms.proms),
+            palette: palette(&palette_proms),
         };
         let mut snd_cpu = Mcs48::new(Model::I8035);
         snd_cpu.reset();
@@ -740,6 +946,8 @@ impl Dkong {
             sprite_bank: 0,
             palette_bank: 0,
             gfx_bank: 0,
+            braze_bank: 0,
+            eeprom: Eeprom93c46::default(),
             nmi_mask: false,
             nmi_line: false,
             dma: Dma::default(),
@@ -816,6 +1024,11 @@ impl Dkong {
 
     pub fn sound_cpu(&self) -> &Mcs48 {
         &self.hw.snd.cpu
+    }
+
+    /// Braze's 128-byte battery-backed EEPROM; original boards have no persistent memory.
+    pub fn save_ram(&mut self) -> Option<&mut [u8]> {
+        self.hw.variant.is_braze().then_some(self.hw.eeprom.data.as_mut_slice())
     }
 
     /// The 8035's machine cycles since power-on.
@@ -1293,6 +1506,14 @@ impl Dkong {
         let jr = hw.jr();
         let a = usize::from(addr);
         let when = Hw::time(at);
+        if hw.variant.braze_eeprom_address() == Some(addr) {
+            hw.eeprom.write_pins(val);
+            return Cut::On;
+        }
+        if hw.variant == Variant::DonkeyKongBrazeBanked && addr == 0xE000 {
+            hw.braze_bank = val & 1;
+            return Cut::On;
+        }
         let bit = val & 1 != 0;
         let set = |latch: u8, n: usize| (latch & !(1 << n)) | u8::from(bit) << n;
         let mut cut = Cut::On;
@@ -1486,5 +1707,61 @@ impl Dkong {
         self.hw = hw;
         self.video = video;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn command(e: &mut Eeprom93c46, opcode: u8, address: u8) {
+        e.write_pins(4);
+        let word = 1u16 << 9 | u16::from(opcode) << 7 | u16::from(address & 0x7F);
+        for bit in (0..10).rev() {
+            let data = ((word >> bit) & 1) as u8;
+            e.write_pins(4 | data);
+            e.write_pins(6 | data);
+            e.write_pins(4 | data);
+        }
+    }
+
+    fn byte(e: &mut Eeprom93c46, value: u8) {
+        for bit in (0..8).rev() {
+            let data = value >> bit & 1;
+            e.write_pins(4 | data);
+            e.write_pins(6 | data);
+            e.write_pins(4 | data);
+        }
+    }
+
+    #[test]
+    fn braze_crossed_address_and_data_pins() {
+        let mut encrypted = vec![0; 0x10000];
+        encrypted[0x0000] = 0x01;
+        encrypted[0x0100] = 0x80;
+        let plain = braze_decrypt(&encrypted).unwrap();
+        assert_eq!(plain[0x0000], 0x04);
+        assert_eq!(plain[0x0800], 0x10);
+        assert!(braze_decrypt(&encrypted[..0x8000]).is_err());
+    }
+
+    #[test]
+    fn braze_eeprom_write_enable_write_erase_and_disable() {
+        let mut e = Eeprom93c46::default();
+        command(&mut e, 0, 0x60); // EWEN
+        e.write_pins(0);
+        command(&mut e, 1, 5); // WRITE byte 5
+        byte(&mut e, 0xA5);
+        e.write_pins(0);
+        assert_eq!(e.data[5], 0xA5);
+        command(&mut e, 3, 5); // ERASE byte 5
+        e.write_pins(0);
+        assert_eq!(e.data[5], 0xFF);
+        command(&mut e, 0, 0x00); // EWDS
+        e.write_pins(0);
+        command(&mut e, 1, 5);
+        byte(&mut e, 0x5A);
+        e.write_pins(0);
+        assert_eq!(e.data[5], 0xFF, "writes stay locked after EWDS");
     }
 }

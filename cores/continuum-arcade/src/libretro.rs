@@ -620,8 +620,13 @@ pub extern "C" fn retro_reset() {
     guarded("retro_reset", true, || (), || {
         if let Ok(mut slot) = CORE.lock() {
             if let Some(core) = slot.as_mut() {
-                if let Ok(m) = core.image.power_on() {
-                    core.machine = m;
+                let battery = core.machine.save_ram().map(|bytes| bytes.to_vec());
+                if let Ok(mut machine) = core.image.power_on() {
+                    if let (Some(saved), Some(fresh)) = (battery.as_deref(), machine.save_ram()) {
+                        let n = fresh.len().min(saved.len());
+                        fresh[..n].copy_from_slice(&saved[..n]);
+                    }
+                    core.machine = machine;
                     core.sticks = [FourWay::default(); 2];
                 }
             }
@@ -789,11 +794,24 @@ pub extern "C" fn retro_cheat_set(_index: u32, _enabled: bool, _code: *const c_c
 }
 
 #[no_mangle]
-pub extern "C" fn retro_get_memory_data(_id: u32) -> *mut c_void {
-    guarded("retro_get_memory_data", false, std::ptr::null_mut, std::ptr::null_mut)
+pub extern "C" fn retro_get_memory_data(id: u32) -> *mut c_void {
+    guarded("retro_get_memory_data", false, std::ptr::null_mut, || {
+        if id != 0 {
+            return std::ptr::null_mut();
+        }
+        CORE.lock()
+            .ok()
+            .and_then(|mut slot| slot.as_mut().and_then(|core| core.machine.save_ram()).map(|bytes| bytes.as_mut_ptr().cast()))
+            .unwrap_or(std::ptr::null_mut())
+    })
 }
 
 #[no_mangle]
-pub extern "C" fn retro_get_memory_size(_id: u32) -> usize {
-    guarded("retro_get_memory_size", false, || 0, || 0)
+pub extern "C" fn retro_get_memory_size(id: u32) -> usize {
+    guarded("retro_get_memory_size", false, || 0, || {
+        if id != 0 {
+            return 0;
+        }
+        CORE.lock().ok().and_then(|mut slot| slot.as_mut().and_then(|core| core.machine.save_ram()).map(|bytes| bytes.len())).unwrap_or(0)
+    })
 }

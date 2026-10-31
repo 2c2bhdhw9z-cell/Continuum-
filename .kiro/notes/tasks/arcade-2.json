@@ -33,7 +33,8 @@
       "id": "A3",
       "done": false,
       "title": "Donkey Kong driver: Radar Scope, Braze's kits, dkingjr, maguila, jrking",
-      "detail": "Radar Scope (its grid and stars, its own sound), Braze's kits (the decrypting chip), the inverted colour PROM sets, jrking's 16 KB sprites."
+      "detail": "Radar Scope (its grid and stars, its own sound), Braze's kits (the decrypting chip), the inverted colour PROM sets, jrking's 16 KB sprites.",
+      "progress": "31 October: 8 more sets are in and checked. Junior King, Donkey King Jr. and Up Maguila run on the Junior board; the 16 KB sprite layout exposes all 256 sprites and the two bootlegs' opposite-sense palette PROMs are inverted. Braze's five working kits (Donkey Kong High Score Kit, Donkey Kong/DK Japan, Donkey Junior High Score Kit, and Donkey Kong II v1.1/v1.2) decrypt their crossed address/data lines, bank Donkey Kong II's program, and have the kit's 128-byte serial EEPROM as battery save; Restart preserves it. Our test programs on jrking, dkingjr, maguila and dkongx match MAME 0.289 on every one of 860 frames; the other kit variants share that proved decryptor and board. Set list and app archive detection include all eight. Left in A3: Radar Scope (TRS-02 and TRS-01: grid/stars and sound)."
     },
     {
       "id": "A4",

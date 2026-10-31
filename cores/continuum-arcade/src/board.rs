@@ -43,6 +43,10 @@ pub trait Machine: Send {
     /// The cabinet's stick only goes four ways (up, down, left, right, never a diagonal).
     fn four_way(&self) -> bool;
     fn save_state(&self) -> Vec<u8>;
+    /// Battery-backed bytes the frontend keeps beside the game, if this board has any.
+    fn save_ram(&mut self) -> Option<&mut [u8]> {
+        None
+    }
     /// Restores `save_state`'s bytes; on an error the board is unchanged.
     fn load_state(&mut self, data: &[u8]) -> Result<(), String>;
 }
@@ -271,6 +275,10 @@ impl Machine for DkongBoard {
 
     fn save_state(&self) -> Vec<u8> {
         self.board.save_state()
+    }
+
+    fn save_ram(&mut self) -> Option<&mut [u8]> {
+        self.board.save_ram()
     }
 
     fn load_state(&mut self, data: &[u8]) -> Result<(), String> {

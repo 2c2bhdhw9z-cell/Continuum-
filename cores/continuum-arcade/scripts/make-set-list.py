@@ -166,18 +166,29 @@ GALAXIAN_BAD_FLAGS = ("NOT_WORKING", "WRONG_COLORS", "IMPERFECT", "UNEMULATED", 
 GALAXIAN_REGIONS = {"maincpu", "gfx1", "proms", "audiocpu"}
 
 # The Donkey Kong board (src/dkong.rs): (machine, init) in the GAME() lines of MAME's dkong.cpp ->
-# our board variant, and the ROM regions that board has (tag: size). Only sets of the plain
-# dkong_state class, without the flags above, whose regions are exactly these go in. Left out:
-# Braze's kits (an extra decrypting chip), init_dkingjr's bootlegs (inverted colour PROMs),
-# Junior King (16 KB of sprites), and the driver's other machines (Radar Scope, Donkey Kong 3,
-# the S2650 conversions, ...).
+# our board variant, and the ROM regions that board has (tag: size). The Junior bootlegs below
+# differ only in palette-ROM sense or in having all 256 sprite codes. Left out here: Braze's
+# kits (an extra decrypting chip, added separately below), and the driver's other machines
+# (Radar Scope, Donkey Kong 3, the S2650 conversions, ...).
 DKONG_MACHINES = {
     ("dkong2b", "empty_init"): "DVariant::DonkeyKong",
     ("dkongjr", "empty_init"): "DVariant::DonkeyKongJr",
+    ("dkongjr", "init_dkingjr"): "DVariant::DonkeyKongJrInverted",
+    ("dk_braze", "init_dkonghs"): "DVariant::DonkeyKongBraze",
+    ("dk_braze", "init_dkongx"): "DVariant::DonkeyKongBrazeBanked",
+    ("dkj_braze", "init_dkonghs"): "DVariant::DonkeyKongJrBraze",
 }
 DKONG_REGIONS = {
     "DVariant::DonkeyKong": {"maincpu": 0x10000, "soundcpu": 0x1800, "gfx1": 0x1000, "gfx2": 0x2000, "proms": 0x300},
     "DVariant::DonkeyKongJr": {"maincpu": 0x10000, "soundcpu": 0x1000, "gfx1": 0x2000, "gfx2": 0x2000, "proms": 0x300},
+    "DVariant::DonkeyKongJrInverted": {"maincpu": 0x10000, "soundcpu": 0x1000, "gfx1": 0x2000, "gfx2": 0x2000, "proms": 0x320},
+    "DVariant::DonkeyKongBraze": {"maincpu": 0x10000, "braze": 0x10000, "soundcpu": 0x1800, "gfx1": 0x1000, "gfx2": 0x2000, "proms": 0x300},
+    "DVariant::DonkeyKongBrazeBanked": {"maincpu": 0x10000, "braze": 0x10000, "soundcpu": 0x1800, "gfx1": 0x1000, "gfx2": 0x2000, "proms": 0x300},
+    "DVariant::DonkeyKongJrBraze": {"maincpu": 0x10000, "braze": 0x10000, "soundcpu": 0x1000, "gfx1": 0x2000, "gfx2": 0x2000, "proms": 0x300},
+}
+DKONG_SET_REGIONS = {
+    "jrking": {"maincpu": 0x10000, "soundcpu": 0x1000, "gfx1": 0x2000, "gfx2": 0x4000, "proms": 0x300},
+    "maguila": {"maincpu": 0x10000, "soundcpu": 0x1000, "gfx1": 0x2000, "gfx2": 0x4000, "proms": 0x320},
 }
 
 # How a switch is worded for players: MAME's name -> our label, or None to leave it at the factory
@@ -461,13 +472,14 @@ def galaxian_sets(src_dir, mame, machines, out, families):
     return count
 
 
-def emit_generated(mame, mach, regions, roms, board, tags_in, out, families, unread=frozenset()):
+def emit_generated(mame, mach, regions, roms, board, tags_in, out, families, unread=frozenset(), port_mach=None):
     """Writes one generated set's SetSpec into `out`: its inputs from MAME's port lists (ports
     `tags_in`, in the board's order), its switches from -listxml (sharing a family in `families`
-    with sets whose switches are the same), its chips and regions."""
+    with sets whose switches are the same), its chips and regions. `port_mach` lets a bootleg use
+    the original machine with the same INPUT_PORTS when zero stand-in ROMs crash its own init."""
     name = mach.get("name")
     xroms = mach.findall("rom")
-    ports = dump_ports(mame, mach)
+    ports = dump_ports(mame, port_mach if port_mach is not None else mach)
     rest = [ports.get(t, [0, []])[0] & 0xFF for t in tags_in]
     inputs, four_way = [], False
     # In bit order: MAME's Lua lists a port's fields in no fixed order.
@@ -618,7 +630,8 @@ def dkong_sets(src_dir, mame, machines, out, families):
             continue
         regions, roms = parse_block(name, blocks[name])
         sizes = {r["tag"]: r["size"] for r in regions}
-        if sizes != DKONG_REGIONS[variant] or any(r["erase"] for r in regions):
+        wanted = DKONG_SET_REGIONS.get(name, DKONG_REGIONS[variant])
+        if sizes != wanted or any(r["erase"] for r in regions):
             print(f"  skipped {name}: regions {sorted(sizes.items())} aren't the board's")
             continue
         xroms = mach.findall("rom")
@@ -626,8 +639,13 @@ def dkong_sets(src_dir, mame, machines, out, families):
         parsed = sorted((r["name"], r["size"], r["crc"]) for r in roms)
         if listed != parsed:
             fail(f"{name}: its ROM_START block and -listxml disagree:\n{parsed}\n{listed}")
+        unread = {
+            op[1] for reg in regions if reg["tag"] == "proms"
+            for op in reg["ops"] if op[0] == "load" and op[2] >= 0x300
+        }
+        port_mach = machines.get(inp, mach) if name in DKONG_SET_REGIONS or "Inverted" in variant else mach
         emit_generated(mame, mach, regions, roms, f"Board::Dkong({variant})", [":IN0", ":IN1", ":IN2", ":DSW0"],
-                       out, families)
+                       out, families, unread, port_mach)
         count += 1
     return count
 

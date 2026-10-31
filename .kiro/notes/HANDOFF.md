@@ -25,6 +25,14 @@ survive save states; states from before them still load. Continue B11 with DMA p
 CPU/IRQ interactions, then the other queues. No `.ipa` until the non-Switch batch is complete
 unless the owner changes that order.
 
+Second finished piece (7:34 PM, not built): cArcade now plays eight more Donkey Kong-hardware
+sets. Junior King's full 256 sprites, Donkey King Jr. and Up Maguila's inverted palette chips,
+and Braze's five working high-score/Donkey Kong II kits are in. The Braze program's crossed wires
+are decoded, Donkey Kong II switches both program banks, and its 128-byte high-score EEPROM is a
+real battery save that survives Restart. Four own test-program runs match MAME 0.289 on every one
+of 860 frames, all eight names route to Arcade in the app, the complete cArcade suite and the real
+engine-loader test pass. Radar Scope remains the last part of A3; continue there.
+
 ## Earlier (31 October 2026, 1:45 PM Eastern): the Switch, four questions open
 
 The owner: "Start the switch stuff. Use this as Reference maybe. https://github.com/seedds/nxnative".

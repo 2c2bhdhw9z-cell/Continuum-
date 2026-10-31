@@ -770,6 +770,27 @@ fn donkey_kongs_controls_and_switches_reach_the_board_as_on_mame() {
     retro_unload_game();
 }
 
+#[test]
+fn a_braze_kits_eeprom_is_battery_save_and_survives_restart() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    frontend();
+    let case = dkong::cases().into_iter().find(|c| c.name == "dkongx").unwrap();
+    let dir = work_dir("dkong-braze-save");
+    let zip = dir.join("dkongx.zip");
+    write_zip(&zip, &dkong::files(&case));
+    assert!(load(&zip), "{}", last_log_line());
+    assert_eq!(retro_get_memory_size(0), 128);
+    assert_eq!(retro_get_memory_size(1), 0);
+    let save = retro_get_memory_data(0).cast::<u8>();
+    assert!(!save.is_null());
+    unsafe { *save.add(7) = 0x42 };
+    retro_reset();
+    let save = retro_get_memory_data(0).cast::<u8>();
+    assert!(!save.is_null());
+    assert_eq!(unsafe { *save.add(7) }, 0x42, "Restart keeps the kit's high scores");
+    retro_unload_game();
+}
+
 /// A Donkey Kong Jr. state through the entry points: it reads back byte for byte with the same
 /// frames and sound after, Restart starts afresh, and it doesn't load into Donkey Kong.
 #[test]

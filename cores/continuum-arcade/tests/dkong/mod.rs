@@ -102,6 +102,12 @@ pub fn cases() -> Vec<Case> {
         dk("nmi", 200),
         dk("watchdog", 400),
         Case { set: "dkongjr", variant: Variant::DonkeyKongJr, ports: jr_rest(), ..dk("dkjr", 220) },
+        // The three Junior bootlegs use the same test program. They prove the two inverted
+        // palette PROMs and the boards whose four sprite chips expose all 256 sprite codes.
+        Case { name: "dkingjr", main: "dkjr", sound: None, set: "dkingjr", variant: Variant::DonkeyKongJrInverted, frames: 220, events: vec![], ports: jr_rest() },
+        Case { name: "maguila", main: "dkjr", sound: None, set: "maguila", variant: Variant::DonkeyKongJrInverted, frames: 220, events: vec![], ports: jr_rest() },
+        Case { name: "jrking", main: "dkjr", sound: None, set: "jrking", variant: Variant::DonkeyKongJr, frames: 220, events: vec![], ports: jr_rest() },
+        Case { name: "dkongx", main: "tiles", sound: None, set: "dkongx", variant: Variant::DonkeyKongBrazeBanked, frames: 200, events: vec![], ports: dk_rest() },
         Case { sound: Some("dksnd"), ..dk("dksound", 700) },
         Case { sound: Some("jrsnd"), set: "dkongjr", variant: Variant::DonkeyKongJr, ports: jr_rest(), ..dk("jrsound", 760) },
     ]
@@ -152,18 +158,81 @@ fn sound_program(case: &Case, len: usize) -> Vec<u8> {
     p
 }
 
+fn wide_sprites(src: &[u8]) -> Vec<u8> {
+    let mut out = vec![0; 0x4000];
+    for quarter in 0..4 {
+        out[quarter * 0x1000..quarter * 0x1000 + 0x800]
+            .copy_from_slice(&src[quarter * 0x800..(quarter + 1) * 0x800]);
+    }
+    out
+}
+
+fn case_sprites(case: &Case) -> Vec<u8> {
+    let src = program_file("sprites-gfx.bin");
+    if matches!(case.set, "jrking" | "maguila") { wide_sprites(&src) } else { src }
+}
+
+fn case_proms(case: &Case) -> Vec<u8> {
+    let mut p = program_file("proms.bin");
+    if case.variant == Variant::DonkeyKongJrInverted {
+        for byte in &mut p[..0x200] {
+            *byte ^= 0xFF;
+        }
+        p.resize(0x320, 0);
+    }
+    p
+}
+
+fn jr_main_files(add: &mut impl FnMut(&str, &[u8]), main: &[u8], names: [&str; 3], doubled: bool) {
+    let one = [&main[0x0000..0x1000], &main[0x3000..0x4000]].concat();
+    let two = [&main[0x2000..0x2800], &main[0x4800..0x5000], &main[0x1000..0x1800], &main[0x5800..0x6000]].concat();
+    let three = [&main[0x4000..0x4800], &main[0x2800..0x3000], &main[0x5000..0x5800], &main[0x1800..0x2000]].concat();
+    for (name, bytes) in names.into_iter().zip([one, two, three]) {
+        if doubled {
+            let both = [bytes.as_slice(), bytes.as_slice()].concat();
+            add(name, &both);
+        } else {
+            add(name, &bytes);
+        }
+    }
+}
+
+fn braze_encrypted(main: &[u8]) -> Vec<u8> {
+    fn permute(value: u8, map: [u8; 8]) -> u8 {
+        let mut out = 0;
+        for (out_bit, source_bit) in (0..8).rev().zip(map) {
+            out |= (value >> source_bit & 1) << out_bit;
+        }
+        out
+    }
+    let mut plain = vec![0; 0x10000];
+    plain[..main.len()].copy_from_slice(main);
+    let mut encrypted = vec![0; 0x10000];
+    for address in 0..0x10000usize {
+        let high = permute((address >> 8) as u8, [7, 2, 3, 1, 0, 6, 4, 5]);
+        let source_plain = usize::from(high) << 8 | (address & 0xFF);
+        encrypted[address] = (0u8..=255)
+            .find(|&b| permute(b, [1, 4, 5, 7, 6, 0, 3, 2]) == plain[source_plain])
+            .unwrap();
+    }
+    encrypted
+}
+
 /// The files of `case`'s MAME set, under its names.
 pub fn files(case: &Case) -> Vec<(String, Vec<u8>)> {
     let main = program_file(&format!("{}.bin", case.main));
     let tiles = program_file("tiles-gfx.bin");
-    let sprites = program_file("sprites-gfx.bin");
-    let proms = program_file("proms.bin");
+    let sprites = case_sprites(case);
+    let proms = case_proms(case);
     let mut f: Vec<(String, Vec<u8>)> = Vec::new();
     let mut add = |n: &str, d: &[u8]| f.push((n.to_string(), d.to_vec()));
     match case.set {
-        "dkong" => {
+        "dkong" | "dkongx" => {
             for (i, n) in ["c_5et_g.bin", "c_5ct_g.bin", "c_5bt_g.bin", "c_5at_g.bin"].iter().enumerate() {
                 add(n, &main[i * 0x1000..(i + 1) * 0x1000]);
+            }
+            if case.set == "dkongx" {
+                add("d2k12.bin", &braze_encrypted(&main));
             }
             add("s_3i_b.bin", &sound_program(case, 0x800));
             add("s_3j_b.bin", &tune_rom());
@@ -191,7 +260,34 @@ pub fn files(case: &Case) -> Vec<(String, Vec<u8>)> {
             }
             add("djr1-c-2e.2e", &proms[..0x100]);
             add("djr1-c-2f.2f", &proms[0x100..0x200]);
-            add("djr1-v-2n.2n", &proms[0x200..]);
+            add("djr1-v-2n.2n", &proms[0x200..0x300]);
+        }
+        "dkingjr" | "maguila" => {
+            let mag = case.set == "maguila";
+            jr_main_files(&mut add, &main,
+                if mag { ["1.7.bin", "2.7.bin", "3.7.bin"] } else { ["1.7g", "2.7h", "3.7k"] }, mag);
+            add(if mag { "4.7.bin" } else { "4.7l" }, &sound_program(case, 0x1000));
+            add(if mag { "9dm.7.bin" } else { "5.6g" }, &tiles[..0x1000]);
+            add(if mag { "10dm.7.bin" } else { "6.6e" }, &tiles[0x1000..]);
+            let names = if mag { ["5.bin", "6.bin", "7.bin", "8.bin"] } else { ["7.2t", "8.2r", "9.2p", "10.2m"] };
+            let piece = if mag { 0x1000 } else { 0x800 };
+            for (i, n) in names.iter().enumerate() { add(n, &sprites[i * piece..(i + 1) * piece]); }
+            add(if mag { "9k_82s129.9k" } else { "mb7052.9k" }, &proms[..0x100]);
+            add(if mag { "9l_82s129.9l" } else { "mb7052.9l" }, &proms[0x100..0x200]);
+            add(if mag { "6b_82s129.6b" } else { "mb7052.6b" }, &proms[0x200..0x300]);
+            add(if mag { "8j_82s123.8j" } else { "mb7051.8j" }, &proms[0x300..0x320]);
+        }
+        "jrking" => {
+            jr_main_files(&mut add, &main, ["b5.bin", "c5.bin", "e5.bin"], false);
+            add("h3.bin", &sound_program(case, 0x1000));
+            add("n3.bin", &tiles[..0x1000]);
+            add("p3.bin", &tiles[0x1000..]);
+            for (i, n) in ["c7.bin", "d7.bin", "e7.bin", "f7.bin"].iter().enumerate() {
+                add(n, &sprites[i * 0x1000..(i + 1) * 0x1000]);
+            }
+            add("c-2e.bpr", &proms[..0x100]);
+            add("c-2f.bpr", &proms[0x100..0x200]);
+            add("v-2n.bpr", &proms[0x200..0x300]);
         }
         other => panic!("no layout for {other}"),
     }
@@ -202,9 +298,10 @@ pub fn files(case: &Case) -> Vec<(String, Vec<u8>)> {
 pub fn roms(case: &Case) -> Roms {
     let main = program_file(&format!("{}.bin", case.main));
     let tiles = program_file("tiles-gfx.bin");
+    let mut proms = case_proms(case);
     let mut program = main.clone();
     program.resize(0x10000, 0);
-    let (sound, tiles) = if case.variant == Variant::DonkeyKongJr {
+    let (sound, tiles) = if matches!(case.variant, Variant::DonkeyKongJr | Variant::DonkeyKongJrInverted) {
         (sound_program(case, 0x1000), tiles)
     } else {
         let p = sound_program(case, 0x800);
@@ -215,7 +312,10 @@ pub fn roms(case: &Case) -> Roms {
         t.extend_from_slice(&tiles[0x1000..0x1800]);
         (s, t)
     };
-    Roms { program, sound, tiles, sprites: program_file("sprites-gfx.bin"), proms: program_file("proms.bin") }
+    let sprites = case_sprites(case);
+    let braze = if case.set == "dkongx" { braze_encrypted(&main) } else { Vec::new() };
+    proms.resize(0x300, 0);
+    Roms { program, sound, tiles, sprites, proms, braze }
 }
 
 fn apply(ports: &mut Ports, e: Event) {

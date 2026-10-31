@@ -163,7 +163,9 @@ fn headline(board: Board) -> &'static str {
         Board::Galaxian(G::KingBalloon, ..) => "Galaxian",
         Board::Galaxian(G::Konami(_), ..) => "Scramble",
         Board::Dkong(dkong::Variant::DonkeyKong) => "Donkey Kong",
-        Board::Dkong(dkong::Variant::DonkeyKongJr) => "Donkey Kong Jr.",
+        Board::Dkong(dkong::Variant::DonkeyKongJr | dkong::Variant::DonkeyKongJrInverted) => "Donkey Kong Jr.",
+        Board::Dkong(dkong::Variant::DonkeyKongBraze | dkong::Variant::DonkeyKongBrazeBanked) => "Donkey Kong",
+        Board::Dkong(dkong::Variant::DonkeyKongJrBraze) => "Donkey Kong Jr.",
     }
 }
 
@@ -507,7 +509,14 @@ impl Found {
     /// ROM, or Jr.'s program), gfx1 (the tiles), gfx2 (the sprites) and proms, as MAME lays them out.
     pub fn dkong_roms(&self, regions: &[Vec<u8>]) -> dkong::Roms {
         let get = |tag: &str| self.region(regions, tag).to_vec();
-        dkong::Roms { program: get("maincpu"), sound: get("soundcpu"), tiles: get("gfx1"), sprites: get("gfx2"), proms: get("proms") }
+        dkong::Roms {
+            program: get("maincpu"),
+            sound: get("soundcpu"),
+            tiles: get("gfx1"),
+            sprites: get("gfx2"),
+            proms: get("proms"),
+            braze: get("braze"),
+        }
     }
 
     /// The Pac-Man board's ROMs, from the regions as MAME's sets lay them out: maincpu, gfx1

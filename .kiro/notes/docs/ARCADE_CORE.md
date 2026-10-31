@@ -3,8 +3,10 @@
 **Where it stands (27 October 2026): the second round is under way** (`tasks/arcade-2.json`:
 more games on the boards it has and .7z files, then Galaga, Dig Dug and Xevious, then 1942, Time
 Pilot, Pooyan and Bomb Jack, then the 68000 with Capcom's CPS-1 and the Neo Geo; one build at the
-end). So far it adds 49 sets on the Pac-Man driver's other boards and reads .7z sets as well as
-zips. **The first version (16 October 2026) is finished and in the app.** cArcade plays
+end). So far it adds 49 sets on the Pac-Man driver's other boards, 27 on the Galaxian family's
+nearby boards, and 8 on Donkey Kong hardware (Junior King, the inverted-PROM bootlegs and Braze's
+high-score/Donkey Kong II kits), and reads .7z sets as well as zips. Braze's 128-byte EEPROM is
+kept as the game's battery save. Radar Scope is the part of that Donkey Kong item still open. **The first version (16 October 2026) is finished and in the app.** cArcade plays
 199 sets on three kinds of board: 65 on the Pac-Man board, 119 on the Galaxian family's
 (Galaxian and Moon Cresta, and Konami's Scramble, The End, Super Cobra, Frogger and Amidar), and
 15 on Donkey Kong's (Donkey Kong and Donkey Kong Jr.), every one listed in "What it plays". The
@@ -172,6 +174,19 @@ random in MAME, is a shift register here.
   Junior (US, bootleg?); `dkongjrj` Donkey Kong Jr. (Japan); `dkongjnrj` Donkey Kong Junior (Japan
   set F-1); `dkongjrb` Donkey Kong Jr. (bootleg); `dkongjre` Donkey Kong Junior (E kit); `dkongjrpb`
   Donkey Kong Junior (P kit, bootleg).
+
+### Donkey Kong hardware added in the second round (8 sets)
+
+- Junior bootlegs: `jrking` Junior King, whose larger sprite ROMs expose all 256 codes;
+  `dkingjr` Donkey King Jr. and `maguila` Up Maguila, whose palette PROM outputs are inverted.
+- Braze add-ons: `dkonghs` Donkey Kong High Score Kit, `dkongike` Donkey Kong/DK (Japan),
+  `dkongjrhs` Donkey Junior High Score Kit, and `dkongx` / `dkongx11` Donkey Kong II. Their
+  program ROM's crossed address and data pins are decoded, Donkey Kong II's second bank switches
+  at E000h, and the kit's 128-byte serial EEPROM is the game's battery save.
+
+Our Junior-board program on the three bootlegs and Donkey Kong program on the banked Braze board
+match MAME 0.289 on all 860 frames. The five kits share that decoder; MAME's two broken combo kits
+remain out. Radar Scope is still open in `tasks/arcade-2.json` A3.
 
 ## How the second round's Pac-Man boards are proved
 
