@@ -5,7 +5,17 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (29 October 2026, 5:15 AM Eastern): build 246 is out; the owner tests next
+## START HERE (31 October 2026, 1:45 PM Eastern): the Switch, four questions open
+
+The owner: "Start the switch stuff. Use this as Reference maybe. https://github.com/seedds/nxnative".
+The rule is to raise JIT with him before starting the Switch, so nothing is built yet. What nxnative
+is, why it can't go into Continuum as it is, the two ways to run a converted game (his own
+certificate, LiveContainer-style, or JIT) and the four questions he was asked are in
+`.kiro/notes/docs/SWITCH.md`. When he answers, record the answers there and in STATUS.md "Next up",
+then start with the proof on his phone that the file names. Build 246's test round below still
+stands: record what he reports and fix nothing until he says he's done.
+
+## Earlier (29 October 2026, 5:15 AM Eastern): build 246 is out; the owner tests next
 
 Build 246 (82f6631, checked: 0.8.0 (246), 41 emulators, cMini and cAtari inside) has everything
 since 244:

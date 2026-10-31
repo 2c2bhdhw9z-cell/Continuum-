@@ -514,7 +514,10 @@ an hour. Its .ipa should have 37 core files: the 36 plus cArcade. The steps are 
    is in this batch; the order after it is in `docs/ARCADE_CORE.md`, "What's next, in order": more
    sets on the three boards, Galaga, more Z80 boards, then the 68000 processor that Capcom's CPS-1
    and the Neo Geo need (the next big step, a job the size of the Z80, before boards far bigger).
-6. **The Switch** (road steps 10 to 12). Raise JIT with the owner first.
+6. **The Switch** (road steps 10 to 12). Raise JIT with the owner first. Started 31 October
+   2026: the owner pointed at nxnative (runs a Switch game's own code on the iPhone's chip
+   instead of emulating it). Findings and his four open questions: `docs/SWITCH.md`. Nothing
+   built yet.
 7. **Android.**
 8. **Remaining phone tests:** online play and the Game Boy link cable with a second phone (H1);
    JIT (needs a tester who can switch it on).
