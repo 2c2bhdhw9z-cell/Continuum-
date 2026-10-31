@@ -293,6 +293,11 @@ pub struct Bus {
     pub frame_ready: bool,
     #[serde(skip)]
     in_dma: bool,
+    /// The CPU sees an interrupt request a few clocks after IE, IF and IME first make its
+    /// input active. IF itself is readable one clock earlier; this field delays only exception
+    /// entry, matching the ARM7TDMI's interrupt synchroniser measured by the timing tests.
+    #[serde(skip)]
+    irq_at: u64,
     /// Saved on its own after the rest (see `BusTiming`).
     #[serde(skip)]
     pub tm: BusTiming,
@@ -368,6 +373,7 @@ impl Bus {
             seq_acc: 0,
             frame_ready: false,
             in_dma: false,
+            irq_at: 0,
             tm: BusTiming::default(),
             rom_patches: Vec::new(),
         }
@@ -428,14 +434,40 @@ impl Bus {
         self.io[a + 1] = (v >> 8) as u8;
     }
 
-    pub fn request_irq(&mut self, bits: u16) {
-        let v = self.io16(0x202) | bits;
-        self.set_io16(0x202, v);
+    fn raw_irq_line(&self) -> bool {
+        self.io[0x208] & 1 != 0 && self.io16(0x200) & self.io16(0x202) & 0x3FFF != 0
     }
 
-    /// IME on and an enabled interrupt requested.
+    /// Re-evaluates the interrupt input after IE, IF, IME or a device changes it. The hardware
+    /// passes that input through synchronising stages before the processor can enter IRQ mode.
+    fn irq_changed(&mut self, was: bool) {
+        let now = self.raw_irq_line();
+        if now && !was {
+            self.irq_at = self.cycles + 4;
+        } else if !now {
+            self.irq_at = u64::MAX;
+        }
+    }
+
+    fn request_irq_after(&mut self, bits: u16, clocks: u64) {
+        let was = self.raw_irq_line();
+        let v = self.io16(0x202) | bits;
+        self.set_io16(0x202, v);
+        let now = self.raw_irq_line();
+        if now && !was {
+            self.irq_at = self.cycles + clocks;
+        } else if !now {
+            self.irq_at = u64::MAX;
+        }
+    }
+
+    pub fn request_irq(&mut self, bits: u16) {
+        self.request_irq_after(bits, 4);
+    }
+
+    /// IME on, an enabled interrupt requested, and the processor-side delay elapsed.
     pub fn irq_line(&self) -> bool {
-        self.io[0x208] & 1 != 0 && self.io16(0x200) & self.io16(0x202) & 0x3FFF != 0
+        self.raw_irq_line() && self.cycles >= self.irq_at
     }
 
     pub fn irq_requested(&self) -> bool {
@@ -1054,9 +1086,16 @@ impl Bus {
                     self.rfu_sd_high = high;
                 }
             }
+            0x200 | 0x208 => {
+                let was = self.raw_irq_line();
+                self.set_io16(a, v);
+                self.irq_changed(was);
+            }
             0x202 => {
+                let was = self.raw_irq_line();
                 let cur = self.io16(0x202);
                 self.set_io16(0x202, cur & !v);
+                self.irq_changed(was);
             }
             0x300 => {
                 self.io[0x300] = v as u8;
@@ -1096,6 +1135,14 @@ impl Bus {
         }
     }
 
+    /// Schedules a DMA request from a display or sound event. The controller samples the
+    /// request and takes the bus three clocks later; lower channel numbers still win when
+    /// several become due together.
+    fn schedule_dma(&mut self, ch: usize, delay: u64) {
+        let due = self.cycles + delay;
+        self.tm.dma_due[ch] = self.tm.dma_due[ch].min(due);
+    }
+
     fn trigger_dma(&mut self, timing: u16) {
         for ch in 0..4 {
             let cnt = self.io16(0xBA + ch * 12);
@@ -1103,7 +1150,7 @@ impl Bus {
                 if timing == 3 && (ch == 1 || ch == 2) {
                     continue; // sound DMA is triggered by its FIFO
                 }
-                self.run_dma(ch);
+                self.schedule_dma(ch, 3);
             }
         }
     }
@@ -1231,7 +1278,7 @@ impl Bus {
                 for ch in 1..3 {
                     let cnt = self.io16(0xBA + ch * 12);
                     if cnt & 0x8000 != 0 && (cnt >> 12) & 3 == 3 && self.dma[ch].dst == want {
-                        self.run_dma(ch);
+                        self.schedule_dma(ch, 3);
                     }
                 }
             }
@@ -1419,19 +1466,28 @@ impl Bus {
 
     /// Runs the rest of the machine for `n` cycles.
     fn advance(&mut self, mut n: u32) {
-        self.cycles += u64::from(n);
-        self.run_timers();
-        self.sound(n);
         while n > 0 {
-            let boundary = if self.line_cycle < HBLANK_AT { HBLANK_AT } else { LINE };
-            let step = n.min(boundary - self.line_cycle);
-            self.line_cycle += step;
-            n -= step;
-            if self.line_cycle == HBLANK_AT {
-                self.hblank();
-            } else if self.line_cycle == LINE {
-                self.line_cycle = 0;
-                self.next_line();
+            // A serial transfer can end in the middle of a multi-cycle opcode or data access.
+            // Split there; otherwise HALT and the IRQ synchroniser see the event several clocks
+            // late depending on whichever access happened to cross it.
+            let elapsed = self.sio_slice(n);
+            n -= elapsed;
+            self.cycles += u64::from(elapsed);
+            self.sio_advance(elapsed);
+            self.run_timers();
+            self.sound(elapsed);
+            let mut video = elapsed;
+            while video > 0 {
+                let boundary = if self.line_cycle < HBLANK_AT { HBLANK_AT } else { LINE };
+                let step = video.min(boundary - self.line_cycle);
+                self.line_cycle += step;
+                video -= step;
+                if self.line_cycle == HBLANK_AT {
+                    self.hblank();
+                } else if self.line_cycle == LINE {
+                    self.line_cycle = 0;
+                    self.next_line();
+                }
             }
         }
     }
@@ -1452,7 +1508,6 @@ impl Bus {
     }
 
     fn next_line(&mut self) {
-        self.sio_line();
         self.line += 1;
         if self.line == 228 {
             self.line = 0;
@@ -1478,9 +1533,14 @@ impl Bus {
         if (2..162).contains(&self.line) {
             let cnt = self.io16(0xDE);
             if cnt & 0x8000 != 0 && (cnt >> 12) & 3 == 3 && self.dma[3].active {
-                self.run_dma(3);
+                self.schedule_dma(3, 3);
             }
         }
+    }
+
+    /// Cycles until a scheduled DMA asks for the bus.
+    fn cycles_to_dma(&self) -> Option<u64> {
+        self.tm.dma_due.iter().copied().filter(|at| *at != u64::MAX).map(|at| at.saturating_sub(self.cycles)).min()
     }
 
     /// While halted: jump to the next display event (timers and sound run in step).
@@ -1489,6 +1549,12 @@ impl Bus {
         self.run_pending();
         let mut to = if self.line_cycle < HBLANK_AT { HBLANK_AT - self.line_cycle } else { LINE - self.line_cycle };
         if let Some(t) = self.cycles_to_timer_irq() {
+            to = to.min(t.min(256) as u32);
+        }
+        if let Some(t) = self.cycles_to_sio_irq() {
+            to = to.min(t);
+        }
+        if let Some(t) = self.cycles_to_dma() {
             to = to.min(t.min(256) as u32);
         }
         self.pending += to.clamp(1, 256);
@@ -1511,6 +1577,20 @@ impl Bus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn interrupt_input_is_synchronised_after_the_flag_is_visible() {
+        let mut bus = Bus::new(vec![0u8; 0x200]);
+        bus.io_write16(0x200, IRQ_TIMER0);
+        bus.io_write16(0x208, 1);
+        bus.request_irq(IRQ_TIMER0);
+        assert_ne!(bus.io16(0x202) & IRQ_TIMER0, 0, "IF is readable immediately");
+        assert!(!bus.irq_line(), "the processor input has not crossed the synchroniser yet");
+        bus.advance(3);
+        assert!(!bus.irq_line());
+        bus.advance(1);
+        assert!(bus.irq_line(), "the processor sees it after four clocks");
+    }
 
     #[test]
     fn game_boy_player_handshake_sets_the_motor() {

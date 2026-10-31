@@ -306,10 +306,16 @@ fn eeprom_write_then_read() {
 /// can be interrupted by another, interrupts taken a few cycles late, the serial port's own
 /// timing, or the real BIOS's start-up timing.
 const ALYOSHA_PASS: &[&str] = &[
-    "Bus/DMA_Outside_Bios_Bus.gba", "DMA/DMA_Mode_Change.gba", "LDM/LDM_ALU.gba", "LDM/LDM_ALU_IMM.gba",
+    "Bus/DMA_Outside_Bios_Bus.gba", "DMA/DMA_Mode_Change.gba", "Interactions/Internal_Cycle_DMA_IRQ_Br_pre_tim.gba",
+    "Interactions/Internal_Cycle_DMA_IRQ_br.gba", "Interactions/Internal_Cycle_DMA_TIM_Br_pre.gba",
+    "LDM/LDM_ALU.gba", "LDM/LDM_ALU_IMM.gba",
     "LDM/LDM_ALU_Store.gba", "LDM/LDM_Bx.gba", "LDM/LDM_LD.gba", "LDM/LDM_MUL_UL_32.gba", "LDM/LDM_MUL_UL_SL.gba",
-    "LDM/LDM_Swap.gba", "STM_ALU_IMM.gba", "Serial/serial_time_start_bit.gba", "arm/Coprocessor_14.gba",
-    "arm/arm.gba", "bios/bios.gba", "fifo_dma/fifo_dma_disable_3.gba", "fifo_dma/fifo_dma_disable_5.gba",
+    "LDM/LDM_Swap.gba", "STM_ALU_IMM.gba", "Serial/serial_read_data.gba", "Serial/serial_time.gba",
+    "Serial/serial_time_2.gba", "Serial/serial_time_2M.gba", "Serial/serial_time_2M_2.gba",
+    "Serial/serial_time_2M_3.gba", "Serial/serial_time_3.gba", "Serial/serial_time_start_bit.gba",
+    "Serial/serial_time_start_bit_2.gba", "arm/Coprocessor_14.gba",
+    "arm/arm.gba", "bios/bios.gba", "fifo_dma/fifo_dma_disable_3.gba", "fifo_dma/fifo_dma_disable_4.gba",
+    "fifo_dma/fifo_dma_disable_5.gba",
     "irq/BL_1.gba", "irq/IF_Timer.gba", "irq/IRQ_sub.gba", "irq/IRQ_sub_slow.gba", "memory/PAL_8_bit_writes.gba",
     "memory/VRAM_8_bit_writes.gba", "memory/memory.gba", "nes/nes.gba", "ppu/hello.gba", "ppu/shades.gba",
     "ppu/start_up.gba", "ppu/start_up_vbl_irq.gba", "ppu/start_up_vbl_irq_halt.gba", "ppu/stripes.gba",

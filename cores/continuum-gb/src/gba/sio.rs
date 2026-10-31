@@ -40,8 +40,14 @@ pub const MODE_MULTI: u8 = 2;
 /// transfer reading all 1s on its next line), so states from before it still load.
 #[derive(Clone, Default)]
 pub struct Sio {
-    /// Lines until the transfer in progress has all its bits out (0: none in progress).
-    lines: u8,
+    /// CPU cycles until the transfer in progress has all its bits out (0: none in progress).
+    ///
+    /// This is a cycle count rather than a scanline count because games use a timer to measure
+    /// the serial port. The first bit edge is six cycles after SIOCNT's start write; later edges
+    /// are 64 cycles apart at 256 KHz or 8 cycles apart at 2 MHz, as measured on the console.
+    cycles: u32,
+    /// One clock from the shifter finishing to IF bit 7 becoming visible.
+    irq_cycles: u8,
     /// All bits are out and the transfer is held open for the partner's answer.
     waiting: bool,
     /// The answer, when it came before the bits were all out.
@@ -107,7 +113,7 @@ impl Bus {
                 let parent = self.sio.parent;
                 self.sio.waiting = false;
                 self.sio.early = Some(self.rfu.exchange(word, parent));
-                self.sio.lines = self.sio_lines(mode, cnt);
+                self.sio.cycles = self.sio_cycles(mode, cnt);
             } else {
                 self.rfu_clock_in();
             }
@@ -123,27 +129,26 @@ impl Bus {
         }
         self.sio.waiting = false;
         self.sio.early = None;
-        self.sio.lines = self.sio_lines(mode, cnt);
+        self.sio.cycles = self.sio_cycles(mode, cnt);
         if self.sio.connected && self.sio.out.len() < QUEUE_MAX {
             let word = self.sio_word(mode);
             self.sio.out.push_back((mode, word));
         }
     }
 
-    /// How many lines a transfer takes, at least one: 8 or 32 bits at 256 KHz or 2 MHz, or a
-    /// multi-player word (18 bits a console, two consoles) at its baud rate.
-    fn sio_lines(&self, mode: u8, cnt: u16) -> u8 {
-        let cycles: u32 = match mode {
-            MODE_MULTI => {
-                let baud = [9600, 38400, 57600, 115_200][usize::from(cnt & 3)];
-                2 * 18 * (16_777_216 / baud)
-            }
+    /// How many CPU cycles a transfer takes. The serial divider's first edge comes six cycles
+    /// after the write that starts it. Normal mode then shifts one bit every 64 cycles at
+    /// 256 KHz or every 8 at 2 MHz. Multi-player mode uses the four divider periods measured
+    /// by GBAHawk from a real console and sends 36 edges for a two-console exchange.
+    fn sio_cycles(&self, mode: u8, cnt: u16) -> u32 {
+        const FIRST_EDGE: u32 = 6;
+        match mode {
+            MODE_MULTI => FIRST_EDGE + 36 * [888, 233, 160, 87][usize::from(cnt & 3)],
             _ => {
                 let bits = if mode == MODE_NORMAL32 { 32 } else { 8 };
-                bits * if cnt & 2 != 0 { 8 } else { 64 }
+                FIRST_EDGE + bits * if cnt & 2 != 0 { 8 } else { 64 }
             }
-        };
-        cycles.div_ceil(super::bus::LINE).clamp(1, 255) as u8
+        }
     }
 
     /// The word this console sends in `mode`.
@@ -168,18 +173,43 @@ impl Bus {
         self.sio_done();
     }
 
-    /// Once a line: the transfer in progress gets its bits out.
-    pub(super) fn sio_line(&mut self) {
+    /// Limits one machine-clock step to the serial event so completion, the start bit and its
+    /// interrupt all land on the measured cycle even when a memory access spans that cycle.
+    pub(super) fn sio_slice(&self, cycles: u32) -> u32 {
+        let mut slice = cycles;
+        if self.sio.cycles > 0 {
+            slice = slice.min(self.sio.cycles);
+        }
+        if self.sio.irq_cycles > 0 {
+            slice = slice.min(u32::from(self.sio.irq_cycles));
+        }
+        slice
+    }
+
+    /// Advances the serial clock by CPU cycles. A connected transfer waits after its last bit
+    /// for the other phone's answer; an unconnected one reads all 1s at that exact point.
+    pub(super) fn sio_advance(&mut self, cycles: u32) {
+        // The shifter lowers Start first; its interrupt flag crosses into the I/O block one
+        // clock later. Process a delay that existed on entry only, so completing below cannot
+        // also consume its newly-created clock in this call.
+        if self.sio.irq_cycles > 0 {
+            let left = u32::from(self.sio.irq_cycles).saturating_sub(cycles);
+            self.sio.irq_cycles = left as u8;
+            if self.sio.irq_cycles == 0 {
+                self.request_irq(IRQ_SERIAL);
+            }
+        }
         if self.rfu.active {
             self.rfu_clock_in();
         }
-        if self.sio.lines == 0 {
+        if self.sio.cycles == 0 {
             return;
         }
-        self.sio.lines -= 1;
-        if self.sio.lines > 0 {
+        if cycles < self.sio.cycles {
+            self.sio.cycles -= cycles;
             return;
         }
+        self.sio.cycles = 0;
         if let Some(word) = self.sio.early.take() {
             self.sio_finish(word);
         } else if self.sio.connected {
@@ -192,7 +222,7 @@ impl Bus {
     /// The driving console's transfer is over: what came back goes where the mode puts it, the
     /// busy bit falls and the interrupt is asked for.
     fn sio_finish(&mut self, theirs: u32) {
-        self.sio.lines = 0;
+        self.sio.cycles = 0;
         self.sio.waiting = false;
         self.sio.early = None;
         let Some(mode) = self.sio_mode() else { return };
@@ -224,7 +254,7 @@ impl Bus {
         let cnt = self.io16(0x128);
         self.set_io16(0x128, cnt & !0x80);
         if cnt & 0x4000 != 0 {
-            self.request_irq(IRQ_SERIAL);
+            self.sio.irq_cycles = 1;
         }
     }
 
@@ -269,7 +299,7 @@ impl Bus {
     pub fn sio_answer(&mut self, word: u32) {
         if self.sio.waiting {
             self.sio_finish(word);
-        } else if self.sio.lines > 0 {
+        } else if self.sio.cycles > 0 {
             self.sio.early = Some(word);
         }
     }
@@ -281,9 +311,19 @@ impl Bus {
         }
     }
 
+    /// Cycles until a transfer raises its interrupt, for HALT to stop on the event instead of
+    /// jumping a whole display-time slice past it.
+    pub(super) fn cycles_to_sio_irq(&self) -> Option<u32> {
+        if self.io16(0x128) & 0x4000 == 0 {
+            return None;
+        }
+        let clocks = self.sio.cycles + u32::from(self.sio.irq_cycles);
+        (clocks > 0).then_some(clocks)
+    }
+
     /// A transfer is open: shifting, or waiting for the partner's answer.
     pub fn sio_busy(&self) -> bool {
-        self.sio.lines > 0 || self.sio.waiting
+        self.sio.cycles > 0 || self.sio.waiting
     }
 }
 
@@ -444,10 +484,8 @@ mod tests {
         Bus::new(vec![0; 0x200])
     }
 
-    fn lines(b: &mut Bus, n: u32) {
-        for _ in 0..n {
-            b.sio_line();
-        }
+    fn cycles(b: &mut Bus, n: u32) {
+        b.sio_advance(n);
     }
 
     /// Carries everything both ways, as the app's session does, and gives both a frame of cable.
@@ -475,6 +513,21 @@ mod tests {
     }
 
     #[test]
+    fn normal_serial_edges_and_interrupt_land_on_the_measured_clocks() {
+        for (control, transfer_cycles) in [(0x4081, 518), (0x4083, 70)] {
+            let mut b = bus();
+            b.io_write16(0x128, control);
+            b.sio_advance(transfer_cycles - 1);
+            assert_ne!(b.io16(0x128) & 0x80, 0, "still shifting one clock before the end");
+            b.sio_advance(1);
+            assert_eq!(b.io16(0x128) & 0x80, 0, "Start falls with the last bit");
+            assert_eq!(b.io16(0x202) & IRQ_SERIAL, 0, "IF has its own crossing clock");
+            b.sio_advance(1);
+            assert_ne!(b.io16(0x202) & IRQ_SERIAL, 0, "IF rises one clock later");
+        }
+    }
+
+    #[test]
     fn a_packet_survives_the_trip_and_rubbish_is_refused() {
         for p in [Packet::Clock { seq: 3, mode: MODE_MULTI, word: 0x1234 }, Packet::Answer { seq: 255, word: 0xDEAD_BEEF }] {
             assert_eq!(Packet::decode(&p.encode()), Some(p));
@@ -499,11 +552,15 @@ mod tests {
         b.io_write16(0x12A, 0xBBBB);
         a.io_write16(0x128, 0x6083);
         assert!(a.sio_busy());
-        lines(&mut a, 10);
+        cycles(&mut a, 40_000);
         assert!(a.sio_busy(), "waiting for the other phone");
         for _ in 0..3 {
             carry((&mut ca, &mut a), (&mut cb, &mut b));
         }
+        // Each receiver's serial interrupt flag crosses into the I/O block one clock after
+        // the last bit, just as it does for a locally-clocked transfer.
+        cycles(&mut a, 1);
+        cycles(&mut b, 1);
         for (name, x, id) in [("parent", &a, 0), ("child", &b, 1)] {
             assert_eq!((x.io16(0x120), x.io16(0x122), x.io16(0x124), x.io16(0x126)), (0xAAAA, 0xBBBB, 0xFFFF, 0xFFFF), "{name}");
             assert_eq!(x.io16(0x128) & 0x80, 0, "{name}: no longer busy");
@@ -526,7 +583,7 @@ mod tests {
         a.io_write16(0x120, 0x1111);
         a.io_write16(0x122, 0x1111);
         a.io_write16(0x128, 0x1081); // 32-bit, own clock, start
-        lines(&mut a, 3);
+        cycles(&mut a, 3_000);
         for _ in 0..3 {
             carry((&mut ca, &mut a), (&mut cb, &mut b));
         }
@@ -544,7 +601,7 @@ mod tests {
         a.io_write16(0x12A, 0x1234);
         a.io_write16(0x128, 0x2083);
         assert_eq!(a.siocnt_read() & 0x0C, 0, "no partner: SD low");
-        lines(&mut a, 255);
+        cycles(&mut a, 100_000);
         assert_eq!(a.io16(0x128) & 0x80, 0);
         assert_eq!((a.io16(0x120), a.io16(0x122)), (0x1234, 0xFFFF));
     }
@@ -554,7 +611,7 @@ mod tests {
         let ((mut ca, mut a), _) = pair();
         a.io_write16(0x134, 0);
         a.io_write16(0x128, 0x2083);
-        lines(&mut a, 255);
+        cycles(&mut a, 100_000);
         for _ in 0..ANSWER_FRAMES {
             ca.pump(&mut a);
             assert!(a.sio_busy());

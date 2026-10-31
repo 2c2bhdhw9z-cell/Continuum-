@@ -5,7 +5,24 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (31 October 2026, 1:45 PM Eastern): the Switch, four questions open
+## START HERE (31 October 2026, 6:29 PM Eastern): every non-Switch core; no workflows
+
+The owner's current order: work on every core that still needs work, do not touch the Switch, do
+not ask questions, do not use workflows, and keep going. The actionable source queues are cBoy's
+Advance timing (`tasks/cboy-finish.json` B11), cArcade's second round (`tasks/arcade-2.json`), and
+cGC's remaining hardware, speed, saves/settings and Wii work (`tasks/gamecube.json`). Phone-only
+proofs for cBoy, cGear, cMini and cAtari wait without stopping source work. Switch is parked even
+though the questions below are still unanswered.
+
+First finished piece (not built): cBoy's Advance serial port now runs at the console's measured
+256 KHz and 2 MHz timings instead of once per picture line; its Start bit, interrupt flag and CPU
+interrupt delay land separately on their real clocks. Display- and sound-started DMA requests take
+the controller's three clocks instead of starting instantly. Alyosha's 133 hardware timing tests:
+65 -> 76, including all nine serial tests; cBoy's full suite passes. Continue B11 with DMA
+preemption and CPU/IRQ interactions, then the other queues. No `.ipa` until the non-Switch batch is
+complete unless the owner changes that order.
+
+## Earlier (31 October 2026, 1:45 PM Eastern): the Switch, four questions open
 
 The owner: "Start the switch stuff. Use this as Reference maybe. https://github.com/seedds/nxnative".
 The rule is to raise JIT with him before starting the Switch, so nothing is built yet. What nxnative

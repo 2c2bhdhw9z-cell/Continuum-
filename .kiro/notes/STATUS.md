@@ -327,7 +327,15 @@ launch with an empty library.
 
 ## Next up
 
-**29 October 2026, 5:10 AM Eastern, read this first.** **Build 246** (`82f6631`) is the newest
+**31 October 2026, 6:29 PM Eastern, current order:** work on every non-Switch core without
+workflows or questions; the Switch is parked. cBoy's second Advance timing round has started:
+its serial port now uses the real cycle timings, interrupt requests cross to the processor at the
+measured delay, and display/sound DMA requests wait the controller's three clocks. Alyosha's
+hardware timing set moved **65 -> 76 of 133**, all nine serial tests included; the whole cBoy suite
+passes. Continue `tasks/cboy-finish.json` B11, then cArcade's `arcade-2.json` and cGC's remaining
+`gamecube.json` work. Phone-only proofs do not block source work. No build until the whole batch.
+
+**29 October 2026, 5:10 AM Eastern, build on the phone.** **Build 246** (`82f6631`) is the newest
 install: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-246-82f6631/Continuum-246.ipa
 (checked: 0.8.0 build 246, 41 emulators). New since 244: cAtari (Atari 7800), cMini (Pokémon
 Mini, matching PokeMini on every instruction and frame), cGear's and cBoy's cheat codes, cArcade's
