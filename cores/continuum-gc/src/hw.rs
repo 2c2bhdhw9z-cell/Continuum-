@@ -153,13 +153,13 @@ pub struct Exi {
     pub rtc: u32,
     /// Toward the clock's next second, in hundredths of a video line.
     pub rtc_frac: u32,
-    /// The memory card in slot A: its command state (its bytes are Hw::card).
-    pub card: crate::memcard::Port,
+    /// The command state of the memory cards in slots A and B (their bytes are `Hw::cards`).
+    pub cards: [crate::memcard::Port; 2],
 }
 
 impl Default for Exi {
     fn default() -> Self {
-        Exi { ch: Default::default(), sram: default_sram(), rtc: 0, rtc_frac: 0, card: Default::default() }
+        Exi { ch: Default::default(), sram: default_sram(), rtc: 0, rtc_frac: 0, cards: Default::default() }
     }
 }
 
@@ -343,9 +343,10 @@ pub struct Hw {
     /// An SD card adapter and the EXI channel it sits on (2: serial port 2, like SD2SP2).
     pub sd: Option<crate::sd::SdCard>,
     pub sd_channel: usize,
-    /// The memory card in slot A, byte for byte (memcard.rs; the game's libretro save RAM, so
-    /// it is never reallocated while a game runs); empty when the slot is empty (a Wii).
-    pub card: Vec<u8>,
+    /// The memory cards in slots A and B, byte for byte (memcard.rs). Slot A is the game's
+    /// libretro save RAM and slot B has its own engine sidecar file. A vector is empty when that
+    /// slot has no card. Neither vector is reallocated while a game runs.
+    pub cards: [Vec<u8>; 2],
 }
 
 impl Hw {
@@ -376,7 +377,14 @@ impl Hw {
             stall: 0,
             sd: None,
             sd_channel: 2,
-            card: if wii { Vec::new() } else { crate::memcard::blank(&Self::card_format(0, &default_sram(), 0)) },
+            cards: if wii {
+                [Vec::new(), Vec::new()]
+            } else {
+                [
+                    crate::memcard::blank(crate::memcard::CardSize::Blocks251, &Self::card_format(0, &default_sram(), 0)),
+                    Vec::new(),
+                ]
+            },
             irq_dirty: true,
             now: 0,
             dsp_time: std::time::Duration::ZERO,
@@ -768,9 +776,11 @@ impl Hw {
             self.exi.rtc_frac -= per_second;
             self.exi.rtc = self.exi.rtc.wrapping_add(1);
         }
-        let before = self.exi.card.irq();
-        self.exi.card.line();
-        self.card_irq_edge(before);
+        for slot in 0..2 {
+            let before = self.exi.cards[slot].irq();
+            self.exi.cards[slot].line();
+            self.card_irq_edge(slot, before);
+        }
         self.di_line();
         self.vi.line += 1;
         if self.vi.line > total {
@@ -1061,8 +1071,7 @@ impl Hw {
         // EXT (bit 12): a device is plugged into the slot (channels 0 and 1 are the memory card
         // slots A and B).
         let ext = match c {
-            0 => self.card_in_slot_a() || (self.sd.is_some() && self.sd_channel == 0),
-            1 => self.sd.is_some() && self.sd_channel == 1,
+            0 | 1 => self.card_in_slot(c) || (self.sd.is_some() && self.sd_channel == c),
             _ => false,
         };
         let ch = &self.exi.ch[c];
@@ -1097,12 +1106,13 @@ impl Hw {
                 if let Some(t) = self.exi_trace.as_mut().filter(|_| c < 2) {
                     t.push(format!("ch{c} csr <- {v:08X} = {csr:08X}{}", if new_cs != old_cs { " (cs change)" } else { "" }));
                 }
-                // Device 0 of channel 0 (chip select bit 7) is the memory card in slot A.
-                if c == 0 && (old_cs ^ new_cs) & 0x80 != 0 && self.card_in_slot_a() {
+                // Device 0 of channels 0 and 1 (chip select bit 7) is the memory card in that
+                // slot. Each card keeps its command and interrupt state independently.
+                if c < 2 && (old_cs ^ new_cs) & 0x80 != 0 && self.card_in_slot(c) {
                     if new_cs & 0x80 != 0 {
-                        self.exi.card.select();
+                        self.exi.cards[c].select();
                     } else {
-                        self.exi.card.deselect(&mut self.card);
+                        self.exi.cards[c].deselect(&mut self.cards[c]);
                     }
                 }
             }
@@ -1119,9 +1129,9 @@ impl Hw {
     }
 
     /// One EXI transfer, completed at once. Channel 0, device 1 is the clock / SRAM / IPL ROM /
-    /// UART chip; channel 0, device 0 the memory card in slot A (memcard.rs); an SD card
-    /// adapter answers on its channel's device 0 (and, like the real adapters, also while no
-    /// chip select is up); every other slot is empty.
+    /// UART chip; device 0 on channels 0 and 1 is the memory card in that slot (memcard.rs); an
+    /// SD card adapter answers on its channel's device 0 (and, like the real adapters, also while
+    /// no chip select is up); every other slot is empty.
     fn exi_transfer(&mut self, c: usize) {
         let cr = self.exi.ch[c].cr;
         let dma = cr & 2 != 0;
@@ -1136,14 +1146,18 @@ impl Hw {
             self.stall += (len as u64 * 8 * cycles_per_us) >> clk;
         }
         let sd_here = self.sd.is_some() && self.sd_channel == c && (cs == 0 || cs == 1);
+        let card_here = !sd_here && c < 2 && cs == 1 && self.card_in_slot(c);
         if sd_here {
             self.sd_transfer(c, dma, rw, len);
-        } else if c == 0 && cs == 1 && self.card_in_slot_a() {
-            let out = self.exi.ch[0].data;
-            self.card_transfer(dma, rw, len);
+        } else if card_here {
+            let out = self.exi.ch[c].data;
+            self.card_transfer(c, dma, rw, len);
             if let Some(t) = self.exi_trace.as_mut() {
-                let back = self.exi.ch[0].data;
-                t.push(format!("card {} rw{rw} len {len} out {out:08X} in {back:08X} status {:02X}", if dma { "dma" } else { "imm" }, self.exi.card.status()));
+                let back = self.exi.ch[c].data;
+                t.push(format!(
+                    "card {} ch{c} rw{rw} len {len} out {out:08X} in {back:08X} status {:02X}",
+                    if dma { "dma" } else { "imm" }, self.exi.cards[c].status()
+                ));
             }
         } else if c == 0 && cs == 2 && !dma {
             // Device select bit 1 (value 2 in CS) is the clock/SRAM chip.
@@ -1173,7 +1187,7 @@ impl Hw {
             // reads as zero.
             self.exi.ch[c].data = if cs == 0 { 0xFFFF_FFFF } else { 0 };
         }
-        if let Some(t) = self.exi_trace.as_mut().filter(|_| c < 2 && !(c == 0 && cs == 1)) {
+        if let Some(t) = self.exi_trace.as_mut().filter(|_| c < 2 && !card_here) {
             t.push(format!("ch{c} cs{cs} {} rw{rw} len {len} data {:08X}", if dma { "dma" } else { "imm" }, self.exi.ch[c].data));
         }
         self.exi.ch[c].cr &= !1;
@@ -1208,38 +1222,38 @@ impl Hw {
         }
     }
 
-    /// A transfer with the memory card in slot A, byte by byte through its command logic.
-    fn card_transfer(&mut self, dma: bool, rw: u32, len: u32) {
-        let before = self.exi.card.irq();
+    /// A transfer with the memory card in `slot`, byte by byte through its command logic.
+    fn card_transfer(&mut self, slot: usize, dma: bool, rw: u32, len: u32) {
+        let before = self.exi.cards[slot].irq();
         if dma {
-            let mar = self.exi.ch[0].mar;
+            let mar = self.exi.ch[slot].mar;
             if rw == 0 {
-                let bytes: Vec<u8> = (0..len).map(|_| self.exi.card.exchange(&self.card, 0)).collect();
+                let bytes: Vec<u8> = (0..len).map(|_| self.exi.cards[slot].exchange(&self.cards[slot], 0)).collect();
                 self.dma_write(mar, &bytes);
             } else {
                 let bytes = self.dma_read(mar, len as usize);
-                let back: Vec<u8> = bytes.iter().map(|b| self.exi.card.exchange(&self.card, *b)).collect();
+                let back: Vec<u8> = bytes.iter().map(|b| self.exi.cards[slot].exchange(&self.cards[slot], *b)).collect();
                 if rw == 2 {
                     self.dma_write(mar, &back);
                 }
             }
         } else {
-            let out = self.exi.ch[0].data.to_be_bytes();
+            let out = self.exi.ch[slot].data.to_be_bytes();
             let mut back = [0u8; 4];
             for k in 0..len as usize {
-                back[k] = self.exi.card.exchange(&self.card, if rw == 0 { 0 } else { out[k] });
+                back[k] = self.exi.cards[slot].exchange(&self.cards[slot], if rw == 0 { 0 } else { out[k] });
             }
             if rw != 1 {
-                self.exi.ch[0].data = u32::from_be_bytes(back);
+                self.exi.ch[slot].data = u32::from_be_bytes(back);
             }
         }
-        self.card_irq_edge(before);
+        self.card_irq_edge(slot, before);
     }
 
-    /// The card's interrupt line was raised (or switched on while up): EXIINT on channel 0.
-    fn card_irq_edge(&mut self, before: bool) {
-        if !before && self.exi.card.irq() {
-            self.exi.ch[0].csr |= 0x2;
+    /// A card's interrupt line was raised (or switched on while up): EXIINT on its channel.
+    fn card_irq_edge(&mut self, slot: usize, before: bool) {
+        if !before && self.exi.cards[slot].irq() {
+            self.exi.ch[slot].csr |= 0x2;
             self.irq_dirty = true;
         }
     }
@@ -1257,31 +1271,56 @@ impl Hw {
         }
     }
 
-    /// Puts a freshly formatted blank card in slot A, made `tb` time-base ticks after 2000
-    /// began (on a GameCube; the frontend then puts the game's own card over it, if it has one).
-    pub fn insert_blank_card(&mut self, tb: u64) {
+    /// Sets which capacity is in each slot. Called while a game is loading, before the frontend
+    /// receives either card's pointer; neither vector changes size after that.
+    pub fn configure_memory_cards(&mut self, sizes: [Option<crate::memcard::CardSize>; 2]) {
+        if self.wii {
+            self.cards = [Vec::new(), Vec::new()];
+            self.exi.cards = Default::default();
+            return;
+        }
+        let dtv = self.vi.regs[VI_DTV / 2];
+        let format = Self::card_format(0, &self.exi.sram, dtv);
+        for (slot, size) in sizes.into_iter().enumerate() {
+            self.cards[slot] = size.map_or_else(Vec::new, |size| crate::memcard::blank(size, &format));
+        }
+        self.exi.cards = Default::default();
+        self.sync_card_flash_ids();
+    }
+
+    /// Re-formats the cards already configured in slots A and B at `tb` time-base ticks after
+    /// 2000 began. The frontend puts each game's saved card image over these before its first
+    /// frame. Empty slots stay empty.
+    pub fn insert_blank_cards(&mut self, tb: u64) {
         if self.wii {
             return;
         }
         let dtv = self.vi.regs[VI_DTV / 2];
-        self.card = crate::memcard::blank(&Self::card_format(tb, &self.exi.sram, dtv));
-    }
-
-    /// Whether the memory card answers in slot A: a card is in, and no SD adapter sits there.
-    fn card_in_slot_a(&self) -> bool {
-        let sd_in_slot_a = self.sd.is_some() && self.sd_channel == 0;
-        !self.card.is_empty() && !sd_in_slot_a
-    }
-
-    /// SRAM as a console holds it after unlocking the card in slot A: with that card's flash
-    /// ID, so the card library accepts whichever console formatted the card.
-    fn sync_card_flash_id(&mut self) {
-        if !self.card_in_slot_a() {
-            return;
+        let format = Self::card_format(tb, &self.exi.sram, dtv);
+        for card in &mut self.cards {
+            if let Some(size) = crate::memcard::CardSize::from_bytes(card.len()) {
+                *card = crate::memcard::blank(size, &format);
+            }
         }
-        let id = crate::memcard::flash_id_of(&self.card);
-        self.exi.sram[SRAM_FLASH_ID..SRAM_FLASH_ID + 12].copy_from_slice(&id);
-        self.exi.sram[SRAM_FLASH_ID_CHECKSUM] = flash_id_checksum(&id);
+        self.exi.cards = Default::default();
+        self.sync_card_flash_ids();
+    }
+
+    /// Whether a memory card answers in this slot: a card is in, and no SD adapter sits there.
+    fn card_in_slot(&self, slot: usize) -> bool {
+        let sd_in_slot = self.sd.is_some() && self.sd_channel == slot;
+        self.cards.get(slot).is_some_and(|card| !card.is_empty()) && !sd_in_slot
+    }
+
+    /// SRAM as a console holds it after unlocking the cards: each slot's flash ID and checksum,
+    /// so the card library accepts whichever console formatted either card.
+    fn sync_card_flash_ids(&mut self) {
+        for slot in 0..2 {
+            let id = if self.card_in_slot(slot) { crate::memcard::flash_id_of(&self.cards[slot]) } else { [0; 12] };
+            let at = SRAM_FLASH_ID + slot * 12;
+            self.exi.sram[at..at + 12].copy_from_slice(&id);
+            self.exi.sram[SRAM_FLASH_ID_CHECKSUM + slot] = flash_id_checksum(&id);
+        }
     }
 
     /// One byte of a DMA from the clock/SRAM chip: SRAM when the address is SRAM's.
@@ -1289,7 +1328,7 @@ impl Hw {
         let a = addr & 0x7FFF_FFFF;
         if (0x2000_0100..0x2000_0100 + (64 << 6)).contains(&a) {
             if k == 0 {
-                self.sync_card_flash_id();
+                self.sync_card_flash_ids();
             }
             self.exi.sram.get(((a - 0x2000_0100) >> 6) as usize + k).copied().unwrap_or(0)
         } else {
@@ -1329,7 +1368,7 @@ impl Hw {
                     }
                     0
                 } else {
-                    self.sync_card_flash_id();
+                    self.sync_card_flash_ids();
                     let mut w = [0u8; 4];
                     for (k, b) in w.iter_mut().enumerate().take(len as usize) {
                         *b = self.exi.sram.get(base + k).copied().unwrap_or(0);

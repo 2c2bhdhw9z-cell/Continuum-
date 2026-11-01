@@ -1,5 +1,20 @@
 # What is finished, and what is not
 
+**31 October 2026, 8:44 PM Eastern: non-Switch core batch, saved but not built yet.**
+- **cBoy:** Advance hardware timing rose from 65 to 83 of 133 measured programs. All nine serial
+  tests and all five bus-latch tests now pass; signed halfword loads, empty POP and the post-BIOS
+  timer phase were corrected too. The complete cBoy suite passes. Pushed in `5724239` and
+  `e346ba2` with `[skip ci]`.
+- **cArcade:** eight more Donkey Kong-board sets play: Junior King, Donkey King Jr., Up Maguila,
+  two high-score kits and three Donkey Kong II/Braze sets. Their pictures match MAME 0.289 for
+  all 860 checked frames; Braze EEPROM saves through Restart. The app routes all eight names to
+  cArcade. Pushed in `199a140` with `[skip ci]`. Radar Scope is still being finished.
+- **cGC:** slots A and B now work independently, with 59, 251 or 1019-block cards chosen in Core
+  settings. Slot A keeps the existing 251-block `.srm` default. Slot B defaults empty and saves as
+  `.gcb`; backup/sync and Wi-Fi carry it. A capacity change keeps the old image before replacing
+  it. Full cGC tests, the engine persistence check, the real engine loader and lint pass. Save
+  states now use CGC7. G9 only has its phone rumble confirmation left.
+
 **25 October 2026, morning: JIT, every way (built in like Manic, StikDebug, another JIT app).
 Written, not compiled, not built.** Our own JIT helper app extension with StikJIT 1.9.0's source
 compiled in (JITHelper/, scripts/fetch-stikjit.sh), BuiltInJIT.swift (method, pairing file kept in

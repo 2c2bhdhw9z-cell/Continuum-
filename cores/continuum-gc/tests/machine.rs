@@ -251,21 +251,28 @@ fn the_clock_starts_from_the_phone_and_counts_on() {
 }
 
 #[test]
-fn a_memory_card_is_in_slot_a_and_survives_save_states() {
+fn both_memory_cards_survive_save_states_without_rolling_back_saves() {
+    use continuum_gc::memcard::CardSize;
     let mut m = booted(&vi_program());
-    assert_eq!(m.hw.card.len(), 2 << 20);
-    let blank = m.hw.card.clone();
+    m.hw.configure_memory_cards([Some(CardSize::Blocks1019), Some(CardSize::Blocks59)]);
+    m.hw.insert_blank_cards(1234);
+    assert_eq!(m.hw.cards[0].len(), 8 << 20);
+    assert_eq!(m.hw.cards[1].len(), 512 << 10);
+    let blank = m.hw.cards.clone();
     m.run_field(20_000_000);
     let state = m.save_state();
-    // A game saves after the state was made: loading the state keeps the save (the card is the
-    // game's save file, not part of the state).
-    m.hw.card[0x6000] = 0x42;
+    // A game saves after the state was made: loading the state keeps both saves. Card bytes are
+    // frontend-owned files, not part of a rewind or save-state snapshot.
+    m.hw.cards[0][0x6000] = 0x42;
+    m.hw.cards[1][0x7000] = 0x81;
     m.load_state(&state).unwrap();
-    assert_eq!(m.hw.card[0x6000], 0x42);
-    assert_eq!(&m.hw.card[..0x6000], &blank[..0x6000]);
+    assert_eq!(m.hw.cards[0][0x6000], 0x42);
+    assert_eq!(m.hw.cards[1][0x7000], 0x81);
+    assert_eq!(&m.hw.cards[0][..0x6000], &blank[0][..0x6000]);
+    assert_eq!(&m.hw.cards[1][..0x7000], &blank[1][..0x7000]);
     // A state from an older layout is refused with a reason.
     let mut old = state.clone();
-    old[3] = b'2';
+    old[3] = b'6';
     assert!(m.load_state(&old).unwrap_err().contains("older version"));
 }
 

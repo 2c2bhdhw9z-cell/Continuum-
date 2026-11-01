@@ -63,9 +63,10 @@ struct State {
 }
 
 /// "CGC" and the state's layout version (3: the memory card's command state and the ticking
-/// clock in Exi; 4: SI polling, the drive's streamed music; 5: drive commands take time;
-/// 6: the audio interface's sample counter counts from the CPU's clock).
-pub const STATE_MAGIC: &[u8; 4] = b"CGC6";
+/// clock in Exi; 4: SI polling and the drive's streamed music; 5: drive commands take time;
+/// 6: the audio interface's sample counter counts from the CPU's clock; 7: independent command
+/// state for memory-card slots A and B).
+pub const STATE_MAGIC: &[u8; 4] = b"CGC7";
 
 impl Machine {
     pub fn new(console: Console) -> Self {
@@ -229,7 +230,7 @@ impl Machine {
         // formatted for it.
         if header.region == 0 {
             self.hw.vi.regs[crate::hw::VI_DTV / 2] |= 2;
-            self.hw.insert_blank_card(self.cpu.tb);
+            self.hw.insert_blank_cards(self.cpu.tb);
         }
         let pal = header.region == 2;
         self.title = format!("{} {}", header.game_id, header.title);
@@ -423,7 +424,7 @@ impl Machine {
         let bias = u32::from_be_bytes([s[at], s[at + 1], s[at + 2], s[at + 3]]);
         let ticks_per_second = self.cpu_hz / cpu::CYCLES_PER_TIMEBASE_TICK;
         self.cpu.tb = seconds.wrapping_add(bias) as u64 * ticks_per_second;
-        self.hw.insert_blank_card(self.cpu.tb);
+        self.hw.insert_blank_cards(self.cpu.tb);
     }
 
     /// Turns our JIT on (gamecube.json G8) when this process can run generated code: on the

@@ -11,6 +11,9 @@ static JIT_ASKED: AtomicBool = AtomicBool::new(false);
 static READOUT_DECLARED: AtomicBool = AtomicBool::new(false);
 static READOUT_ON: AtomicBool = AtomicBool::new(false);
 static READOUT_CHANGED: AtomicBool = AtomicBool::new(false);
+/// Memory-card choices returned to the core: 0 means an empty slot.
+static CARD_A_BLOCKS: AtomicU32 = AtomicU32::new(251);
+static CARD_B_BLOCKS: AtomicU32 = AtomicU32::new(0);
 /// The picture's pixel at (6, 4): white where the read-out's first letter is.
 static CORNER: AtomicU32 = AtomicU32::new(0);
 
@@ -39,11 +42,23 @@ unsafe extern "C" fn env(cmd: u32, data: *mut c_void) -> bool {
         // GET_VARIABLE.
         15 => {
             let var = data as *mut [*const std::ffi::c_char; 2];
-            if std::ffi::CStr::from_ptr((*var)[0]).to_str() == Ok("cgc_speed_readout") {
+            let key = std::ffi::CStr::from_ptr((*var)[0]).to_str().unwrap_or_default();
+            if key == "cgc_speed_readout" {
                 (*var)[1] = if READOUT_ON.load(Ordering::SeqCst) { c"on".as_ptr() } else { c"off".as_ptr() };
                 return true;
             }
-            false
+            let blocks = match key {
+                "cgc_memory_card_a" => CARD_A_BLOCKS.load(Ordering::SeqCst),
+                "cgc_memory_card_b" => CARD_B_BLOCKS.load(Ordering::SeqCst),
+                _ => return false,
+            };
+            (*var)[1] = match blocks {
+                59 => c"59".as_ptr(),
+                251 => c"251".as_ptr(),
+                1019 => c"1019".as_ptr(),
+                _ => c"empty".as_ptr(),
+            };
+            true
         }
         // GET_VARIABLE_UPDATE.
         17 => {
@@ -108,6 +123,10 @@ fn loads_runs_and_saves_through_the_libretro_calls() {
     retro_init();
     let info = RetroGameInfo { path: cpath.as_ptr(), data: std::ptr::null(), size: 0, meta: std::ptr::null() };
     assert!(unsafe { retro_load_game(&info) });
+    assert_eq!(retro_get_memory_size(0), 2 << 20, "old .srm files still fit slot A by default");
+    assert!(!retro_get_memory_data(0).is_null());
+    assert_eq!(retro_get_memory_size(0x5C01), 0, "slot B stays empty by default");
+    assert!(retro_get_memory_data(0x5C01).is_null());
     assert!(JIT_ASKED.load(Ordering::SeqCst), "the core asks the engine about JIT");
     assert!(!JIT_ALLOWED.load(Ordering::SeqCst));
     for _ in 0..3 {
@@ -133,6 +152,21 @@ fn loads_runs_and_saves_through_the_libretro_calls() {
     assert!(unsafe { retro_serialize(buf.as_mut_ptr() as *mut c_void, size) });
     retro_run();
     assert!(unsafe { retro_unserialize(buf.as_ptr() as *const c_void, size) });
+    retro_unload_game();
+
+    // Capacity choices apply on the next start, independently for both slots.
+    CARD_A_BLOCKS.store(59, Ordering::SeqCst);
+    CARD_B_BLOCKS.store(1019, Ordering::SeqCst);
+    assert!(unsafe { retro_load_game(&info) });
+    assert_eq!(retro_get_memory_size(0), 512 << 10);
+    assert_eq!(retro_get_memory_size(0x5C01), 8 << 20);
+    assert!(!retro_get_memory_data(0x5C01).is_null());
+    retro_unload_game();
+    CARD_A_BLOCKS.store(1019, Ordering::SeqCst);
+    CARD_B_BLOCKS.store(251, Ordering::SeqCst);
+    assert!(unsafe { retro_load_game(&info) });
+    assert_eq!(retro_get_memory_size(0), 8 << 20);
+    assert_eq!(retro_get_memory_size(0x5C01), 2 << 20);
     retro_unload_game();
     retro_deinit();
     let missing = CString::new("/nonexistent/game.iso").unwrap();

@@ -237,7 +237,7 @@ final class WiFiServerCore: @unchecked Sendable {
                 at: dir, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles])
         else { return [] }
         return files
-            .filter { $0.pathExtension.lowercased() == "srm" }
+            .filter { ["srm", "gcb"].contains($0.pathExtension.lowercased()) }
             .map { ($0.lastPathComponent, Int64((try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)) }
             .sorted { $0.0.localizedStandardCompare($1.0) == .orderedAscending }
     }

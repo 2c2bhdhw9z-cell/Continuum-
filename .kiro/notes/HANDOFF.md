@@ -33,6 +33,17 @@ real battery save that survives Restart. Four own test-program runs match MAME 0
 of 860 frames, all eight names route to Arcade in the app, the complete cArcade suite and the real
 engine-loader test pass. Radar Scope remains the last part of A3; continue there.
 
+Third finished piece (8:44 PM, not built): cGC now has both GameCube memory-card slots and all
+three Nintendo card capacities: 59 blocks (512 KiB), 251 (2 MiB) and 1019 (8 MiB). Slots A and B
+have separate EXI traffic, completion interrupts, save-state command state and SRAM flash IDs.
+Two restart settings choose each slot; A stays a 251-block card by default, so every existing
+`.srm` remains compatible, and B stays empty until selected. The engine keeps B beside A as
+`<game>.gcb`; cloud backup and Wi-Fi transfer carry it, and changing capacity first keeps the old
+image as `.before-resize`. The cGC state tag is CGC7. Its complete suite passes (38 unit + 26 CPU +
+frontend/GPU + 24 machine), as do the engine persistence test, the real engine/core settings test
+and both targeted lint runs. G9 now only needs a phone rumble confirmation. Continue through the
+remaining cGC source queue; still no `.ipa` until the whole non-Switch batch is complete.
+
 ## Earlier (31 October 2026, 1:45 PM Eastern): the Switch, four questions open
 
 The owner: "Start the switch stuff. Use this as Reference maybe. https://github.com/seedds/nxnative".
@@ -765,12 +776,14 @@ FIX PLAN (do this first in the new chat):
   read the log (gh api repos/.../actions/jobs/<id>/logs) and fix.
 - The owner chose "B" (secret unlock): all of it is `native/ios/GameCubeUnlock.swift`, hooks marked
   `// GameCube unlock`, so it comes out in one go when GameCube is ready for everyone.
-- Memory card (G9, `cores/continuum-gc/src/memcard.rs`): a 251-block Nintendo card in slot A, the game's libretro
-  SAVE_RAM (the app's .srm, one card per game, its 20-second flush and on leaving). Blank cards are formatted the
-  library's way. SRAM is given the flash ID of whatever card is in the slot, so card images from consoles or other
-  emulators mount. SRAM fix: language and flags were swapped (games saw language 0x2C and mono), flash ID checksums
-  were missing. Proved with GCMM (homebrew card manager, `.scratch/homebrew/gcmm`, test only): restore a save,
-  list it after a restart, format; `.scratch/gcmmtest/checkcard.py` checks a card like the library does.
+- Memory cards (G9, `cores/continuum-gc/src/memcard.rs`): slots A and B, each selectable as 59,
+  251 or 1019 blocks. A remains the game's libretro SAVE_RAM (`.srm`, 251 blocks by default); B is
+  a private memory region persisted by the engine as `.gcb` (empty by default). Both are formatted
+  the library's way and SRAM gets each image's flash ID, so images from consoles or other emulators
+  mount. Changing a card capacity keeps the old file as `.before-resize`. Proved through EXI for both
+  channels, all capacities, independent interrupts, save states and restart persistence; the original
+  A card was also proved with GCMM (restore, list after restart, format). SRAM language/flags order and
+  both flash-ID checksums are correct.
 - CONTROLS WERE BROKEN for every game until 3394ad4: SI polling never set RDST, and Nintendo's PADRead and libogc
   only take input RDST marks as new. Now polled per SIPOLL with RDST/NOREP/RDSTINT (tests/machine.rs).
 - EXI: immediate transfers take their wire time (Hw::stall, counted by Machine::run_field); registers mirror every
@@ -778,8 +791,9 @@ FIX PLAN (do this first in the new chat):
   ticks with video lines; the time base starts from it (Animal Crossing's clock). Japanese discs: VI DTV bit 1.
 - Zelda-family sound (`src/dsp_zelda.rs`, Luigi's Mansion, Animal Crossing, Pikmin, Sunshine, Wind Waker...): full
   stand-in, unit-tested only. JIT re-proved after paired singles: Swiss, FCE, Neverball IDENTICAL as ARM64 code.
-- Test tools: `examples/boot.rs` takes CGC_PAD="from-to:A+B,...", CGC_SHOTS/CGC_SHOT_DIR, CGC_CARD_IN/OUT,
-  CGC_EXI_TRACE. Fingerprints in `.scratch/golden/` re-recorded with the card in (older ones in golden/pre-card).
+- Test tools: `examples/boot.rs` takes CGC_PAD="from-to:A+B,...", CGC_SHOTS/CGC_SHOT_DIR,
+  CGC_CARD_IN/OUT and CGC_CARD_B_IN/OUT (all three card sizes), CGC_EXI_TRACE. Fingerprints in
+  `.scratch/golden/` were re-recorded with the card in (older ones are in `golden/pre-card`).
   Background jobs: use run_in_background (a plain `&` dies with the command's sandbox).
 - Done after 216's code: TEV operands resolved per primitive (5e8fe44, ~2%). The CPU drawer costs ~21 ns a pixel
   for one untextured stage, ~43 with a bilinear texture (bench in tev.rs): the GPU drawer is the real fix.

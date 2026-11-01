@@ -57,6 +57,9 @@ pub struct DiagnosticCore {
     /// A pretend Sega CD save cartridge (`MEMORY_SEGACD_RAM_CART`, 8 KB), only when the loaded
     /// content starts with `cart`, the same way.
     ram_cart: Vec<u8>,
+    /// A pretend GameCube slot-B card (`MEMORY_GAMECUBE_CARD_B`, 512 KB), only when the loaded
+    /// content starts with `gc-card-b`, for the engine's second-card sidecar tests.
+    gamecube_card_b: Vec<u8>,
 }
 
 impl DiagnosticCore {
@@ -104,6 +107,7 @@ impl DiagnosticCore {
             a_was_held: false,
             rtc: Vec::new(),
             ram_cart: Vec::new(),
+            gamecube_card_b: Vec::new(),
         }
     }
 
@@ -223,6 +227,13 @@ impl EmulatorCore for DiagnosticCore {
         self.frame_count = 0;
         self.rtc = if content.starts_with(b"rtc") { vec![0; 24] } else { Vec::new() };
         self.ram_cart = if content.starts_with(b"cart") { vec![0; 8192] } else { Vec::new() };
+        let gamecube_cards = content.starts_with(b"gc-card-b");
+        if gamecube_cards {
+            self.save_ram.resize(2 * 1024 * 1024, 0);
+        } else if self.save_ram.len() != Self::SAVE_RAM_BYTES {
+            self.save_ram.resize(Self::SAVE_RAM_BYTES, 0);
+        }
+        self.gamecube_card_b = if gamecube_cards { vec![0; 512 * 1024] } else { Vec::new() };
         // Paint an initial frame so the framebuffer is meaningful the moment content
         // is loaded, rather than a black flash until the first `run_frame`. Real
         // cores behave the same way — `retro_load_game` leaves the framebuffer in a
@@ -342,6 +353,7 @@ impl EmulatorCore for DiagnosticCore {
             crate::memory::MEMORY_SAVE_RAM => Some(&self.save_ram),
             crate::memory::MEMORY_RTC if !self.rtc.is_empty() => Some(&self.rtc),
             crate::memory::MEMORY_SEGACD_RAM_CART if !self.ram_cart.is_empty() => Some(&self.ram_cart),
+            crate::memory::MEMORY_GAMECUBE_CARD_B if !self.gamecube_card_b.is_empty() => Some(&self.gamecube_card_b),
             _ => None,
         }
     }
@@ -352,6 +364,7 @@ impl EmulatorCore for DiagnosticCore {
             crate::memory::MEMORY_SAVE_RAM => Some(&mut self.save_ram),
             crate::memory::MEMORY_RTC if !self.rtc.is_empty() => Some(&mut self.rtc),
             crate::memory::MEMORY_SEGACD_RAM_CART if !self.ram_cart.is_empty() => Some(&mut self.ram_cart),
+            crate::memory::MEMORY_GAMECUBE_CARD_B if !self.gamecube_card_b.is_empty() => Some(&mut self.gamecube_card_b),
             _ => None,
         }
     }

@@ -22,7 +22,8 @@
 //
 //   SaveStates/<key>-<slot>.state and SaveStates/index.json   <AppSupport>/SaveStates/
 //   Cheats/index.json                                         <AppSupport>/Cheats/index.json
-//   BatterySaves/<name>.srm                                   <AppSupport>/BatterySaves/ (engine SAVE_RAM)
+//   BatterySaves/<name>.srm and .gcb                          <AppSupport>/BatterySaves/ (engine SAVE_RAM
+//                                                             and GameCube card B)
 //   Battery/<name>.srm (and other save extensions)            loose in <AppSupport>, where the
 //                                                             cores write them (it is their
 //                                                             save directory)
@@ -78,7 +79,7 @@ enum CloudSyncPaths {
     /// File extensions the cores use for battery saves, memory cards and RTC data in their save
     /// directory. BIOS files live in the same directory and are deliberately not in this list.
     static let batteryExtensions: Set<String> = [
-        "srm", "sav", "rtc", "eep", "sra", "fla", "mpk", "mcr", "mcd", "dsv", "nv", "ldci", "bcr",
+        "srm", "sav", "rtc", "eep", "sra", "fla", "mpk", "mcr", "mcd", "dsv", "nv", "ldci", "bcr", "gcb",
         // Beetle Saturn's backup RAM (`<game>.bkr`, see import/saves.rs `location`). Was missing,
         // so Saturn saves were never synced or backed up.
         "bkr",

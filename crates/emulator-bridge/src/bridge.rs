@@ -1959,6 +1959,16 @@ impl EmulatorBridge {
             ),
             None => return Err(BridgeError::NoSession),
         };
+        if core_id == "continuum_gc"
+            && Self::is_gamecube_card_size(size)
+            && Self::is_gamecube_card_size(data.len())
+            && data.len() != size
+        {
+            return Err(BridgeError::Memory(format!(
+                "that GameCube card is {} bytes, but slot A is set to {size} bytes; choose the matching Memory card A size first",
+                data.len()
+            )));
+        }
         // BlastEm on a Mega Drive cartridge: the file is in the layout older builds wrote.
         if let BatteryLayout::MegaDriveOldLayout(sram) = layout {
             let live = battery_layout::old_layout_to_live(data, &sram, size).map_err(BridgeError::Memory)?;
@@ -2009,6 +2019,7 @@ impl EmulatorBridge {
         let mut written = 0;
         if self.memory_size(crate::memory::MEMORY_SAVE_RAM) > 0 {
             let data = self.keep_clock_footer(path, self.battery_save()?);
+            self.keep_resized_gamecube_card(std::path::Path::new(path), data.len())?;
             written += Self::write_save_file(std::path::Path::new(path), &data, "srm.writing")?;
         }
         let clock_size = self.memory_size(crate::memory::MEMORY_RTC);
@@ -2034,6 +2045,15 @@ impl EmulatorBridge {
             let cart = self.read_memory(crate::memory::MEMORY_SEGACD_RAM_CART, 0, cart_size as u64)?;
             written += Self::write_save_file(&Self::ram_cart_path(path), &cart, "bcr.writing")?;
         }
+        // CONTINUUM GC'S SECOND MEMORY CARD is separate so slot A remains the ordinary `.srm`
+        // every older build and other emulator can read.
+        let card_b_size = self.gamecube_card_b_size();
+        if card_b_size > 0 {
+            let card = self.read_memory(crate::memory::MEMORY_GAMECUBE_CARD_B, 0, card_b_size as u64)?;
+            let target = Self::gamecube_card_b_path(path);
+            self.keep_resized_gamecube_card(&target, card.len())?;
+            written += Self::write_save_file(&target, &card, "gcb.writing")?;
+        }
         Ok(written)
     }
 
@@ -2052,6 +2072,37 @@ impl EmulatorBridge {
     /// emulators use for theirs, which the sync already carries.
     fn ram_cart_path(battery_path: &str) -> std::path::PathBuf {
         std::path::Path::new(battery_path).with_extension("bcr")
+    }
+
+    /// The second GameCube card only exists for Continuum GC, under its private memory id.
+    fn gamecube_card_b_size(&self) -> usize {
+        match self.session.as_ref() {
+            Some(session) if session.core_id == "continuum_gc" => self.memory_size(crate::memory::MEMORY_GAMECUBE_CARD_B),
+            _ => 0,
+        }
+    }
+
+    /// `<game>.srm` → `<game>.gcb`, beside it: the whole card image from slot B.
+    fn gamecube_card_b_path(battery_path: &str) -> std::path::PathBuf {
+        std::path::Path::new(battery_path).with_extension("gcb")
+    }
+
+    fn is_gamecube_card_size(size: usize) -> bool {
+        matches!(size, 524_288 | 2_097_152 | 8_388_608)
+    }
+
+    /// A changed card-capacity setting must never silently destroy the old card. Before replacing
+    /// a differently sized GameCube image, keep it beside the live file once (or under the next
+    /// free numbered name).
+    fn keep_resized_gamecube_card(&self, target: &std::path::Path, new_size: usize) -> Result<(), BridgeError> {
+        if self.session.as_ref().is_none_or(|session| session.core_id != "continuum_gc") {
+            return Ok(());
+        }
+        let Ok(old) = std::fs::read(target) else { return Ok(()) };
+        if old.len() == new_size {
+            return Ok(());
+        }
+        Self::keep_copy(&target.to_string_lossy(), &old, "before-resize", true)
     }
 
     /// `data` with the cartridge-clock footer the file at `path` already has put back after it
@@ -2203,11 +2254,20 @@ impl EmulatorBridge {
                 log::info!("battery save for this game taken from {}", other_path.display());
                 loaded = Some(data.len());
             } else if let Some(data) = own {
-                if matches!(layout, BatteryLayout::MegaDriveOldLayout(_)) {
-                    Self::keep_copy(path, &data, "before-blastem", false)?;
+                let resized_gamecube_card = core_id == "continuum_gc"
+                    && Self::is_gamecube_card_size(size)
+                    && Self::is_gamecube_card_size(data.len())
+                    && data.len() != size;
+                if resized_gamecube_card {
+                    Self::keep_copy(path, &data, "before-resize", true)?;
+                    log::info!("kept the {}-byte GameCube card because slot A is now {size} bytes", data.len());
+                } else {
+                    if matches!(layout, BatteryLayout::MegaDriveOldLayout(_)) {
+                        Self::keep_copy(path, &data, "before-blastem", false)?;
+                    }
+                    self.restore_battery_save(&data)?;
+                    loaded = Some(data.len());
                 }
-                self.restore_battery_save(&data)?;
-                loaded = Some(data.len());
             }
         }
         // The cartridge clock (see `persist_battery_save`). Before the first frame, which is
@@ -2247,6 +2307,23 @@ impl EmulatorBridge {
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
                 Err(err) => {
                     return Err(BridgeError::Memory(format!("could not read {}: {err}", cart_path.display())));
+                }
+            }
+        }
+        // Slot B's whole card image. A file of another capacity is kept untouched; if the new
+        // blank card is later saved, persist_battery_save first preserves the old image.
+        let card_b_size = self.gamecube_card_b_size();
+        if card_b_size > 0 {
+            let card_path = Self::gamecube_card_b_path(path);
+            match std::fs::read(&card_path) {
+                Ok(card) if card.len() == card_b_size => {
+                    self.write_memory(crate::memory::MEMORY_GAMECUBE_CARD_B, 0, &card)?;
+                    loaded = Some(loaded.unwrap_or(0) + card.len());
+                }
+                Ok(_) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+                Err(err) => {
+                    return Err(BridgeError::Memory(format!("could not read {}: {err}", card_path.display())));
                 }
             }
         }
@@ -2826,6 +2903,48 @@ mod tests {
         assert_eq!(fresh.battery_save().unwrap()[0], 0);
         assert_eq!(fresh.load_battery_save_file(&path).unwrap(), Some(8192));
         assert_eq!(&fresh.battery_save().unwrap()[..2], &[0x5A, 0xA5]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn gamecube_slot_b_round_trips_beside_the_unchanged_srm() {
+        let dir = scratch_dir("gamecube-card-b");
+        let srm = dir.join("game.dol.srm");
+        let gcb = dir.join("game.dol.gcb");
+        let path = srm.to_str().unwrap().to_string();
+        let mut bridge = running_as("continuum_gc", "gamecube", b"gc-card-b", "game.dol");
+        assert_eq!(bridge.memory_size(crate::memory::MEMORY_SAVE_RAM), 2 * 1024 * 1024);
+        assert_eq!(bridge.memory_size(crate::memory::MEMORY_GAMECUBE_CARD_B), 512 * 1024);
+        let wrong_size = bridge.restore_battery_save(&vec![0; 512 * 1024]).unwrap_err();
+        assert!(wrong_size.to_string().contains("choose the matching Memory card A size"));
+        assert_eq!(bridge.load_battery_save_file(&path).unwrap(), None);
+        bridge.write_memory(crate::memory::MEMORY_SAVE_RAM, 0, &[0xA5]).unwrap();
+        bridge.write_memory(crate::memory::MEMORY_GAMECUBE_CARD_B, 0, &[0x5A]).unwrap();
+        assert_eq!(bridge.persist_battery_save(&path).unwrap(), 2 * 1024 * 1024 + 512 * 1024);
+        assert_eq!(std::fs::read(&srm).unwrap()[0], 0xA5);
+        assert_eq!(std::fs::read(&gcb).unwrap()[0], 0x5A);
+        assert_eq!(bridge.persist_battery_save(&path).unwrap(), 0, "unchanged cards are not rewritten");
+
+        let mut fresh = running_as("continuum_gc", "gamecube", b"gc-card-b", "game.dol");
+        assert_eq!(fresh.load_battery_save_file(&path).unwrap(), Some(2 * 1024 * 1024 + 512 * 1024));
+        assert_eq!(fresh.read_memory(crate::memory::MEMORY_SAVE_RAM, 0, 1).unwrap(), [0xA5]);
+        assert_eq!(fresh.read_memory(crate::memory::MEMORY_GAMECUBE_CARD_B, 0, 1).unwrap(), [0x5A]);
+
+        // Changing capacity keeps the old images before the next flush replaces them.
+        std::fs::write(&srm, vec![0x31; 512 * 1024]).unwrap();
+        std::fs::write(&gcb, vec![0x42; 2 * 1024 * 1024]).unwrap();
+        assert_eq!(fresh.persist_battery_save(&path).unwrap(), 2 * 1024 * 1024 + 512 * 1024);
+        assert_eq!(std::fs::read(dir.join("game.dol.srm.before-resize")).unwrap(), vec![0x31; 512 * 1024]);
+        assert_eq!(std::fs::read(dir.join("game.dol.gcb.before-resize")).unwrap(), vec![0x42; 2 * 1024 * 1024]);
+        assert_eq!(std::fs::metadata(&srm).unwrap().len(), 2 * 1024 * 1024);
+        assert_eq!(std::fs::metadata(&gcb).unwrap().len(), 512 * 1024);
+
+        // The private memory id is ignored for every other core even if a broken core exposes it.
+        let other_srm = dir.join("other.srm");
+        let mut other = running_as("other", "test", b"gc-card-b", "other.rom");
+        other.write_memory(crate::memory::MEMORY_GAMECUBE_CARD_B, 0, &[0x77]).unwrap();
+        assert_eq!(other.persist_battery_save(other_srm.to_str().unwrap()).unwrap(), 2 * 1024 * 1024);
+        assert!(!dir.join("other.gcb").exists());
         let _ = std::fs::remove_dir_all(dir);
     }
 

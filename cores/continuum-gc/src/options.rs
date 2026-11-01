@@ -58,6 +58,11 @@ pub const SPEED_READOUT: &CStr = c"cgc_speed_readout";
 /// cores (gx/draw.rs), read when a game starts.
 pub const DRAWING: &CStr = c"cgc_drawing";
 
+/// The card capacities in slots A and B, read when a game starts. Slot A keeps the existing
+/// 251-block default; slot B stays empty until the player chooses a card for it.
+pub const MEMORY_CARD_A: &CStr = c"cgc_memory_card_a";
+pub const MEMORY_CARD_B: &CStr = c"cgc_memory_card_b";
+
 /// (category, key, label, info, values, default)
 type Spec = (&'static CStr, &'static CStr, &'static CStr, &'static CStr, &'static [(&'static CStr, &'static CStr)], &'static CStr);
 
@@ -78,9 +83,33 @@ const SPECS: &[Spec] = &[
         &[(c"gpu", c"Graphics chip"), (c"cpu", c"Processor")],
         c"gpu",
     ),
+    (
+        c"system",
+        MEMORY_CARD_A,
+        c"Memory card A",
+        c"The card in slot A. Its in-game saves stay in the usual .srm file. Applies when the game next starts.",
+        &[(c"59", c"59 blocks (512 KB)"), (c"251", c"251 blocks (2 MB)"), (c"1019", c"1019 blocks (8 MB)")],
+        c"251",
+    ),
+    (
+        c"system",
+        MEMORY_CARD_B,
+        c"Memory card B",
+        c"An optional second card. It is saved separately from card A. Applies when the game next starts.",
+        &[
+            (c"empty", c"Empty"),
+            (c"59", c"59 blocks (512 KB)"),
+            (c"251", c"251 blocks (2 MB)"),
+            (c"1019", c"1019 blocks (8 MB)"),
+        ],
+        c"empty",
+    ),
 ];
 
-const CATEGORIES: &[(&CStr, &CStr, &CStr)] = &[(c"performance", c"Performance", c"How fast the game runs.")];
+const CATEGORIES: &[(&CStr, &CStr, &CStr)] = &[
+    (c"performance", c"Performance", c"How fast the game runs."),
+    (c"system", c"System", c"The console and its memory cards."),
+];
 
 /// Declares the options to the frontend. Called from retro_set_environment.
 ///
@@ -177,4 +206,23 @@ pub unsafe fn speed_readout(env: EnvFn) -> bool {
 /// `env` must be the frontend's environment callback.
 pub unsafe fn gpu_drawing(env: EnvFn) -> bool {
     get(env, DRAWING).is_none_or(|v| v != "cpu")
+}
+
+/// The cards to put in slots A and B for the next game.
+///
+/// # Safety
+/// `env` must be the frontend's environment callback.
+pub unsafe fn memory_cards(env: EnvFn) -> [Option<crate::memcard::CardSize>; 2] {
+    use crate::memcard::CardSize;
+    let chosen = |value: Option<String>, default| match value.as_deref() {
+        Some("59") => Some(CardSize::Blocks59),
+        Some("251") => Some(CardSize::Blocks251),
+        Some("1019") => Some(CardSize::Blocks1019),
+        Some("empty") => None,
+        _ => default,
+    };
+    [
+        chosen(get(env, MEMORY_CARD_A), Some(CardSize::Blocks251)),
+        chosen(get(env, MEMORY_CARD_B), None),
+    ]
 }

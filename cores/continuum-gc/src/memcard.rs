@@ -1,10 +1,11 @@
-//! The memory card in slot A (gamecube.json G9): a Nintendo 251-block card (16 Mbit, 2 MB) on
-//! EXI channel 0, device 0.
+//! GameCube memory cards (gamecube.json G9): Nintendo 59, 251 and 1019-block cards in
+//! slots A and B, on EXI channels 0 and 1 respectively.
 //!
 //! A card is a flash chip behind a small command set. While it is selected, the first byte is a
 //! command and the bytes after it are its arguments and data:
 //!
-//! - `00` card ID: a dummy byte, then the ID (`00000010`: 16 Mbit, 8 KB sectors, 4 latency bytes).
+//! - `00` card ID: a dummy byte, then the size in megabits (4, 16 or 64), with 8 KB sectors
+//!   and 4 latency bytes.
 //! - `52` read: a 4-byte address, 4 latency bytes, then the data from that address on.
 //! - `F1` sector erase: a 2-byte address; the 8 KB sector becomes FF when the card is deselected.
 //! - `F2` page program: a 4-byte address and up to 128 bytes, written when the card is deselected.
@@ -26,15 +27,51 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Bytes on the card: 16 Mbit.
-pub const CARD_BYTES: usize = 2 << 20;
-/// The card ID: the size in megabits (bits 2-7), sector size code 0 (8 KB, bits 11-13) and
-/// latency code 0 (4 bytes, bits 8-10).
-pub const CARD_ID: u32 = 0x0000_0010;
+/// A Nintendo memory-card capacity. Five blocks hold the card's own file system, leaving the
+/// number in each variant free for games.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CardSize {
+    Blocks59,
+    Blocks251,
+    Blocks1019,
+}
+
+impl CardSize {
+    pub const ALL: [CardSize; 3] = [CardSize::Blocks59, CardSize::Blocks251, CardSize::Blocks1019];
+
+    pub const fn bytes(self) -> usize {
+        match self {
+            CardSize::Blocks59 => 512 << 10,
+            CardSize::Blocks251 => 2 << 20,
+            CardSize::Blocks1019 => 8 << 20,
+        }
+    }
+
+    /// The flash chip's ID: its size in megabits. The other ID fields are zero, meaning 8 KB
+    /// sectors and four read-latency bytes.
+    pub const fn card_id(self) -> u32 {
+        (self.bytes() >> 17) as u32
+    }
+
+    pub const fn blocks(self) -> usize {
+        self.bytes() / SECTOR_BYTES
+    }
+
+    pub const fn free_blocks(self) -> usize {
+        self.blocks() - SYSTEM_BLOCKS
+    }
+
+    pub fn from_bytes(bytes: usize) -> Option<CardSize> {
+        Self::ALL.into_iter().find(|size| size.bytes() == bytes)
+    }
+}
+
+/// The existing/default 251-block card's size and ID. Kept public for callers that want the
+/// compatible default; the command logic itself derives both from the card it is given.
+pub const CARD_BYTES: usize = CardSize::Blocks251.bytes();
+pub const CARD_ID: u32 = CardSize::Blocks251.card_id();
 /// An erase sector, which is also a block of the card's file system.
 pub const SECTOR_BYTES: usize = 8192;
-/// Blocks on the card; the first five are the file system's own, so 251 are free for saves.
-pub const BLOCKS: usize = CARD_BYTES / SECTOR_BYTES;
 const SYSTEM_BLOCKS: usize = 5;
 /// Reads and programs move through a 512-byte page, wrapping inside it.
 const PAGE_BYTES: u32 = 512;
@@ -113,7 +150,10 @@ impl Port {
             // A dummy byte, then the ID, then zeros.
             0x00 => match pos {
                 1 => 0x80,
-                2..=5 => (CARD_ID >> (8 * (5 - pos))) as u8,
+                2..=5 => {
+                    let id = CardSize::from_bytes(card.len()).map_or(0, CardSize::card_id);
+                    (id >> (8 * (5 - pos))) as u8
+                }
                 _ => 0,
             },
             0x52 => {
@@ -123,7 +163,7 @@ impl Port {
                 } else if pos < 5 + READ_LATENCY {
                     0xFF
                 } else {
-                    let b = card.get(self.address as usize & (CARD_BYTES - 1)).copied().unwrap_or(0xFF);
+                    let b = card_index(card.len(), self.address).and_then(|at| card.get(at)).copied().unwrap_or(0xFF);
                     self.address = next_in_page(self.address);
                     b
                 }
@@ -184,16 +224,17 @@ impl Port {
         let pos = self.position;
         let started = match self.command {
             0xF1 if pos >= 3 => {
-                let at = self.address as usize & (CARD_BYTES - 1) & !(SECTOR_BYTES - 1);
-                if let Some(sector) = card.get_mut(at..at + SECTOR_BYTES) {
-                    sector.fill(0xFF);
+                if let Some(at) = card_index(card.len(), self.address).map(|at| at & !(SECTOR_BYTES - 1)) {
+                    if let Some(sector) = card.get_mut(at..at + SECTOR_BYTES) {
+                        sector.fill(0xFF);
+                    }
                 }
                 true
             }
             0xF2 if pos >= 5 => {
                 let mut at = self.address;
                 for b in &self.program {
-                    if let Some(c) = card.get_mut(at as usize & (CARD_BYTES - 1)) {
+                    if let Some(c) = card_index(card.len(), at).and_then(|at| card.get_mut(at)) {
                         *c = *b;
                     }
                     at = next_in_page(at);
@@ -235,6 +276,11 @@ impl Port {
     pub fn status(&self) -> u8 {
         self.status
     }
+}
+
+/// An address on this card. The flash chip wraps addresses at its own capacity.
+fn card_index(card_len: usize, address: u32) -> Option<usize> {
+    (card_len != 0).then_some(address as usize % card_len)
 }
 
 /// The next address of a read or program, which wraps inside its 512-byte page.
@@ -309,8 +355,9 @@ pub struct Format {
 /// copies of the empty directory (blocks 1 and 2) and two of the empty block table (blocks 3
 /// and 4), all with their checksums; the rest erased (FF). The serial number is made from a
 /// flash ID of zeros.
-pub fn blank(f: &Format) -> Vec<u8> {
-    let mut card = vec![0xFFu8; CARD_BYTES];
+pub fn blank(size: CardSize, f: &Format) -> Vec<u8> {
+    let mut card = vec![0xFFu8; size.bytes()];
+    let blocks = size.blocks();
     let h = &mut card[..SECTOR_BYTES];
     h[..12].copy_from_slice(&serial_of(&[0; 12], f.time));
     h[12..20].copy_from_slice(&f.time.to_be_bytes());
@@ -318,7 +365,7 @@ pub fn blank(f: &Format) -> Vec<u8> {
     h[24..28].copy_from_slice(&(f.language as u32).to_be_bytes());
     h[28..32].copy_from_slice(&(f.dtv as u32).to_be_bytes());
     h[0x20..0x22].copy_from_slice(&0u16.to_be_bytes()); // device ID
-    h[0x22..0x24].copy_from_slice(&((CARD_ID & 0xFC) as u16).to_be_bytes()); // megabits
+    h[0x22..0x24].copy_from_slice(&((size.card_id() & 0xFC) as u16).to_be_bytes()); // megabits
     h[0x24..0x26].copy_from_slice(&f.encoding.to_be_bytes());
     let (sum, inv) = checksum(&h[..0x1FC]);
     h[0x1FC..0x1FE].copy_from_slice(&sum.to_be_bytes());
@@ -337,7 +384,7 @@ pub fn blank(f: &Format) -> Vec<u8> {
         let t = &mut card[(3 + copy) * SECTOR_BYTES..(4 + copy) * SECTOR_BYTES];
         t.fill(0);
         t[4..6].copy_from_slice(&(copy as u16).to_be_bytes());
-        t[6..8].copy_from_slice(&((BLOCKS - SYSTEM_BLOCKS) as u16).to_be_bytes());
+        t[6..8].copy_from_slice(&((blocks - SYSTEM_BLOCKS) as u16).to_be_bytes());
         t[8..10].copy_from_slice(&((SYSTEM_BLOCKS - 1) as u16).to_be_bytes());
         let (sum, inv) = checksum(&t[4..]);
         t[0..2].copy_from_slice(&sum.to_be_bytes());
@@ -370,8 +417,9 @@ mod tests {
     /// VerifyFAT), written from its description, against the flash ID in SRAM and the
     /// console's font encoding. Ok(free blocks) or the reason it would refuse.
     fn library_accepts(card: &[u8], sram_flash_id: &[u8; 12], encoding: u16) -> Result<u16, String> {
+        let size = CardSize::from_bytes(card.len()).ok_or_else(|| "card size".to_string())?;
         let h = &card[..512];
-        if be16(h, 0x20) != 0 || be16(h, 0x22) != 16 {
+        if be16(h, 0x20) != 0 || be16(h, 0x22) != size.card_id() as u16 {
             return Err("device or size".into());
         }
         if checksum(&h[..0x1FC]) != (be16(h, 0x1FC), be16(h, 0x1FE)) {
@@ -401,7 +449,7 @@ mod tests {
             if checksum(&t[4..]) != (be16(t, 0), be16(t, 2)) {
                 return Err(format!("block table {copy} checksum"));
             }
-            let counted = (SYSTEM_BLOCKS..BLOCKS).filter(|b| be16(t, 2 * b) == 0).count() as u16;
+            let counted = (SYSTEM_BLOCKS..size.blocks()).filter(|b| be16(t, 2 * b) == 0).count() as u16;
             if counted != be16(t, 6) {
                 return Err(format!("block table {copy} free count"));
             }
@@ -411,40 +459,46 @@ mod tests {
     }
 
     #[test]
-    fn answers_its_id_like_a_nintendo_card() {
-        let (mut p, mut card) = (Port::default(), blank(&fmt(0, 0)));
-        // The library: two bytes written (00 00), four read.
-        let out = command(&mut p, &mut card, &[0, 0, 0, 0, 0, 0, 0, 0]);
-        assert_eq!(out[1], 0x80);
-        assert_eq!(u32::from_be_bytes(out[2..6].try_into().unwrap()), CARD_ID);
-        assert_eq!(&out[6..], &[0, 0]);
-        let out = command(&mut p, &mut card, &[0x85, 0, 0, 0]);
-        assert_eq!(&out[2..], &[0xC2, 0x21]);
+    fn answers_each_capacity_id_like_a_nintendo_card() {
+        for size in CardSize::ALL {
+            let (mut p, mut card) = (Port::default(), blank(size, &fmt(0, 0)));
+            // The library: two bytes written (00 00), four read.
+            let out = command(&mut p, &mut card, &[0, 0, 0, 0, 0, 0, 0, 0]);
+            assert_eq!(out[1], 0x80);
+            assert_eq!(u32::from_be_bytes(out[2..6].try_into().unwrap()), size.card_id());
+            assert_eq!(&out[6..], &[0, 0]);
+            let out = command(&mut p, &mut card, &[0x85, 0, 0, 0]);
+            assert_eq!(&out[2..], &[0xC2, 0x21]);
+        }
     }
 
     #[test]
     fn status_starts_unlocked_and_ready() {
-        let (mut p, mut card) = (Port::default(), blank(&fmt(0, 0)));
+        let (mut p, mut card) = (Port::default(), blank(CardSize::Blocks251, &fmt(0, 0)));
         assert_eq!(command(&mut p, &mut card, &[0x83, 0])[1], ST_UNLOCKED | ST_READY);
     }
 
     #[test]
-    fn reads_after_the_latency_bytes_and_wraps_in_the_page() {
-        let mut card = vec![0u8; CARD_BYTES];
-        for (k, b) in card.iter_mut().enumerate() {
-            *b = (k * 7 + k / 512) as u8;
-        }
-        let mut p = Port::default();
-        let addr = 0x12_3400 + 0x1F0;
-        let cmd = [0x52, ((addr >> 17) & 0x7F) as u8, ((addr >> 9) & 0xFF) as u8, ((addr >> 7) & 3) as u8, (addr & 0x7F) as u8];
-        let mut send = cmd.to_vec();
-        send.extend([0u8; 4]);
-        send.extend([0u8; 32]);
-        let out = command(&mut p, &mut card, &send);
-        let page = addr & !0x1FF;
-        for k in 0..32 {
-            let want = page + ((addr + k) & 0x1FF);
-            assert_eq!(out[9 + k], card[want], "byte {k}");
+    fn reads_after_the_latency_bytes_and_wraps_in_the_page_and_card() {
+        for size in CardSize::ALL {
+            let mut card = vec![0u8; size.bytes()];
+            for (k, b) in card.iter_mut().enumerate() {
+                *b = (k * 7 + k / 512) as u8;
+            }
+            let mut p = Port::default();
+            // One whole card past the first page proves that the flash address wraps at this
+            // capacity as well as inside each 512-byte read page.
+            let addr = size.bytes() as u32 + 0x1F0;
+            let cmd = [0x52, ((addr >> 17) & 0x7F) as u8, ((addr >> 9) & 0xFF) as u8, ((addr >> 7) & 3) as u8, (addr & 0x7F) as u8];
+            let mut send = cmd.to_vec();
+            send.extend([0u8; 4]);
+            send.extend([0u8; 32]);
+            let out = command(&mut p, &mut card, &send);
+            let page = addr & !0x1FF;
+            for k in 0..32 {
+                let want = (page + ((addr + k) & 0x1FF)) as usize % card.len();
+                assert_eq!(out[9 + k as usize], card[want], "{size:?}, byte {k}");
+            }
         }
     }
 
@@ -504,15 +558,18 @@ mod tests {
     }
 
     #[test]
-    fn a_blank_card_mounts_with_251_free_blocks() {
-        for (time, enc) in [(0u64, 0u16), (0x0123_4567_89AB_CDEF, 0), (0x8765_4321_0FED_CBA9, 1)] {
-            let card = blank(&fmt(time, enc));
-            assert_eq!(flash_id_of(&card), [0; 12]);
-            assert_eq!(library_accepts(&card, &[0; 12], enc), Ok(251), "time {time:X}");
-            assert!(library_accepts(&card, &[0; 12], enc ^ 1).is_err(), "the other encoding is refused");
-            let mut wrong = [0u8; 12];
-            wrong[5] = 1;
-            assert!(library_accepts(&card, &wrong, enc).is_err(), "another console's flash ID is refused");
+    fn every_blank_capacity_mounts_with_the_right_free_blocks() {
+        for size in CardSize::ALL {
+            for (time, enc) in [(0u64, 0u16), (0x0123_4567_89AB_CDEF, 0), (0x8765_4321_0FED_CBA9, 1)] {
+                let card = blank(size, &fmt(time, enc));
+                assert_eq!(card.len(), size.bytes());
+                assert_eq!(flash_id_of(&card), [0; 12]);
+                assert_eq!(library_accepts(&card, &[0; 12], enc), Ok(size.free_blocks() as u16), "{size:?}, time {time:X}");
+                assert!(library_accepts(&card, &[0; 12], enc ^ 1).is_err(), "the other encoding is refused");
+                let mut wrong = [0u8; 12];
+                wrong[5] = 1;
+                assert!(library_accepts(&card, &wrong, enc).is_err(), "another console's flash ID is refused");
+            }
         }
     }
 
@@ -521,7 +578,7 @@ mod tests {
         // A card a console with some other flash ID formatted.
         let flash = *b"\x12\x34\x56\x78\x9A\xBC\xDE\xF0\x0F\x1E\x2D\x3C";
         let time = 0x0000_1234_5678_9ABC;
-        let mut card = blank(&fmt(time, 0));
+        let mut card = blank(CardSize::Blocks251, &fmt(time, 0));
         card[..12].copy_from_slice(&serial_of(&flash, time));
         let (sum, inv) = checksum(&card[..0x1FC]);
         card[0x1FC..0x1FE].copy_from_slice(&sum.to_be_bytes());
@@ -536,40 +593,68 @@ mod tests {
     use crate::bus::Bus;
     use crate::hw::Hw;
 
-    /// Channel 0's registers: parameters (CSR), DMA address and length, control, data.
+    /// The EXI channel registers: parameters (CSR), DMA address and length, control, data.
     const EXI: u32 = 0x0C00_6800;
 
+    fn exi(slot: usize) -> u32 {
+        EXI + 0x14 * slot as u32
+    }
+
     /// The library's EXISelect: chip select for `dev`, 16 MHz, the interrupt masks kept.
-    fn select(hw: &mut Hw, dev: u32) {
-        let csr = hw.read32(EXI) & 0x405;
-        hw.write32(EXI, csr | (0x80 << dev) | (4 << 4));
+    fn select_slot(hw: &mut Hw, slot: usize, dev: u32) {
+        let base = exi(slot);
+        let csr = hw.read32(base) & 0x405;
+        hw.write32(base, csr | (0x80 << dev) | (4 << 4));
     }
 
-    fn deselect(hw: &mut Hw) {
-        let csr = hw.read32(EXI) & 0x405;
-        hw.write32(EXI, csr);
+    fn deselect_slot(hw: &mut Hw, slot: usize) {
+        let base = exi(slot);
+        let csr = hw.read32(base) & 0x405;
+        hw.write32(base, csr);
     }
 
-    /// EXIImmEx writing: at most four bytes a transfer.
-    fn imm_write(hw: &mut Hw, bytes: &[u8]) {
+    fn imm_write_slot(hw: &mut Hw, slot: usize, bytes: &[u8]) {
+        let base = exi(slot);
         for chunk in bytes.chunks(4) {
             let mut w = [0u8; 4];
             w[..chunk.len()].copy_from_slice(chunk);
-            hw.write32(EXI + 0x10, u32::from_be_bytes(w));
-            hw.write32(EXI + 0x0C, ((chunk.len() as u32 - 1) << 4) | (1 << 2) | 1);
+            hw.write32(base + 0x10, u32::from_be_bytes(w));
+            hw.write32(base + 0x0C, ((chunk.len() as u32 - 1) << 4) | (1 << 2) | 1);
         }
     }
 
+    fn imm_read_slot(hw: &mut Hw, slot: usize, len: usize) -> Vec<u8> {
+        let base = exi(slot);
+        hw.write32(base + 0x0C, ((len as u32 - 1) << 4) | 1);
+        hw.read32(base + 0x10).to_be_bytes()[..len].to_vec()
+    }
+
+    fn dma_slot(hw: &mut Hw, slot: usize, addr: u32, len: u32, write: bool) {
+        let base = exi(slot);
+        hw.write32(base + 0x04, addr);
+        hw.write32(base + 0x08, len);
+        let rw = if write { 1 } else { 0 };
+        hw.write32(base + 0x0C, (rw << 2) | 2 | 1);
+    }
+
+    fn select(hw: &mut Hw, dev: u32) {
+        select_slot(hw, 0, dev);
+    }
+
+    fn deselect(hw: &mut Hw) {
+        deselect_slot(hw, 0);
+    }
+
+    fn imm_write(hw: &mut Hw, bytes: &[u8]) {
+        imm_write_slot(hw, 0, bytes);
+    }
+
     fn imm_read(hw: &mut Hw, len: usize) -> Vec<u8> {
-        hw.write32(EXI + 0x0C, ((len as u32 - 1) << 4) | 1);
-        hw.read32(EXI + 0x10).to_be_bytes()[..len].to_vec()
+        imm_read_slot(hw, 0, len)
     }
 
     fn dma(hw: &mut Hw, addr: u32, len: u32, write: bool) {
-        hw.write32(EXI + 0x04, addr);
-        hw.write32(EXI + 0x08, len);
-        let rw = if write { 1 } else { 0 };
-        hw.write32(EXI + 0x0C, (rw << 2) | 2 | 1);
+        dma_slot(hw, 0, addr, len, write);
     }
 
     fn address(cmd: u8, a: usize) -> Vec<u8> {
@@ -592,7 +677,7 @@ mod tests {
         imm_write(&mut hw, &[0; 4]);
         dma(&mut hw, 0x1000, 512, false);
         deselect(&mut hw);
-        assert_eq!(&hw.mem1[0x1000..0x1200], &hw.card[0x200..0x400]);
+        assert_eq!(&hw.mem1[0x1000..0x1200], &hw.cards[0][0x200..0x400]);
         // __CARDEnableInterrupt, then the EXI interrupt unmasked.
         select(&mut hw, 0);
         imm_write(&mut hw, &[0x81, 1]);
@@ -609,7 +694,7 @@ mod tests {
         assert_ne!(hw.cause() & crate::hw::INT_EXI, 0, "the EXI interrupt is asked for");
         hw.write32(EXI, 1 | 2);
         assert_eq!(hw.read32(EXI) & 2, 0, "cleared by writing 1");
-        assert!(hw.card[sector..sector + SECTOR_BYTES].iter().all(|b| *b == 0xFF));
+        assert!(hw.cards[0][sector..sector + SECTOR_BYTES].iter().all(|b| *b == 0xFF));
         // __CARDExiHandler: status, then clear status.
         select(&mut hw, 0);
         imm_write(&mut hw, &[0x83]);
@@ -626,27 +711,79 @@ mod tests {
         dma(&mut hw, 0x3000, 128, true);
         deselect(&mut hw);
         hw.vi_line();
-        assert_eq!(&hw.card[sector + 0x180..sector + 0x200], &data[..]);
+        assert_eq!(&hw.cards[0][sector + 0x180..sector + 0x200], &data[..]);
         assert_ne!(hw.read32(EXI) & 2, 0, "EXIINT again");
     }
 
     #[test]
-    fn sram_carries_the_flash_id_of_the_card_in_the_slot() {
+    fn both_slots_answer_and_interrupt_independently() {
         let mut hw = Hw::new(false);
-        let flash = [9u8, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0xAA, 0x55];
+        hw.configure_memory_cards([Some(CardSize::Blocks59), Some(CardSize::Blocks1019)]);
+        assert_ne!(hw.read32(exi(0)) & 0x1000, 0, "slot A has its card");
+        assert_ne!(hw.read32(exi(1)) & 0x1000, 0, "slot B has its card");
+
+        for (slot, size) in [(0, CardSize::Blocks59), (1, CardSize::Blocks1019)] {
+            select_slot(&mut hw, slot, 0);
+            imm_write_slot(&mut hw, slot, &[0, 0]);
+            assert_eq!(imm_read_slot(&mut hw, slot, 4), size.card_id().to_be_bytes());
+            deselect_slot(&mut hw, slot);
+        }
+
+        // Reads on the same card address come from the selected slot, never the other card.
+        hw.cards[0][0x200..0x204].copy_from_slice(b"AAAA");
+        hw.cards[1][0x200..0x204].copy_from_slice(b"BBBB");
+        for (slot, want, ram) in [(0, b"AAAA", 0x4000), (1, b"BBBB", 0x5000)] {
+            select_slot(&mut hw, slot, 0);
+            imm_write_slot(&mut hw, slot, &address(0x52, 0x200));
+            imm_write_slot(&mut hw, slot, &[0; 4]);
+            dma_slot(&mut hw, slot, ram, 32, false);
+            deselect_slot(&mut hw, slot);
+            assert_eq!(&hw.mem1[ram as usize..ram as usize + 4], want);
+        }
+
+        // Only slot B enables its completion interrupt and erases a sector. One line later,
+        // channel 1 reports EXIINT while channel 0 and card A remain untouched.
+        select_slot(&mut hw, 1, 0);
+        imm_write_slot(&mut hw, 1, &[0x81, 1]);
+        deselect_slot(&mut hw, 1);
+        hw.write32(exi(1), 1);
+        let sector = 7 * SECTOR_BYTES;
+        hw.cards[0][sector] = 0xA5;
+        hw.cards[1][sector] = 0x5A;
+        select_slot(&mut hw, 1, 0);
+        imm_write_slot(&mut hw, 1, &address(0xF1, sector)[..3]);
+        deselect_slot(&mut hw, 1);
+        hw.vi_line();
+        assert_eq!(hw.cards[0][sector], 0xA5);
+        assert_eq!(hw.cards[1][sector], 0xFF);
+        assert_eq!(hw.read32(exi(0)) & 2, 0, "slot A did not interrupt");
+        assert_ne!(hw.read32(exi(1)) & 2, 0, "slot B interrupted on its channel");
+        assert_ne!(hw.cause() & crate::hw::INT_EXI, 0);
+    }
+
+    #[test]
+    fn sram_carries_the_flash_id_of_each_card_in_its_slot() {
+        let mut hw = Hw::new(false);
+        hw.configure_memory_cards([Some(CardSize::Blocks251), Some(CardSize::Blocks59)]);
+        let flash_a = [9u8, 8, 7, 6, 5, 4, 3, 2, 1, 0, 0xAA, 0x55];
+        let flash_b = [0x10u8, 0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98, 0xA9, 0xBA, 0xCB];
         let time = 0x0000_0BAD_CAFE_F00D;
-        hw.card[..12].copy_from_slice(&serial_of(&flash, time));
-        hw.card[12..20].copy_from_slice(&time.to_be_bytes());
+        for (slot, flash) in [(0, flash_a), (1, flash_b)] {
+            hw.cards[slot][..12].copy_from_slice(&serial_of(&flash, time));
+            hw.cards[slot][12..20].copy_from_slice(&time.to_be_bytes());
+        }
         // ReadSram: the address word, then 64 bytes by DMA.
         select(&mut hw, 1);
         imm_write(&mut hw, &0x2000_0100u32.to_be_bytes());
         dma(&mut hw, 0x2000, 64, false);
         deselect(&mut hw);
         let sram = hw.mem1[0x2000..0x2040].to_vec();
-        assert_eq!(&sram[0x14..0x20], &flash);
-        let sum = flash.iter().fold(0u8, |a, b| a.wrapping_add(*b));
-        assert_eq!(sram[0x3A], !sum, "slot A's flash ID checksum");
-        assert_eq!(sram[0x3B], 0xFF, "slot B: zeros, checksum FF");
+        assert_eq!(&sram[0x14..0x20], &flash_a);
+        assert_eq!(&sram[0x20..0x2C], &flash_b);
+        for (slot, flash) in [flash_a, flash_b].iter().enumerate() {
+            let sum = flash.iter().fold(0u8, |a, b| a.wrapping_add(*b));
+            assert_eq!(sram[0x3A + slot], !sum, "slot {slot} flash ID checksum");
+        }
         assert_eq!((sram[0x12], sram[0x13]), (0, 0x2C), "English; stereo");
         let (mut s, mut i) = (0u16, 0u16);
         for w in sram[0x0C..0x14].chunks(2) {

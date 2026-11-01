@@ -49,6 +49,7 @@ fn continuum_gc_settings_through_the_frontend() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let out = dir.to_str().unwrap().to_string();
+    emulator_bridge::cores::options::set_root(Some(dir.join("options")));
     let desc = CoreDescriptor {
         id: "continuum_gc".into(),
         display_name: "Continuum GC".into(),
@@ -73,7 +74,14 @@ fn continuum_gc_settings_through_the_frontend() {
     let file = path.to_str().unwrap();
     let mut hint = ContentHint::from_filename(file);
     hint.full_path = Some(file.to_string());
+    use emulator_bridge::cores::options;
+    assert_eq!(options::current("continuum_gc", "cgc_memory_card_a").as_deref(), Some("251"));
+    assert_eq!(options::current("continuum_gc", "cgc_memory_card_b").as_deref(), Some("empty"));
+    options::set("continuum_gc", "cgc_memory_card_a", "59", false).unwrap();
+    options::set("continuum_gc", "cgc_memory_card_b", "1019", false).unwrap();
     core.load_content(&[], &hint).unwrap();
+    assert_eq!(core.memory_region(0).map(|r| r.len()), Some(512 << 10));
+    assert_eq!(core.memory_region(emulator_bridge::memory::MEMORY_GAMECUBE_CARD_B).map(|r| r.len()), Some(8 << 20));
     let input = emulator_bridge::input::InputState::default().snapshot();
     for _ in 0..3 {
         core.run_frame(&input).unwrap();
@@ -81,7 +89,6 @@ fn continuum_gc_settings_through_the_frontend() {
     let white = 0x00FF_FFFF;
     assert_ne!(pixel(&core, 6, 4), white, "no read-out by default");
     // The Core settings screen's change, as the app makes it.
-    use emulator_bridge::cores::options;
     assert_eq!(
         options::current("continuum_gc", "cgc_speed_readout").as_deref(),
         Some("off")

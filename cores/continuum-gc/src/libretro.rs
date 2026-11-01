@@ -749,10 +749,10 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
         return false;
     }
     let path = CStr::from_ptr((*game).path).to_string_lossy().into_owned();
-    let mut cb = RetroLogCallback { log: None };
-    if env(ENV_GET_LOG_INTERFACE, &mut cb as *mut RetroLogCallback as *mut c_void) {
+    let mut log_callback = RetroLogCallback { log: None };
+    if env(ENV_GET_LOG_INTERFACE, &mut log_callback as *mut RetroLogCallback as *mut c_void) {
         if let Ok(mut l) = LOG.lock() {
-            *l = cb.log;
+            *l = log_callback.log;
         }
     }
     let mut fmt = PIXEL_FORMAT_XRGB8888;
@@ -764,6 +764,11 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
     JIT_ALLOWED.store(asked && jit, Ordering::SeqCst);
     match open(&path) {
         Ok(mut machine) => {
+            let cards = cb().env.map_or(
+                [Some(crate::memcard::CardSize::Blocks251), None],
+                |env| unsafe { crate::options::memory_cards(env) },
+            );
+            machine.hw.configure_memory_cards(cards);
             machine.set_clock(local_seconds_since_2000());
             if JIT_ALLOWED.load(Ordering::SeqCst) {
                 machine.enable_jit();
@@ -988,25 +993,34 @@ pub extern "C" fn retro_cheat_set(_index: u32, _enabled: bool, _code: *const c_c
 pub extern "C" fn retro_get_region() -> u32 {
     0
 }
-/// `RETRO_MEMORY_SAVE_RAM`: the memory card in slot A (memcard.rs), which the frontend keeps as
-/// the game's .srm file, one card per game.
+/// `RETRO_MEMORY_SAVE_RAM`: the memory card in slot A, which keeps the existing `.srm` file.
 const MEMORY_SAVE_RAM: u32 = 0;
+/// Continuum's extra libretro memory region for the card in slot B. The engine keeps it beside
+/// the `.srm` as `.gcb`, without changing old slot-A saves.
+const MEMORY_CARD_B: u32 = 0x5C01;
 
-/// The memory card's bytes. Valid until the game is unloaded: the card is never reallocated
-/// while a game runs.
+/// A memory card's bytes. Valid until the game is unloaded: neither card is reallocated while a
+/// game runs.
 #[no_mangle]
 pub extern "C" fn retro_get_memory_data(id: u32) -> *mut c_void {
+    let slot = match id {
+        MEMORY_SAVE_RAM => 0,
+        MEMORY_CARD_B => 1,
+        _ => return std::ptr::null_mut(),
+    };
     match core().as_mut() {
-        Some(c) if id == MEMORY_SAVE_RAM && !c.machine.hw.card.is_empty() => c.machine.hw.card.as_mut_ptr() as *mut c_void,
+        Some(c) if !c.machine.hw.cards[slot].is_empty() => c.machine.hw.cards[slot].as_mut_ptr() as *mut c_void,
         _ => std::ptr::null_mut(),
     }
 }
 #[no_mangle]
 pub extern "C" fn retro_get_memory_size(id: u32) -> usize {
-    match core().as_ref() {
-        Some(c) if id == MEMORY_SAVE_RAM => c.machine.hw.card.len(),
-        _ => 0,
-    }
+    let slot = match id {
+        MEMORY_SAVE_RAM => 0,
+        MEMORY_CARD_B => 1,
+        _ => return 0,
+    };
+    core().as_ref().map_or(0, |c| c.machine.hw.cards[slot].len())
 }
 
 /// Now, as seconds since 1 January 2000 on the phone's clock in its own time zone (what a

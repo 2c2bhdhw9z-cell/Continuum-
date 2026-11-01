@@ -21,6 +21,10 @@ pub const MEMORY_VIDEO_RAM: u32 = 3;
 /// BlastEm, and the engine asks no other core for it.
 pub const MEMORY_SEGACD_RAM_CART: u32 = 0x5C00;
 
+/// Not libretro's: Continuum GC's second memory card. Slot A remains the standard SAVE_RAM so
+/// every existing 2 MB `.srm` keeps working; slot B is persisted beside it as `.gcb`.
+pub const MEMORY_GAMECUBE_CARD_B: u32 = 0x5C01;
+
 /// A readable name for a region id, for status lines. Never empty.
 pub fn region_name(id: u32) -> &'static str {
     match id {
@@ -29,6 +33,7 @@ pub fn region_name(id: u32) -> &'static str {
         MEMORY_SYSTEM_RAM => "system RAM",
         MEMORY_VIDEO_RAM => "video RAM",
         MEMORY_SEGACD_RAM_CART => "save cartridge",
+        MEMORY_GAMECUBE_CARD_B => "memory card B",
         _ => "unknown memory region",
     }
 }
@@ -68,6 +73,7 @@ mod tests {
         assert_eq!(MEMORY_RTC, 1);
         assert_eq!(MEMORY_SYSTEM_RAM, 2);
         assert_eq!(MEMORY_VIDEO_RAM, 3);
+        assert_ne!(MEMORY_SEGACD_RAM_CART, MEMORY_GAMECUBE_CARD_B);
     }
 
     #[test]

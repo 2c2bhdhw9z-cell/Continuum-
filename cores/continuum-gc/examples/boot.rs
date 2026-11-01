@@ -20,11 +20,28 @@ fn main() {
         eprintln!("arguments passed: {ok}");
     }
     let fields: u32 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(120);
-    // CGC_CARD_IN=file: the memory card's bytes before the program starts (a .srm / .raw).
-    if let Ok(p) = std::env::var("CGC_CARD_IN") {
-        let bytes = std::fs::read(&p).expect("card file");
-        let n = bytes.len().min(m.hw.card.len());
-        m.hw.card[..n].copy_from_slice(&bytes[..n]);
+    // CGC_CARD_IN / CGC_CARD_B_IN: complete card images before the program starts. Their file
+    // sizes choose 59, 251 or 1019 blocks, so the runner can exercise every supported card.
+    let read_card = |name: &str| {
+        std::env::var(name).ok().map(|path| {
+            let bytes = std::fs::read(&path).expect("card file");
+            let size = continuum_gc::memcard::CardSize::from_bytes(bytes.len()).expect("a 512 KB, 2 MB or 8 MB card image");
+            (bytes, size)
+        })
+    };
+    let card_a = read_card("CGC_CARD_IN");
+    let card_b = read_card("CGC_CARD_B_IN");
+    if card_a.is_some() || card_b.is_some() {
+        let sizes = [
+            card_a.as_ref().map_or(Some(continuum_gc::memcard::CardSize::Blocks251), |(_, size)| Some(*size)),
+            card_b.as_ref().map(|(_, size)| *size),
+        ];
+        m.hw.configure_memory_cards(sizes);
+        for (slot, image) in [card_a.as_ref(), card_b.as_ref()].into_iter().enumerate() {
+            if let Some((bytes, _)) = image {
+                m.hw.cards[slot].copy_from_slice(bytes);
+            }
+        }
     }
     // CGC_PAD="300-305:X,360-365:A+UP": buttons held on controller 1 during those fields.
     let script: Vec<(u32, u32, u16)> = std::env::var("CGC_PAD").map(|s| {
@@ -128,10 +145,12 @@ fn main() {
         std::fs::write(&p, t.join("\n")).unwrap();
         eprintln!("{} EXI events written to {p}", t.len());
     }
-    // CGC_CARD_OUT=file: the memory card's bytes at the end.
-    if let Ok(p) = std::env::var("CGC_CARD_OUT") {
-        std::fs::write(&p, &m.hw.card).unwrap();
-        eprintln!("card written to {p}");
+    // CGC_CARD_OUT / CGC_CARD_B_OUT: the two memory cards at the end.
+    for (slot, name) in ["CGC_CARD_OUT", "CGC_CARD_B_OUT"].iter().enumerate() {
+        if let Ok(path) = std::env::var(name) {
+            std::fs::write(&path, &m.hw.cards[slot]).unwrap();
+            eprintln!("card {} written to {path}", if slot == 0 { "A" } else { "B" });
+        }
     }
     if let Some(out) = args.get(3) {
         if let Some((w, h, px)) = m.hw.vi_picture() {
