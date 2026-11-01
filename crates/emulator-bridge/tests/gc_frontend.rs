@@ -21,6 +21,13 @@ fn program() -> Vec<u8> {
         0xB083_0048, // sth r4, 0x48(r3)
         0x3880_0005, // li r4, 5
         0xB083_0002, // sth r4, 2(r3)
+        0x3CA0_CC00, // lis r5, 0xCC00
+        0x60A5_6400, // ori r5, r5, 0x6400 (controller registers)
+        0x38C0_0001, // li r6, 1 (motor on)
+        0x90C5_0000, // players 1-4
+        0x90C5_000C,
+        0x90C5_0018,
+        0x90C5_0024,
         0x4800_0000, // b .
     ];
     let mut dol = vec![0u8; 0x100];
@@ -82,9 +89,18 @@ fn continuum_gc_settings_through_the_frontend() {
     core.load_content(&[], &hint).unwrap();
     assert_eq!(core.memory_region(0).map(|r| r.len()), Some(512 << 10));
     assert_eq!(core.memory_region(emulator_bridge::memory::MEMORY_GAMECUBE_CARD_B).map(|r| r.len()), Some(8 << 20));
+    for port in 0..4 {
+        assert_eq!(
+            core.controller_types(port),
+            vec![("GameCube Controller".to_string(), 1), ("None".to_string(), 0)]
+        );
+    }
     let input = emulator_bridge::input::InputState::default().snapshot();
     for _ in 0..3 {
         core.run_frame(&input).unwrap();
+    }
+    for port in 0..4 {
+        assert_eq!(emulator_bridge::input::rumble::RUMBLE.reading(port).strong, u16::MAX, "player {} rumble", port + 1);
     }
     let white = 0x00FF_FFFF;
     assert_ne!(pixel(&core, 6, 4), white, "no read-out by default");
@@ -107,5 +123,9 @@ fn continuum_gc_settings_through_the_frontend() {
         core.run_frame(&input).unwrap();
     }
     assert_ne!(pixel(&core, 6, 4), white, "and goes again");
+    drop(core);
+    for port in 0..4 {
+        assert!(emulator_bridge::input::rumble::RUMBLE.reading(port).is_idle(), "player {} motor stopped on unload", port + 1);
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }

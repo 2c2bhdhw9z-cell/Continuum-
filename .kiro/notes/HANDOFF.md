@@ -44,6 +44,14 @@ frontend/GPU + 24 machine), as do the engine persistence test, the real engine/c
 and both targeted lint runs. G9 now only needs a phone rumble confirmation. Continue through the
 remaining cGC source queue; still no `.ipa` until the whole non-Switch batch is complete.
 
+Fourth finished piece (8:52 PM, not built): cGC now reads four players instead of only player 1.
+All four GameCube Controller/None choices appear in the app's Controllers screen; each port gets
+its own buttons, two sticks and triggers. A game's motor reaches the phone and the matching
+physical controller for all four players, retries each frame so turning Rumble on mid-effect works,
+and stops when a controller is unplugged or the game closes. The core frontend test and the real
+engine-loaded core both drive all four motors and pass; only how the rumble feels on a real device
+remains phone-only proof. Continue cGC's next source item, then Radar Scope and the other queues.
+
 ## Earlier (31 October 2026, 1:45 PM Eastern): the Switch, four questions open
 
 The owner: "Start the switch stuff. Use this as Reference maybe. https://github.com/seedds/nxnative".

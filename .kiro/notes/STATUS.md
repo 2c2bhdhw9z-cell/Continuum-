@@ -13,7 +13,9 @@
   settings. Slot A keeps the existing 251-block `.srm` default. Slot B defaults empty and saves as
   `.gcb`; backup/sync and Wi-Fi carry it. A capacity change keeps the old image before replacing
   it. Full cGC tests, the engine persistence check, the real engine loader and lint pass. Save
-  states now use CGC7. G9 only has its phone rumble confirmation left.
+  states now use CGC7. All four controller ports now read their own controls, appear as
+  GameCube Controller/None choices, and drive the phone or that player's physical controller.
+  Unplugging or closing the game stops its motor. G9 only has a real-device feel check left.
 
 **25 October 2026, morning: JIT, every way (built in like Manic, StikDebug, another JIT app).
 Written, not compiled, not built.** Our own JIT helper app extension with StikJIT 1.9.0's source

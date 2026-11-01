@@ -59,8 +59,38 @@ type AudioFn = unsafe extern "C" fn(i16, i16);
 type AudioBatchFn = unsafe extern "C" fn(*const i16, usize) -> usize;
 type PollFn = unsafe extern "C" fn();
 type InputFn = unsafe extern "C" fn(u32, u32, u32, u32) -> i16;
+type RumbleFn = unsafe extern "C" fn(u32, u32, u16) -> bool;
+
+#[repr(C)]
+struct RumbleInterface {
+    set_rumble_state: Option<RumbleFn>,
+}
+
+#[repr(C)]
+struct InputDescriptor {
+    port: u32,
+    device: u32,
+    index: u32,
+    id: u32,
+    description: *const c_char,
+}
+
+#[repr(C)]
+struct ControllerDescription {
+    description: *const c_char,
+    id: u32,
+}
+
+#[repr(C)]
+struct ControllerInfo {
+    types: *const ControllerDescription,
+    count: u32,
+}
 
 const ENV_SET_PIXEL_FORMAT: u32 = 10;
+const ENV_SET_INPUT_DESCRIPTORS: u32 = 11;
+const ENV_GET_RUMBLE_INTERFACE: u32 = 23;
+const ENV_SET_CONTROLLER_INFO: u32 = 35;
 const ENV_GET_JIT_CAPABLE: u32 = 74;
 const ENV_SET_HW_RENDER: u32 = 14;
 const ENV_GET_HW_RENDER_INTERFACE: u32 = 41 | 0x1_0000;
@@ -81,13 +111,20 @@ static SILENCE: [i16; 2 * FRAME_SAMPLES] = [0; 2 * FRAME_SAMPLES];
 /// Whether the engine said JIT may be used, asked once at load.
 pub static JIT_ALLOWED: AtomicBool = AtomicBool::new(false);
 
-#[derive(Default)]
 struct Callbacks {
     env: Option<EnvFn>,
     video: Option<VideoFn>,
     audio: Option<AudioBatchFn>,
     poll: Option<PollFn>,
     input: Option<InputFn>,
+    rumble: Option<RumbleFn>,
+    controllers: [bool; 4],
+}
+
+impl Default for Callbacks {
+    fn default() -> Self {
+        Callbacks { env: None, video: None, audio: None, poll: None, input: None, rumble: None, controllers: [true; 4] }
+    }
 }
 
 struct Core {
@@ -494,7 +531,10 @@ const NOTICE_AFTER: std::time::Duration = std::time::Duration::from_secs(15);
 const NOTICE_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
 
 impl Core {
-    fn new(machine: Machine) -> Core {
+    fn new(mut machine: Machine, controllers: [bool; 4]) -> Core {
+        for (pad, connected) in machine.hw.si.pads.iter_mut().zip(controllers) {
+            pad.connected = connected;
+        }
         Core {
             machine,
             frame: vec![0; 640 * 480],
@@ -595,13 +635,57 @@ impl Core {
 }
 
 static CORE: Mutex<Option<Core>> = Mutex::new(None);
-static CB: Mutex<Callbacks> = Mutex::new(Callbacks { env: None, video: None, audio: None, poll: None, input: None });
+static CB: Mutex<Callbacks> = Mutex::new(Callbacks {
+    env: None,
+    video: None,
+    audio: None,
+    poll: None,
+    input: None,
+    rumble: None,
+    controllers: [true; 4],
+});
 
 fn cb() -> std::sync::MutexGuard<'static, Callbacks> {
     CB.lock().unwrap_or_else(|p| p.into_inner())
 }
 fn core() -> std::sync::MutexGuard<'static, Option<Core>> {
     CORE.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Tells the frontend that all four ports take an ordinary GameCube controller, or can be left
+/// empty, and gives every button/stick a name for remapping screens.
+unsafe fn declare_controllers(env: EnvFn) {
+    let types: &'static mut [ControllerDescription; 2] = Box::leak(Box::new([
+        ControllerDescription { description: c"GameCube Controller".as_ptr(), id: DEVICE_JOYPAD },
+        ControllerDescription { description: c"None".as_ptr(), id: 0 },
+    ]));
+    let infos: &'static mut Vec<ControllerInfo> = Box::leak(Box::new(Vec::new()));
+    for _ in 0..4 {
+        infos.push(ControllerInfo { types: types.as_ptr(), count: types.len() as u32 });
+    }
+    infos.push(ControllerInfo { types: std::ptr::null(), count: 0 });
+    env(ENV_SET_CONTROLLER_INFO, infos.as_mut_ptr() as *mut c_void);
+
+    let buttons: &[(u32, &CStr)] = &[
+        (8, c"A"), (0, c"B"), (9, c"X"), (1, c"Y"), (3, c"Start"),
+        (4, c"D-Pad Up"), (5, c"D-Pad Down"), (6, c"D-Pad Left"), (7, c"D-Pad Right"),
+        (10, c"L"), (11, c"R"), (12, c"Z"), (13, c"Z"),
+    ];
+    let axes: &[(u32, u32, &CStr)] = &[
+        (0, 0, c"Control Stick X"), (0, 1, c"Control Stick Y"),
+        (1, 0, c"C Stick X"), (1, 1, c"C Stick Y"),
+    ];
+    let descriptors: &'static mut Vec<InputDescriptor> = Box::leak(Box::new(Vec::new()));
+    for port in 0..4 {
+        for (id, name) in buttons {
+            descriptors.push(InputDescriptor { port, device: DEVICE_JOYPAD, index: 0, id: *id, description: name.as_ptr() });
+        }
+        for (index, id, name) in axes {
+            descriptors.push(InputDescriptor { port, device: DEVICE_ANALOG, index: *index, id: *id, description: name.as_ptr() });
+        }
+    }
+    descriptors.push(InputDescriptor { port: 0, device: 0, index: 0, id: 0, description: std::ptr::null() });
+    env(ENV_SET_INPUT_DESCRIPTORS, descriptors.as_mut_ptr() as *mut c_void);
 }
 
 #[no_mangle]
@@ -636,7 +720,14 @@ pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) 
 pub extern "C" fn retro_set_environment(f: EnvFn) {
     cb().env = Some(f);
     // SAFETY: the frontend's environment callback.
-    unsafe { crate::options::declare(f) };
+    unsafe {
+        crate::options::declare(f);
+        declare_controllers(f);
+        let mut interface = RumbleInterface { set_rumble_state: None };
+        if f(ENV_GET_RUMBLE_INTERFACE, &mut interface as *mut RumbleInterface as *mut c_void) {
+            cb().rumble = interface.set_rumble_state;
+        }
+    }
 }
 #[no_mangle]
 pub extern "C" fn retro_set_video_refresh(f: VideoFn) {
@@ -660,10 +751,39 @@ pub extern "C" fn retro_set_input_state(f: InputFn) {
 pub extern "C" fn retro_init() {}
 #[no_mangle]
 pub extern "C" fn retro_deinit() {
-    *core() = None;
+    retro_unload_game();
+    let mut callbacks = cb();
+    callbacks.rumble = None;
+    callbacks.controllers = [true; 4];
 }
 #[no_mangle]
-pub extern "C" fn retro_set_controller_port_device(_port: u32, _device: u32) {}
+pub extern "C" fn retro_set_controller_port_device(port: u32, device: u32) {
+    let slot = port as usize;
+    if slot >= 4 {
+        return;
+    }
+    let connected = device & 0xFF == DEVICE_JOYPAD;
+    let rumble = {
+        let mut callbacks = cb();
+        callbacks.controllers[slot] = connected;
+        callbacks.rumble
+    };
+    if let Some(c) = core().as_mut() {
+        c.machine.hw.si.pads[slot].connected = connected;
+        if !connected {
+            c.machine.hw.si.pads[slot].rumble = false;
+        }
+    }
+    if !connected {
+        if let Some(set) = rumble {
+            // SAFETY: the frontend's rumble callback, retained from its interface.
+            unsafe {
+                set(port, 0, 0);
+                set(port, 1, 0);
+            }
+        }
+    }
+}
 
 /// libretro's log callback (printf-style, variadic).
 type LogFn = unsafe extern "C" fn(level: u32, fmt: *const c_char, ...);
@@ -774,7 +894,8 @@ pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
                 machine.enable_jit();
             }
             machine.hw.gx.set_draw_threads(draw_helpers());
-            let mut c = Core::new(machine);
+            let controllers = cb().controllers;
+            let mut c = Core::new(machine, controllers);
             c.set_readout(read_option(crate::options::speed_readout));
             // The graphics chip draws unless the player chose the processor. The app hands its
             // Vulkan device over during this request (or later: retro_run tries again then).
@@ -805,6 +926,15 @@ pub extern "C" fn retro_load_game_special(_t: u32, _i: *const RetroGameInfo, _n:
 
 #[no_mangle]
 pub extern "C" fn retro_unload_game() {
+    if let Some(set) = cb().rumble {
+        for port in 0..4 {
+            // SAFETY: the frontend's rumble callback, retained from its interface.
+            unsafe {
+                set(port, 0, 0);
+                set(port, 1, 0);
+            }
+        }
+    }
     *core() = None;
 }
 
@@ -813,7 +943,7 @@ pub extern "C" fn retro_reset() {
     // A restart re-opens the game through the frontend; nothing to do in place yet.
 }
 
-fn read_pad(input: InputFn, port: u32) -> crate::hw::PadState {
+fn read_pad(input: InputFn, port: u32, connected: bool) -> crate::hw::PadState {
     // SAFETY: the frontend's input callback.
     let b = |id: u32| unsafe { input(port, DEVICE_JOYPAD, 0, id) } != 0;
     let axis = |index: u32, id: u32| unsafe { input(port, DEVICE_ANALOG, index, id) };
@@ -833,7 +963,7 @@ fn read_pad(input: InputFn, port: u32) -> crate::hw::PadState {
         ((v + 32768) >> 8).clamp(0, 255) as u8
     };
     crate::hw::PadState {
-        connected: true,
+        connected,
         buttons,
         stick: (to_u8(axis(0, 0), false), to_u8(axis(0, 1), true)),
         cstick: (to_u8(axis(1, 0), false), to_u8(axis(1, 1), true)),
@@ -844,9 +974,9 @@ fn read_pad(input: InputFn, port: u32) -> crate::hw::PadState {
 
 #[no_mangle]
 pub extern "C" fn retro_run() {
-    let (video, audio, poll, input) = {
+    let (video, audio, poll, input, rumble) = {
         let c = cb();
-        (c.video, c.audio, c.poll, c.input)
+        (c.video, c.audio, c.poll, c.input, c.rumble)
     };
     let mut guard = core();
     let Some(core) = guard.as_mut() else { return };
@@ -855,9 +985,12 @@ pub extern "C" fn retro_run() {
         unsafe { poll() };
     }
     if let Some(input) = input {
-        let p = read_pad(input, 0);
-        let rumble = core.machine.hw.si.pads[0].rumble;
-        core.machine.hw.si.pads[0] = crate::hw::PadState { rumble, ..p };
+        for port in 0..4 {
+            let connected = core.machine.hw.si.pads[port].connected;
+            let motor = core.machine.hw.si.pads[port].rumble && connected;
+            let p = read_pad(input, port as u32, connected);
+            core.machine.hw.si.pads[port] = crate::hw::PadState { rumble: motor, ..p };
+        }
     }
     let env = cb().env;
     if let Some(env) = env {
@@ -873,6 +1006,15 @@ pub extern "C" fn retro_run() {
     let t = std::time::Instant::now();
     core.machine.run_one_field();
     let ran = t.elapsed();
+    if let Some(set) = rumble {
+        for (port, pad) in core.machine.hw.si.pads.iter().enumerate() {
+            let strength = if pad.connected && pad.rumble { u16::MAX } else { 0 };
+            // Sent every frame rather than only on changes: if the player switches the app's
+            // Rumble setting on while a game is already driving the motor, this frame starts it.
+            // The engine itself drops unchanged values.
+            unsafe { set(port as u32, 0, strength) };
+        }
+    }
     if let Some(e) = core.machine.hw.gx.gpu_error.take() {
         log_line(&format!("the graphics chip stopped drawing ({e}); the processor draws from here"));
     }

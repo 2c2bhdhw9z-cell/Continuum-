@@ -11,6 +11,10 @@ static JIT_ASKED: AtomicBool = AtomicBool::new(false);
 static READOUT_DECLARED: AtomicBool = AtomicBool::new(false);
 static READOUT_ON: AtomicBool = AtomicBool::new(false);
 static READOUT_CHANGED: AtomicBool = AtomicBool::new(false);
+static CONTROLLERS_DECLARED: AtomicBool = AtomicBool::new(false);
+static INPUTS_DECLARED: AtomicBool = AtomicBool::new(false);
+static INPUT_PORTS: AtomicU32 = AtomicU32::new(0);
+static RUMBLE_PORTS: AtomicU32 = AtomicU32::new(0);
 /// Memory-card choices returned to the core: 0 means an empty slot.
 static CARD_A_BLOCKS: AtomicU32 = AtomicU32::new(251);
 static CARD_B_BLOCKS: AtomicU32 = AtomicU32::new(0);
@@ -25,9 +29,39 @@ struct Definition {
     default: *const std::ffi::c_char,
 }
 
+#[repr(C)]
+struct RumbleInterface {
+    set_rumble_state: Option<unsafe extern "C" fn(u32, u32, u16) -> bool>,
+}
+
+unsafe extern "C" fn rumble(port: u32, _effect: u32, strength: u16) -> bool {
+    if port >= 4 {
+        return false;
+    }
+    let bit = 1 << port;
+    if strength == 0 {
+        RUMBLE_PORTS.fetch_and(!bit, Ordering::SeqCst);
+    } else {
+        RUMBLE_PORTS.fetch_or(bit, Ordering::SeqCst);
+    }
+    true
+}
+
 unsafe extern "C" fn env(cmd: u32, data: *mut c_void) -> bool {
     match cmd {
         10 => true,
+        11 => {
+            INPUTS_DECLARED.store(true, Ordering::SeqCst);
+            true
+        }
+        23 => {
+            (*(data as *mut RumbleInterface)).set_rumble_state = Some(rumble);
+            true
+        }
+        35 => {
+            CONTROLLERS_DECLARED.store(true, Ordering::SeqCst);
+            true
+        }
         // SET_CORE_OPTIONS_V2: look for the speed read-out among the definitions.
         67 => {
             let mut d = *(data as *const *const Definition).add(1);
@@ -87,7 +121,10 @@ unsafe extern "C" fn audio(_d: *const i16, n: usize) -> usize {
     n
 }
 unsafe extern "C" fn poll() {}
-unsafe extern "C" fn input(_p: u32, _d: u32, _i: u32, _id: u32) -> i16 {
+unsafe extern "C" fn input(p: u32, _d: u32, _i: u32, _id: u32) -> i16 {
+    if p < 4 {
+        INPUT_PORTS.fetch_or(1 << p, Ordering::SeqCst);
+    }
     0
 }
 
@@ -103,6 +140,13 @@ fn loads_runs_and_saves_through_the_libretro_calls() {
         0xB083_0048, // sth r4, 0x48(r3)
         0x3880_0005, // li r4, 5
         0xB083_0002, // sth r4, 2(r3)
+        0x3CA0_CC00, // lis r5, 0xCC00
+        0x60A5_6400, // ori r5, r5, 0x6400 (controller registers)
+        0x38C0_0001, // li r6, 1 (motor on)
+        0x90C5_0000, // stw r6, 0(r5), player 1
+        0x90C5_000C, // stw r6, 12(r5), player 2
+        0x90C5_0018, // stw r6, 24(r5), player 3
+        0x90C5_0024, // stw r6, 36(r5), player 4
         0x4800_0000, // b .
     ];
     let mut dol = vec![0u8; 0x100];
@@ -134,6 +178,13 @@ fn loads_runs_and_saves_through_the_libretro_calls() {
     }
     assert_eq!(FRAMES.load(Ordering::SeqCst), 3);
     assert_eq!(LAST_W.load(Ordering::SeqCst), 640);
+    assert!(CONTROLLERS_DECLARED.load(Ordering::SeqCst), "four controller ports were declared");
+    assert!(INPUTS_DECLARED.load(Ordering::SeqCst), "controller inputs were named");
+    assert_eq!(INPUT_PORTS.load(Ordering::SeqCst) & 0xF, 0xF, "all four players are read");
+    assert_eq!(RUMBLE_PORTS.load(Ordering::SeqCst) & 0xF, 0xF, "all four motors reach the frontend");
+    retro_set_controller_port_device(2, 0);
+    assert_eq!(RUMBLE_PORTS.load(Ordering::SeqCst) & 4, 0, "unplugging player 3 stops its motor");
+    retro_set_controller_port_device(2, 1);
     // The speed read-out: declared, off by default, drawn in the corner once switched on.
     assert!(READOUT_DECLARED.load(Ordering::SeqCst), "the speed read-out option is declared");
     assert_ne!(CORNER.load(Ordering::SeqCst), 0x00FF_FFFF);
@@ -153,6 +204,7 @@ fn loads_runs_and_saves_through_the_libretro_calls() {
     retro_run();
     assert!(unsafe { retro_unserialize(buf.as_ptr() as *const c_void, size) });
     retro_unload_game();
+    assert_eq!(RUMBLE_PORTS.load(Ordering::SeqCst) & 0xF, 0, "unloading stops every motor");
 
     // Capacity choices apply on the next start, independently for both slots.
     CARD_A_BLOCKS.store(59, Ordering::SeqCst);
