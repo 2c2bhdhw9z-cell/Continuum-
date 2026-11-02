@@ -1,6 +1,6 @@
 # Have any of the emulators been updated?
 
-Checked automatically, weekly. **Last checked: 26 October 2026, 13:38 UTC.**
+Checked automatically, weekly. **Last checked: 02 November 2026, 16:37 UTC.**
 
 Written by `scripts/check-core-updates.sh`. Do not edit by hand; it is overwritten.
 
@@ -29,64 +29,71 @@ hundred tidy-ups.
 
 | Console | New changes since ours | Newest change | Our patches still fit | Our locked version |
 | --- | --- | --- | --- | --- |
-| **Master System, Game Gear and SG-1000, Gearsystem with a Continuum patch** (skipped `426d4eb6` on 16 October 2026: only the desktop app and the file-based save code changed; the emulator Continuum builds is the same; newer code since) | 30 | 2026-10-25 | yes | `4a801d22` |
-| **PlayStation, Beetle PSX HW (Vulkan) — step 4 proof core** (skipped `e57860d8` on 12 October 2026: 3-7% slower on the software renderer the app uses; newer code since) | 49 | 2026-10-26 | — | `5ec9909f` |
-| **TurboGrafx-16 / PC Engine, software renderer** | 1 | 2026-10-23 | — | `3f946f27` |
-| **Nintendo 64, software rasteriser and interpreter** | 53 | 2026-10-26 | yes | `a8280501` |
-| **Nintendo 3DS, Vulkan, interpreter CPU (no JIT)** | 27 | 2026-10-25 | yes | `6daa07ab` |
-| **PSP, Vulkan, IR interpreter (no JIT, no dynarec)** | 712 | 2026-10-26 | yes | `a838053e` |
-| **Dreamcast, interpreter only (TARGET_NO_REC), optional** | 24 | 2026-10-24 | yes | `80471d57` |
+| **Master System, Game Gear and SG-1000, Gearsystem with a Continuum patch** (skipped `426d4eb6` on 16 October 2026: only the desktop app and the file-based save code changed; the emulator Continuum builds is the same; newer code since) | 41 | 2026-11-01 | yes | `4a801d22` |
+| **PS1, interpreter only** | 18 | 2026-10-29 | yes | `c8816799` |
+| **PlayStation, Beetle PSX HW (Vulkan) — step 4 proof core** (skipped `e57860d8` on 12 October 2026: 3-7% slower on the software renderer the app uses; newer code since) | 74 | 2026-11-01 | — | `5ec9909f` |
+| **TurboGrafx-16 / PC Engine, software renderer** (skipped `4eee99c4` on 27 October 2026: only the Spanish and Swedish translations of its settings changed, and Continuum always shows them in English; the emulator Continuum builds is the same; newer code since) | 2 | 2026-10-30 | — | `3f946f27` |
+| **Nintendo 64, software rasteriser and interpreter** | 121 | 2026-11-02 | yes | `a8280501` |
+| **Nintendo 3DS, Vulkan, interpreter CPU (no JIT)** | 41 | 2026-11-01 | yes | `6daa07ab` |
+| **PSP, Vulkan, IR interpreter (no JIT, no dynarec)** | 1124 | 2026-11-02 | yes | `a838053e` |
+| **Dreamcast, interpreter only (TARGET_NO_REC), optional** | 27 | 2026-10-31 | yes | `80471d57` |
 
 Downloaded. The buildbot's build is a different file from ours; that alone does not say
 what changed in it.
 
 | Console | What the buildbot has | Our locked build |
 | --- | --- | --- |
-| **Amiga** (skipped `2cf44f8e` on 16 October 2026: same code as ours (5.3.1, 7387937); only rebuilt by the buildbot; newer code since) | newer build (`49ef1cd2`) | `6b07a207` |
-| **Commodore 64** (skipped `e842ed6f` on 16 October 2026: same code as ours (f63b566); only the build date inside differs; newer code since) | newer build (`4aa92357`) | `caeffa2f` |
-| **DOOM** (skipped `d14d2093` on 12 October 2026: turns the default sound and music volume to max, so DOOM’s sound clips; newer code since) | newer build (`b5bed4d7`) | `e7d16803` |
-| **Atari Jaguar** (skipped `024c4337` on 12 October 2026: about 13% slower; newer code since) | newer build (`100b8b5e`) | `00356c5c` |
-| **Saturn Beetle** | newer build (`74448969`) | `40428642` |
+| **Amiga** (skipped `49ef1cd2` on 27 October 2026: same code as ours (5.3.1, 7387937); only rebuilt by the buildbot; newer code since) | newer build (`81ebb930`) | `6b07a207` |
+| **Commodore 64** | newer build (`28369f2e`) | `4aa92357` |
+| **Atari Jaguar** (skipped `024c4337` on 12 October 2026: about 13% slower; newer code since) | newer build (`fee3785c`) | `00356c5c` |
+| **Saturn Beetle** | newer build (`78df7e4c`) | `43b790bd` |
 
 The newest changes, as their authors describe them:
 
 - **Master System, Game Gear and SG-1000, Gearsystem with a Continuum patch**
-  - Detect ignored swap interval through audio sync waits
-  - Use vsync for any supported content frame rate
-  - Show emulated frame rate in the FPS overlay
-  - Run catch-up frames after missed vsync refreshes
-  - Reuse shader output on skipped vsync refreshes
+  - Expose cartridge and extra RAM for achievements
+  - Bump github/gh-aw-actions/setup-cli from 0.89.21 to 1.0.1
+  - Bump vmactions/freebsd-vm from 1.5.8 to 1.5.9
+  - Merge pull request #209 from drhelius/dependabot/github_actions/vmactions/freebs
+  - Merge pull request #208 from drhelius/dependabot/github_actions/github/gh-aw-act
+- **PS1, interpreter only**
+  - remove debug.c/socket.c
+  - cdriso: harden format parsers
+  - update lightrec
+  - Merge branch 'master' (Oct 29 2026) into libretro
+  - git subrepo pull --branch=4885d601ff4c0b78c63fe80a83df85da657fb21c deps/lightrec
 - **PlayStation, Beetle PSX HW (Vulkan) — step 4 proof core**
-  - Scan bobbed and "Off" 480i pictures straight to what is shown
-  - vulkan: queued primitives drawn indexed from one vertex arena
-  - Measure the savestate size with a counting pass
-  - GPU: restore retained texture and palette caches in savestates (#1029)
-  - CD: read ahead of mapped disc images, and read Pre-Cache mappings in
+  - rhi_tt: release the stack copy of a new fused page
+  - gpu: measure a savestate without reading VRAM back
+  - gl: pack VRAM words on the GPU for float and byte readbacks
+  - vulkan: flush and invalidate only the bytes the host touched
+  - gl: resolve only the tiles a frame wrote
 - **TurboGrafx-16 / PC Engine, software renderer**
   - Fetch translations & Recreate libretro_core_options_intl.h
+  - Fetch translations & Recreate libretro_core_options_intl.h
 - **Nintendo 64, software rasteriser and interpreter**
-  - core: COP0/COP1 corner cases and RCP register fixes
-  - savestates 1.8: Flash RAM and noise phase; paraLLEl-RDP updates
-  - libretro-common: sync libretro.h
-  - paraLLEl-RDP: draw for the frontend's temporal upscaler
-  - paraLLEl-RDP: say what the temporal upscaler asked for and what came of it
+  - parallel-rdp: fold the VI's downscale and deinterlace into the scale pass
+  - Rice: drop the frame buffer managers nobody defines, fixing the GCC 16 link
+  - parallel-rdp: fit upscaling to the device's storage buffer bindings
+  - parallel-rdp: keep the factor and drop the read-back where only it does not fit
+  - glsm: move it out of libretro-common, into libretro/glsm
 - **Nintendo 3DS, Vulkan, interpreter CPU (no JIT)**
-  - video_core: Harden stride aliasing validation (#2451)
-  - Use system teakra (#2615)
-  - qt: add optional on-screen software keyboard (#2185)
-  - dist: add compressed ROM globs and fix MIME icon name (#2377)
-  - core: Add free camera support (#2723)
+  - core: Add remaining battery functions (#2743)
+  - Add battery stats to android default.ini (#2738)
+  - appimage: Provide a .png for appimage building (#2746)
+  - Android Per-Application settings (for .ini files only) (#2698)
+  - Updated translations via Transifex
 - **PSP, Vulkan, IR interpreter (no JIT, no dynarec)**
-  - sceHprm: Write zeroes to the latch buffer in sceHprmPeekLatch too
-  - Merge pull request #22793 from hrydgard/hprm-peeklatch
-  - Merge pull request #22789 from LunaMoo/xmb-home-exit
-  - Merge pull request #22792 from hrydgard/more-ui-fixes
-  - Merge pull request #22788 from hrydgard/iphone-duo
+  - CMake: Declare git-version.cpp as a byproduct of the GitVersion step
+  - Docs: The Android version string no longer lags behind
+  - Reinterpret: Write the stencil from the source, in the same render pass
+  - Merge pull request #22887 from hrydgard/fix-stencil-rebuild-cost
+  - Merge pull request #22889 from hrydgard/input-latency
 - **Dreamcast, interpreter only (TARGET_NO_REC), optional**
-  - empty commit
-  - bba: skip deserialization if device doesn't exist
-  - libretro: don't call the frontend on the emulator thread
   - add pull request template. Fix issue templates.
+  - Fetch translations & Recreate libretro_core_options_intl.h
+  - libretro: add a Vblank Pacing option (#2562)
+  - dreamcast: Default broadcast follows the region
   - Fetch translations & Recreate libretro_core_options_intl.h
 
 ## Already on the newest code
@@ -97,8 +104,6 @@ The newest changes, as their authors describe them:
 | NES and SNES, Mesen 2 with Continuum patches | built here | `4c4e069f` |
 | GBA + GB/GBC | built here | `7a12d6d4` |
 | SNES, bsnes with a Continuum patch | built here | `05439f96` |
-| Mega Drive, Sega CD and 32X, BlastEm with a Continuum patch | built here | `ab743653` |
-| PS1, interpreter only | built here | `c8816799` |
 | Nintendo DS, software renderer | built here | `66b5d263` |
 | Atari 2600, software renderer | built here | `ba52c43b` |
 | Symbian / N-Gage, Continuum Symbian on EKA2L1 (dyncom interpreter, no JIT), optional | built here | `661031f9` |
@@ -120,5 +125,7 @@ until the author moves past the version named here.
 
 | Console | Newer version | Why it was skipped | When |
 | --- | --- | --- | --- |
+| Mega Drive, Sega CD and 32X, BlastEm with a Continuum patch | `2230addc` (1 new changes) | only its makers' web-browser build changed (a new build job, and two network functions renamed for it, which Continuum never uses); the emulator Continuum builds runs the same code | 27 October 2026 |
+| DOOM | `b5bed4d7` (buildbot build) | turns the default sound and music volume to max, so DOOM’s sound clips | 28 October 2026 |
 | Virtual Boy | `2ee0c2c8` (buildbot build) | about 19% slower | 12 October 2026 |
 
