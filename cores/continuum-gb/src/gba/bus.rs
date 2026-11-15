@@ -309,6 +309,12 @@ pub struct Bus {
     irq_pending: bool,
     #[serde(skip)]
     irq_at: u64,
+    /// The cycle a write to IE or IME lands on (writes take effect three cycles later).
+    #[serde(skip)]
+    irq_write_at: u64,
+    /// When each sound queue's refill is due (0 = none asked for).
+    #[serde(skip)]
+    fifo_due: [u64; 2],
     #[serde(skip)]
     in_dma: bool,
     /// Channels that came due while a DMA was running and are waiting their turn in it.
@@ -398,6 +404,8 @@ impl Bus {
             frame_ready: false,
             irq_pending: false,
             irq_at: 0,
+            irq_write_at: 0,
+            fifo_due: [0; 2],
             in_dma: false,
             dma_wait: 0,
             in_advance: false,
@@ -516,7 +524,10 @@ impl Bus {
             self.irq_pending = false;
         } else if !self.irq_pending {
             self.irq_pending = true;
-            self.irq_at = self.now() + Self::IRQ_DELAY;
+            // A write to IE or IME only lands three cycles later, and the handler's own delay
+            // starts from that landing.
+            let from = self.now().max(self.irq_write_at);
+            self.irq_at = from + Self::IRQ_DELAY;
         }
     }
 
@@ -834,6 +845,17 @@ impl Bus {
             self.save.write8(addr, (v >> ((addr & 3) * 8)) as u8);
             return;
         }
+        // A single store to a channel's control register sets the count and switches it on in
+        // one go: the halfwords are written together, not one after the other with the machine
+        // running in between (which would start the channel with half the setting in place).
+        let a = (addr & 0xFF_FFFF) as usize;
+        let dma_cnt = (0xB8..0xE0).contains(&a) && (a - 0xB8) % 12 == 8;
+        if addr >> 24 == 0x04 && dma_cnt {
+            self.io_write16(a, v as u16);
+            self.io_write16(a + 2, (v >> 16) as u16);
+            self.run_pending();
+            return;
+        }
         self.poke16(addr & !3, v as u16);
         self.poke16((addr & !3) + 2, (v >> 16) as u16);
         self.run_pending();
@@ -1050,10 +1072,12 @@ impl Bus {
             0x82 => self.io16(0x82) & 0x770F,
             0x84 => (self.io16(0x84) & 0x008F) | 0x0070,
             0x60..=0x9F => u16::from(self.io_read8(a)) | u16::from(self.io_read8(a + 1)) << 8,
+            // A channel's control halfword reads back what was written (the count and the
+            // switch are readable; the address registers around it are not).
+            0xB8 | 0xC4 | 0xD0 | 0xDC | 0xBA | 0xC6 | 0xD2 | 0xDE => self.io16(a),
             // Write-only registers read as 0.
-            0x10..=0x1F | 0x20..=0x3F | 0x40..=0x47 | 0x4C..=0x4F | 0x54..=0x5F | 0xA0..=0xB9 => 0,
-            0xBC..=0xC5 | 0xC8..=0xD1 | 0xD4..=0xDD => 0,
-            0xBA | 0xC6 | 0xD2 | 0xDE => self.io16(a),
+            0x10..=0x1F | 0x20..=0x3F | 0x40..=0x47 | 0x4C..=0x4F | 0x54..=0x5F
+            | 0xA0..=0xB7 | 0xBC..=0xC3 | 0xC8..=0xCF | 0xD4..=0xDB => 0,
             _ => self.io16(a),
         }
     }
@@ -1114,14 +1138,20 @@ impl Bus {
                     self.io[i] = b;
                 }
             }
-            0xBA | 0xC6 | 0xD2 | 0xDE => {
-                let ch = (a - 0xBA) / 12;
+            0xB8 | 0xC4 | 0xD0 | 0xDC | 0xBA | 0xC6 | 0xD2 | 0xDE => {
+                // A channel's control register can be written a halfword at a time, and the low
+                // half carries the count and the switch: the test programs do exactly that.
+                // The control register is at an even address and its high halfword one on; the
+                // switch lives in the high halfword, so only a write there can start a channel.
+                let ch = (a.wrapping_sub(0xB8)) / 12;
+                let hi = (a.wrapping_sub(0xB8)) & 3 == 2;
                 let was = self.io16(a) & 0x8000 != 0;
                 self.set_io16(a, v);
-                if !was && v & 0x8000 != 0 {
+                let on = self.io16(a) & 0x8000 != 0;
+                if hi && !was && on {
                     self.dma_enable(ch);
                 }
-                if v & 0x8000 == 0 {
+                if !on {
                     self.tm.dma_due[ch] = u64::MAX;
                 }
             }
@@ -1196,7 +1226,11 @@ impl Bus {
             // Switching interrupts on (IE) or the master switch (IME) starts the seven cycles
             // from the write, not from whenever the flag was raised.
             0x200 | 0x208 => {
+                // A change to IE or IME lands three cycles after the write (GBAHawk,
+                // GBA_System.cpp: "changes to IRQ that happen due to writes should take place in
+                // 3 cycles"). The delay before the handler is entered starts from there.
                 self.set_io16(a, v);
+                self.irq_write_at = self.cycles + 3;
                 self.irq_ready();
             }
             _ => self.set_io16(a, v),
@@ -1361,6 +1395,17 @@ impl Bus {
 
     // ------------------------------------------------------------ sound
 
+    /// Asks the channel for a refill now: the copy that keeps its queue full.
+    fn fifo_refill(&mut self, n: usize) {
+        let want = 0x0400_00A0 + 4 * n as u32;
+        for ch in 1..3 {
+            let cnt = self.io16(0xBA + ch * 12);
+            if cnt & 0x8000 != 0 && (cnt >> 12) & 3 == 3 && self.dma[ch].dst == want {
+                self.run_dma(ch);
+            }
+        }
+    }
+
     fn fifo_push(&mut self, n: usize, v: i8) {
         let f = &mut self.fifo[n];
         if f.data.len() < 32 {
@@ -1416,14 +1461,11 @@ impl Bus {
                 self.fifo_period[n] = self.fifo_age[n].max(1);
                 self.fifo_age[n] = 0;
             }
-            if self.fifo[n].data.len() <= 16 {
-                let want = 0x0400_00A0 + 4 * n as u32;
-                for ch in 1..3 {
-                    let cnt = self.io16(0xBA + ch * 12);
-                    if cnt & 0x8000 != 0 && (cnt >> 12) & 3 == 3 && self.dma[ch].dst == want {
-                        self.run_dma(ch);
-                    }
-                }
+            // The refill is asked for once the queue is down to fourteen units, and the copy
+            // starts three cycles after that (GBAHawk, GBA_System.cpp), which is what the timing
+            // programs measure.
+            if self.fifo[n].data.len() <= 14 {
+                self.fifo_due[n] = self.cycles + 2;
             }
         }
     }
@@ -1613,6 +1655,19 @@ impl Bus {
     pub fn run_pending(&mut self) {
         if self.in_dma {
             return;
+        }
+        // A write to IE or IME only takes effect three cycles after it was made, so the line is
+        // looked at again once that has passed (the timing programs write IE around the moment a
+        // flag comes up and measure which wins).
+        for n in 0..2 {
+            if self.fifo_due[n] != 0 && self.cycles >= self.fifo_due[n] {
+                self.fifo_due[n] = 0;
+                self.fifo_refill(n);
+            }
+        }
+        if self.irq_write_at != 0 && self.cycles >= self.irq_write_at {
+            self.irq_write_at = 0;
+            self.irq_ready();
         }
         while self.pending > 0 {
             let n = self.pending;
