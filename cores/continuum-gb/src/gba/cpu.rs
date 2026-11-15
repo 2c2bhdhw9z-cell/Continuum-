@@ -780,8 +780,11 @@ impl Cpu {
                             bus.idle(1);
                         }
                         _ => {
+                            // An aligned halfword load; from an odd address the processor reads the
+                            // halfword it is inside and rotates the top byte down, which is what
+                            // makes an odd LDRSH give (halfword >> 8) sign-extended.
                             self.r[rd] = if a & 1 != 0 {
-                                bus.read8(a) as i8 as i32 as u32
+                                ror(bus.read16(a & !1), 8) as i8 as i32 as u32
                             } else {
                                 bus.read16(a) as i16 as i32 as u32
                             };
