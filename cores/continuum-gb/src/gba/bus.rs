@@ -1155,6 +1155,17 @@ impl Bus {
                     self.tm.dma_due[ch] = u64::MAX;
                 }
             }
+            0x84 => {
+                // SOUNDCNT_X: bit 7 switches the sound circuit on, and the four bits below it
+                // report which channels are running. The rest reads back as zero.
+                let started = self.io[0x84] & 0x80 == 0 && v & 0x80 != 0;
+                self.io[0x84] = (v as u8 & 0x80) | 0x70;
+                if started {
+                    self.apu.write(0xFF26, 0x80);
+                } else if v & 0x80 == 0 {
+                    self.apu.write(0xFF26, 0x00);
+                }
+            }
             0x100 | 0x104 | 0x108 | 0x10C => self.timers[(a - 0x100) / 4].reload = v,
             0x102 | 0x106 | 0x10A | 0x10E => self.timer_control((a - 0x100) / 4, v),
             0x204 => {
@@ -1407,6 +1418,13 @@ impl Bus {
     }
 
     fn fifo_push(&mut self, n: usize, v: i8) {
+        // A write into a queue is ignored while the sound circuit is off (GBAHawk,
+        // GBA_System.h `snd_Write_FIFO_Data`: the whole write is gated on `snd_CTRL_power`).
+        // That is why a game that fills its queues first and switches sound on afterwards starts
+        // with them empty, which the timing programs check.
+        if self.io[0x84] & 0x80 == 0 {
+            return;
+        }
         let f = &mut self.fifo[n];
         if f.data.len() < 32 {
             f.data.push(v);
