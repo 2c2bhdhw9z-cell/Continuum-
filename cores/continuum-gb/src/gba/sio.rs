@@ -53,7 +53,7 @@ const MULTI_CYCLES: [[u32; 4]; 4] = [
 /// is exact — 512 cycles for a byte at 256 KHz, 64 at 2 MHz, which is what the Advance's timing
 /// test programs measure — and this is the last stage of the port handing the word over, which
 /// those same programs pin to the cycle.
-const SIO_LATENCY: u64 = 6;
+const SIO_LATENCY: u64 = 9;
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Sio {

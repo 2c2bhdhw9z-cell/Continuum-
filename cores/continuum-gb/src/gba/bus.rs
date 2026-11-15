@@ -471,7 +471,7 @@ impl Bus {
     /// jump to the handler. Every one of the Advance's timing test programs measures that
     /// delay to the cycle, and games rely on it (a wait-for-vblank loop is written in it).
     /// Writing IE, IF or IME starts the same seven cycles from the write.
-    const IRQ_DELAY: u64 = 6;
+    const IRQ_DELAY: u64 = 3;
 
     /// The few pieces of state that live only a handful of cycles — a transfer in progress on
     /// the link port, an interrupt on its way, the units a DMA has left after a higher priority
