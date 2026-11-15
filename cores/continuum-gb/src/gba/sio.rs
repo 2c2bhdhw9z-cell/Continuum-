@@ -19,6 +19,8 @@
 
 use std::collections::VecDeque;
 
+use serde::{Deserialize, Serialize};
+
 use super::bus::Bus;
 
 /// The Advance's serial interrupt (IF bit 7).
@@ -38,10 +40,28 @@ pub const MODE_MULTI: u8 = 2;
 
 /// The port's side of a transfer. Not in a save state (a state loaded mid-transfer finishes that
 /// transfer reading all 1s on its next line), so states from before it still load.
-#[derive(Clone, Default)]
+/// Cycles a multi-player word takes, at each baud rate (0 = 9600) and for one console or two.
+/// Measured on a real console, the same numbers the other Advance emulators use.
+const MULTI_CYCLES: [[u32; 4]; 4] = [
+    [31976, 63427, 94884, 125829],
+    [8378, 16241, 24104, 31457],
+    [5750, 10998, 16241, 20972],
+    [3140, 5755, 8376, 10486],
+];
+
+/// Cycles the port takes to show a word as finished beyond the bits themselves. The shift clock
+/// is exact — 512 cycles for a byte at 256 KHz, 64 at 2 MHz, which is what the Advance's timing
+/// test programs measure — and this is the last stage of the port handing the word over, which
+/// those same programs pin to the cycle.
+const SIO_LATENCY: u64 = 6;
+
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Sio {
-    /// Lines until the transfer in progress has all its bits out (0: none in progress).
-    lines: u8,
+    /// The cycle the transfer in progress has all its bits out (None: none in progress). The
+    /// bit clock runs off the display timing, so this is an exact cycle, not a number of lines:
+    /// an 8-bit word at 256 KHz is 512 cycles, at 2 MHz 64. Getting this exactly right is what
+    /// the Advance's own timing test programs measure, to the cycle.
+    due: Option<u64>,
     /// All bits are out and the transfer is held open for the partner's answer.
     waiting: bool,
     /// The answer, when it came before the bits were all out.
@@ -107,7 +127,7 @@ impl Bus {
                 let parent = self.sio.parent;
                 self.sio.waiting = false;
                 self.sio.early = Some(self.rfu.exchange(word, parent));
-                self.sio.lines = self.sio_lines(mode, cnt);
+                self.sio.due = Some(self.now() + u64::from(self.sio_cycles(mode, cnt)) + SIO_LATENCY);
             } else {
                 self.rfu_clock_in();
             }
@@ -123,27 +143,27 @@ impl Bus {
         }
         self.sio.waiting = false;
         self.sio.early = None;
-        self.sio.lines = self.sio_lines(mode, cnt);
+        self.sio.due = Some(self.now() + u64::from(self.sio_cycles(mode, cnt)) + SIO_LATENCY);
         if self.sio.connected && self.sio.out.len() < QUEUE_MAX {
             let word = self.sio_word(mode);
             self.sio.out.push_back((mode, word));
         }
     }
 
-    /// How many lines a transfer takes, at least one: 8 or 32 bits at 256 KHz or 2 MHz, or a
-    /// multi-player word (18 bits a console, two consoles) at its baud rate.
-    fn sio_lines(&self, mode: u8, cnt: u16) -> u8 {
-        let cycles: u32 = match mode {
+    /// How many cycles a transfer takes: 8 or 32 bits at 256 KHz or 2 MHz, or a multi-player
+    /// word (18 bits a console, two consoles) at its baud rate.
+    fn sio_cycles(&self, mode: u8, cnt: u16) -> u32 {
+        match mode {
             MODE_MULTI => {
-                let baud = [9600, 38400, 57600, 115_200][usize::from(cnt & 3)];
-                2 * 18 * (16_777_216 / baud)
+                let baud = usize::from(cnt & 3);
+                let peers = if self.sio.connected { 1 } else { 0 };
+                MULTI_CYCLES[baud][peers]
             }
             _ => {
                 let bits = if mode == MODE_NORMAL32 { 32 } else { 8 };
-                bits * if cnt & 2 != 0 { 8 } else { 64 }
+                bits * 16_777_216 / if cnt & 2 != 0 { 2_048 } else { 256 } / 1024
             }
-        };
-        cycles.div_ceil(super::bus::LINE).clamp(1, 255) as u8
+        }
     }
 
     /// The word this console sends in `mode`.
@@ -168,18 +188,25 @@ impl Bus {
         self.sio_done();
     }
 
-    /// Once a line: the transfer in progress gets its bits out.
+    /// Once a line: the transfer in progress gets its bits out (a single transfer can finish
+    /// part way through a line, so this is only a fallback for callers that tick by line; the
+    /// clock itself calls `sio_tick`).
     pub(super) fn sio_line(&mut self) {
         if self.rfu.active {
             self.rfu_clock_in();
         }
-        if self.sio.lines == 0 {
+        self.sio_tick();
+    }
+
+    /// The transfer in progress, if its bits are all out by now: what comes back goes where the
+    /// mode puts it. Reads the clock rather than counting lines, so a word ends on the exact
+    /// cycle the link port ends it on the real console.
+    pub(super) fn sio_tick(&mut self) {
+        let Some(due) = self.sio.due else { return };
+        if self.now() < due {
             return;
         }
-        self.sio.lines -= 1;
-        if self.sio.lines > 0 {
-            return;
-        }
+        self.sio.due = None;
         if let Some(word) = self.sio.early.take() {
             self.sio_finish(word);
         } else if self.sio.connected {
@@ -189,10 +216,16 @@ impl Bus {
         }
     }
 
+    /// Cycles until the transfer in progress ends, if one is running: a halted machine wakes
+    /// for it instead of jumping past it.
+    pub(super) fn cycles_to_sio(&self) -> Option<u64> {
+        self.sio.due.map(|due| due.saturating_sub(self.now()))
+    }
+
     /// The driving console's transfer is over: what came back goes where the mode puts it, the
     /// busy bit falls and the interrupt is asked for.
     fn sio_finish(&mut self, theirs: u32) {
-        self.sio.lines = 0;
+        self.sio.due = None;
         self.sio.waiting = false;
         self.sio.early = None;
         let Some(mode) = self.sio_mode() else { return };
@@ -269,7 +302,7 @@ impl Bus {
     pub fn sio_answer(&mut self, word: u32) {
         if self.sio.waiting {
             self.sio_finish(word);
-        } else if self.sio.lines > 0 {
+        } else if self.sio.due.is_some() {
             self.sio.early = Some(word);
         }
     }
@@ -283,7 +316,7 @@ impl Bus {
 
     /// A transfer is open: shifting, or waiting for the partner's answer.
     pub fn sio_busy(&self) -> bool {
-        self.sio.lines > 0 || self.sio.waiting
+        self.sio.due.is_some() || self.sio.waiting
     }
 }
 
@@ -444,9 +477,12 @@ mod tests {
         Bus::new(vec![0; 0x200])
     }
 
+    /// Runs `n` scanlines of the machine's own clock, which is what a transfer's length is
+    /// measured against.
     fn lines(b: &mut Bus, n: u32) {
         for _ in 0..n {
-            b.sio_line();
+            b.idle(super::super::bus::LINE);
+            b.run_pending();
         }
     }
 

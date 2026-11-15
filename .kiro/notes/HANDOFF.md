@@ -5,7 +5,50 @@ Paste this to start a new chat:
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-). Read `.kiro/steering/owner-rules.md`,
 > then `.kiro/notes/HANDOFF.md`, then carry on.
 
-## START HERE (31 October 2026, 1:45 PM Eastern): the Switch, four questions open
+## START HERE (14 November 2026, 8 PM Eastern): cBoy's Advance timing, first batch in
+
+The owner: "Finish Cboy and i want the new ipa." cBoy passes **74 of Alyosha's 133** Advance
+timing tests (it was 65; mGBA, the Advance emulator cBoy stands in for, passes 39 of the same
+133). What landed, all checked here (135 library tests, the fuzz and layout checks, the six real
+homebrew Advance games including their save-state replay, and the recording suite, all green):
+
+- **The link port is timed to the cycle.** It used to count scanlines, so a byte at 256 KHz and
+  the same byte at 2 MHz finished at the same moment. It runs off the machine's clock now: 512
+  cycles for a byte at 256 KHz, 64 at 2 MHz, 2048/256 for a word, and the multi-player rates
+  measured on a console. All 9 link-port tests pass, including the pair that brackets the start
+  bit to within one cycle — no single setting satisfied both before. `sio.rs`, `SIO_LATENCY`.
+- **An interrupt is taken after the ARM7's seven cycles**, not on the instruction that raises it,
+  and IE, IF or IME written inside those seven still cancels it. `bus.rs`, `IRQ_DELAY`.
+  The two constants are tuned together: 5 and 6 pass 9/9 link tests while 7 and 4 pass 8/9.
+- **The clock stops at every point something happens at a cycle of its own** (a timer overflow,
+  a link transfer ending, a line edge), so a register read at that moment sees the console's
+  count. `advance`, `cycles_to_event`.
+- **A DMA lets the machine run forward inside the transfer**, so a HBlank or a timer during one
+  happens at its own cycle, and a higher priority channel takes the bus between two units with
+  the interrupted channel carrying on from its next unit. `run_dma`, `dma_channel`, `dma_wait`.
+- **The Advance sound registers read back with their fixed bits** (`0x80`, `0x82`, `0x84`).
+
+**Still open, best value first** (all in `.kiro/notes/tasks/cboy-finish.json`, item B11):
+1. The sound FIFO's refill DMA must be *scheduled* at the sample's own cycle instead of run
+   inside the timer overflow: `fifo_2` to `fifo_6` and `fifo_dma_disable_4`, 6 tests.
+2. The halt must resume inside the BIOS so the return address is `$74`: `halt_pc`, `Halt_IRQ`,
+   `Halt_DMA_IRQ`, and Interactions/ReadMe.txt's rule that a DMA stalls the interrupt but
+   internal cycles and halt do not.
+3. `timer/timer` and `timer/timer_reset`: the timer's read-back the cycle it is switched on.
+4. The PPU's mid-line register reads: `stripes_x_offset`, `Sprite_Disable_Midline`,
+   `Sprite_Disable_on_VRAM_Access`, `Sprite_Last_VRAM_Access`, `start_up_vbl`.
+5. `Bus/DMA_*_Bus`: what the open bus shows during a DMA.
+
+Measuring it: build a tiny harness against `cores/continuum-gb` (a `Gba::new`, `run_frame` until
+the PC sits on a `B .`, and read `r12`), and run the ROMs from
+`cores/continuum-gb/test-roms/alyosha` (`bash scripts/fetch-test-roms.sh` fetches them;
+git-ignored). `cargo test --release --test gba -- --nocapture alyosha` prints the pass count and
+any newly passing names. Never re-pin `ALYOSHA_PASS` from a single run without checking the
+fuzz/homebrew suites too — the fine-grained clock and the DMA pre-emption both touch save
+states, which is why `Gba::cycle_state` carries a link transfer, an interrupt on its way and a
+cut-short DMA in the state.
+
+## Earlier (31 October 2026, 1:45 PM Eastern): the Switch, four questions open
 
 The owner: "Start the switch stuff. Use this as Reference maybe. https://github.com/seedds/nxnative".
 The rule is to raise JIT with him before starting the Switch, so nothing is built yet. What nxnative

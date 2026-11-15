@@ -30,6 +30,11 @@ struct Dma {
     dst: u32,
     count: u32,
     active: bool,
+    /// Units still to move when a higher priority channel cut in, and whether the next one
+    /// follows on from the one before it (it does: the interrupted channel picks up where it
+    /// stopped, as on the console).
+    #[serde(skip)]
+    pending_channel: Option<(u32, bool)>,
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -291,8 +296,21 @@ pub struct Bus {
     seq_acc: u32,
     #[serde(skip)]
     pub frame_ready: bool,
+    /// An interrupt is requested and IME is on, so the processor is on its way to the handler
+    /// (the seven cycles of `IRQ_DELAY`), and the cycle it gets there. Not saved: it lasts
+    /// seven cycles, so a state saved in the middle of it starts afresh.
+    #[serde(skip)]
+    irq_pending: bool,
+    #[serde(skip)]
+    irq_at: u64,
     #[serde(skip)]
     in_dma: bool,
+    /// Channels that came due while a DMA was running and are waiting their turn in it.
+    #[serde(skip)]
+    dma_wait: u8,
+    /// The clock is being run forward right now (`advance`).
+    #[serde(skip)]
+    in_advance: bool,
     /// Saved on its own after the rest (see `BusTiming`).
     #[serde(skip)]
     pub tm: BusTiming,
@@ -367,7 +385,11 @@ impl Bus {
             gb_acc: 0,
             seq_acc: 0,
             frame_ready: false,
+            irq_pending: false,
+            irq_at: 0,
             in_dma: false,
+            dma_wait: 0,
+            in_advance: false,
             tm: BusTiming::default(),
             rom_patches: Vec::new(),
         }
@@ -431,15 +453,65 @@ impl Bus {
     pub fn request_irq(&mut self, bits: u16) {
         let v = self.io16(0x202) | bits;
         self.set_io16(0x202, v);
+        self.irq_ready();
     }
 
-    /// IME on and an enabled interrupt requested.
+    /// The console does not enter an interrupt on the instruction the flag is raised: it takes
+    /// seven cycles to work through the ARM7's own pipeline, and only then does the processor
+    /// jump to the handler. Every one of the Advance's timing test programs measures that
+    /// delay to the cycle, and games rely on it (a wait-for-vblank loop is written in it).
+    /// Writing IE, IF or IME starts the same seven cycles from the write.
+    const IRQ_DELAY: u64 = 5;
+
+    /// The few pieces of state that live only a handful of cycles — a transfer in progress on
+    /// the link port, an interrupt on its way, the units a DMA has left after a higher priority
+    /// channel cut in — so a save state made in the middle of one carried on the same.
+    pub fn cycle_state(&self) -> (super::sio::Sio, (bool, u64), (u8, [Option<(u32, bool)>; 4])) {
+        let pend = self.dma.each_ref().map(|d| d.pending_channel);
+        (self.sio.clone(), (self.irq_pending, self.irq_at), (self.dma_wait, pend))
+    }
+
+    pub fn set_cycle_state(&mut self, c: (super::sio::Sio, (bool, u64), (u8, [Option<(u32, bool)>; 4]))) {
+        let (sio, (pending, at), (wait, pend)) = c;
+        self.sio = sio;
+        self.irq_pending = pending;
+        self.irq_at = at;
+        self.dma_wait = wait;
+        for (d, p) in self.dma.iter_mut().zip(pend) {
+            d.pending_channel = p;
+        }
+    }
+
+    /// Starts the interrupt's delay running, if a flag is now set that IE allows and none is
+    /// already on its way. A flag that is cleared again inside the seven cycles is never taken.
+    pub fn irq_ready(&mut self) {
+        if !self.irq_requested() {
+            self.irq_pending = false;
+        } else if !self.irq_pending {
+            self.irq_pending = true;
+            self.irq_at = self.now() + Self::IRQ_DELAY;
+        }
+    }
+
+    /// The seven cycles are gone: the processor enters the handler now, if the master switch
+    /// is on and its own interrupts are not masked.
     pub fn irq_line(&self) -> bool {
-        self.io[0x208] & 1 != 0 && self.io16(0x200) & self.io16(0x202) & 0x3FFF != 0
+        self.irq_elapsed() && self.io[0x208] & 1 != 0
+    }
+
+    /// An interrupt is requested and its seven cycles are gone (the master switch is not looked
+    /// at: a halted console wakes for the flag either way, as the real one does).
+    pub fn irq_elapsed(&self) -> bool {
+        self.irq_pending && self.irq_requested() && self.now() >= self.irq_at
     }
 
     pub fn irq_requested(&self) -> bool {
         self.io16(0x200) & self.io16(0x202) & 0x3FFF != 0
+    }
+
+    /// Cycles until the interrupt's seven cycles are gone, if one is on its way.
+    pub fn cycles_to_irq(&self) -> Option<u64> {
+        (self.irq_pending && self.irq_requested()).then(|| self.irq_at.saturating_sub(self.now()))
     }
 
     // ------------------------------------------------------------ timing
@@ -925,6 +997,18 @@ impl Bus {
             0x102 | 0x106 | 0x10A | 0x10E => self.timers[(a - 0x100) / 4].ctrl,
             0x128 => self.siocnt_read(),
             0x130 => 0x3FF & !self.keys,
+            // The Advance's own sound registers, not the Game Boy sound chip's mirror of them:
+            // several bits are fixed, which is how a game tells the Advance's registers from the
+            // ones it just wrote.
+            0x80 => {
+                if self.io16(0x84) & 0x80 != 0 {
+                    self.io16(0x80) & 0xFF77
+                } else {
+                    0
+                }
+            }
+            0x82 => self.io16(0x82) & 0x770F,
+            0x84 => (self.io16(0x84) & 0x008F) | 0x0070,
             0x60..=0x9F => u16::from(self.io_read8(a)) | u16::from(self.io_read8(a + 1)) << 8,
             // Write-only registers read as 0.
             0x10..=0x1F | 0x20..=0x3F | 0x40..=0x47 | 0x4C..=0x4F | 0x54..=0x5F | 0xA0..=0xB9 => 0,
@@ -1057,6 +1141,10 @@ impl Bus {
             0x202 => {
                 let cur = self.io16(0x202);
                 self.set_io16(0x202, cur & !v);
+                // Clearing a flag inside the interrupt's seven cycles cancels it.
+                if self.io16(0x202) & self.io16(0x200) == 0 {
+                    self.irq_pending = false;
+                }
             }
             0x300 => {
                 self.io[0x300] = v as u8;
@@ -1064,6 +1152,12 @@ impl Bus {
                     // HALTCNT in the high byte; a 16-bit write to $300 halts too.
                 }
                 self.halted = true;
+            }
+            // Switching interrupts on (IE) or the master switch (IME) starts the seven cycles
+            // from the write, not from whenever the flag was raised.
+            0x200 | 0x208 => {
+                self.set_io16(a, v);
+                self.irq_ready();
             }
             _ => self.set_io16(a, v),
         }
@@ -1108,7 +1202,46 @@ impl Bus {
         }
     }
 
+    /// Runs channel `ch`'s transfer, one unit at a time, letting the rest of the machine catch
+    /// up after each unit. That matters: a line's HBlank, a timer's overflow and the sound all
+    /// happen while a long transfer is under way, and a higher-numbered priority channel that
+    /// comes due then takes the bus between two of its units, as it does on the console.
     fn run_dma(&mut self, ch: usize) {
+        if self.in_dma {
+            // A DMA came due while another is running: it waits its turn in that run.
+            self.dma_wait |= 1 << ch;
+            return;
+        }
+        self.in_dma = true;
+        self.dma_wait = 1 << ch;
+        while self.dma_wait != 0 {
+            // The lowest channel number waiting is the highest priority, as on the console.
+            let running = (0..4).find(|c| self.dma_wait & (1 << c) != 0).unwrap();
+            self.dma_wait &= !(1 << running);
+            // A channel cut into part way puts itself back in the queue, to carry on after.
+            self.dma_channel(running);
+        }
+        self.in_dma = false;
+    }
+
+    /// Lets the rest of the machine run through the cycles a DMA has spent, so everything that
+    /// happens at its own cycle happens at it.
+    fn dma_advance(&mut self) {
+        // Already inside the clock: whatever this DMA spent is run through by the loop that is
+        // running, and advancing again here would count the same cycles twice.
+        if self.in_advance {
+            return;
+        }
+        while self.pending > 0 {
+            let n = self.pending;
+            self.pending = 0;
+            self.advance(n);
+        }
+    }
+
+    /// One channel's transfer, when it is picked to run: from its first unit, or from where a
+    /// higher priority channel interrupted it.
+    fn dma_channel(&mut self, ch: usize) {
         let cntaddr = 0xBA + ch * 12;
         let cnt = self.io16(cntaddr);
         let fifo = (cnt >> 12) & 3 == 3 && (ch == 1 || ch == 2);
@@ -1116,21 +1249,28 @@ impl Bus {
         let step: u32 = if word { 4 } else { 2 };
         let dctl = if fifo { 2 } else { (cnt >> 5) & 3 };
         let sctl = (cnt >> 7) & 3;
-        let count = if fifo { 4 } else { self.dma[ch].count };
-        if self.dma[ch].dst >> 24 == 0x0D {
-            self.save.eeprom_dma(count);
-        }
-        let was = self.in_dma;
-        self.in_dma = true;
+        let resume = self.dma[ch].pending_channel.take();
+        #[cfg(feature = "gba_trace")]
+        eprintln!("DMA{ch} start now={} src={:08X} dst={:08X} cnt={:04X} resume={:?}", self.now(), self.dma[ch].src, self.dma[ch].dst, cnt, resume);
         let (mut s, mut d) = (self.dma[ch].src, self.dma[ch].dst);
         // Two internal cycles (four when both ends are on the cartridge), half before the
         // transfer and half after it; the first unit is a non-sequential read and write, and
         // every one after it sequential.
         let cart = |a: u32| (0x08..=0x0F).contains(&(a >> 24));
         let internal = if cart(s) && cart(d) { 2 } else { 1 };
-        self.idle(internal);
-        for i in 0..count {
-            let seq = i > 0;
+        let (mut left, first_seq) = match resume {
+            Some((left, _)) => (left, true),
+            None => {
+                let count = if fifo { 4 } else { self.dma[ch].count };
+                if self.dma[ch].dst >> 24 == 0x0D {
+                    self.save.eeprom_dma(count);
+                }
+                self.idle(internal);
+                (count, false)
+            }
+        };
+        while left > 0 {
+            let seq = first_seq || left < if fifo { 4 } else { self.dma[ch].count };
             if word {
                 self.data(s & !3, true, seq);
                 let v = self.peek32(s & !3);
@@ -1145,11 +1285,21 @@ impl Bus {
             }
             s = match sctl { 0 | 3 => s.wrapping_add(step), 1 => s.wrapping_sub(step), _ => s };
             d = match dctl { 0 | 3 => d.wrapping_add(step), 1 => d.wrapping_sub(step), _ => d };
+            self.dma[ch].src = s;
+            self.dma[ch].dst = d;
+            left -= 1;
+            self.dma_advance();
+            if left > 0 && (0..ch).any(|c| self.dma_wait & (1 << c) != 0) {
+                // A higher priority channel has come due: this one stops here, part way, and
+                // carries on from its next unit once that one has run.
+                self.dma[ch].pending_channel = Some((left, true));
+                self.dma_wait |= 1 << ch;
+                return;
+            }
         }
-        self.idle(internal);
-        self.in_dma = was;
-        self.dma[ch].src = s;
-        self.dma[ch].dst = d;
+        if resume.is_none() {
+            self.idle(internal);
+        }
         if cnt & 0x4000 != 0 {
             self.request_irq(IRQ_DMA0 << ch);
         }
@@ -1417,22 +1567,44 @@ impl Bus {
         }
     }
 
-    /// Runs the rest of the machine for `n` cycles.
+    /// Runs the rest of the machine for `n` cycles. It stops at every point something happens
+    /// at its own cycle — a timer overflow, the link port's transfer ending, a scanline's edge —
+    /// so a register read taken at that moment sees the count the console would show.
     fn advance(&mut self, mut n: u32) {
-        self.cycles += u64::from(n);
-        self.run_timers();
-        self.sound(n);
-        while n > 0 {
+        self.in_advance = true;
+        let mut left = n;
+        while left > 0 {
             let boundary = if self.line_cycle < HBLANK_AT { HBLANK_AT } else { LINE };
-            let step = n.min(boundary - self.line_cycle);
+            let mut step = left.min(boundary - self.line_cycle);
+            if let Some(d) = self.cycles_to_event() {
+                step = step.min(d.clamp(1, u64::from(u32::MAX)) as u32);
+            }
+            self.cycles += u64::from(step);
+            self.run_timers();
             self.line_cycle += step;
-            n -= step;
+            left -= step;
             if self.line_cycle == HBLANK_AT {
                 self.hblank();
             } else if self.line_cycle == LINE {
                 self.line_cycle = 0;
                 self.next_line();
             }
+            self.sio_tick();
+        }
+        self.sound(n);
+        self.in_advance = false;
+    }
+
+    /// Cycles until the next thing that happens at a cycle of its own: a running timer's
+    /// overflow, or the link port's transfer ending.
+    fn cycles_to_event(&self) -> Option<u64> {
+        let timer = (0..4)
+            .filter(|&i| self.timer_free(i))
+            .map(|i| self.timer_overflow_at(i).saturating_sub(self.cycles))
+            .min();
+        match (timer, self.cycles_to_sio()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
         }
     }
 
@@ -1490,6 +1662,16 @@ impl Bus {
         let mut to = if self.line_cycle < HBLANK_AT { HBLANK_AT - self.line_cycle } else { LINE - self.line_cycle };
         if let Some(t) = self.cycles_to_timer_irq() {
             to = to.min(t.min(256) as u32);
+        }
+        // The link port's transfer ending is an event of its own: never jump past it, or the
+        // interrupt it raises lands later than the console raises it.
+        if let Some(d) = self.cycles_to_sio() {
+            to = to.min(d.min(256) as u32);
+        }
+        // A halt also ends on the interrupt's own delay running out, which is when the
+        // processor actually enters the handler.
+        if let Some(d) = self.cycles_to_irq() {
+            to = to.min(d.min(256) as u32);
         }
         self.pending += to.clamp(1, 256);
         self.run_pending();

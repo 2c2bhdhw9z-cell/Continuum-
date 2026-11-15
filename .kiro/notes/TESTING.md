@@ -1,11 +1,32 @@
 # What to test, and what to tell me
 
-Last updated 25 October 2026, 10:15 PM Eastern. **Build 235** (`5cd5592`) is the newest install:
-https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-235-5cd5592/Continuum-235.ipa
-Its checks are "Build 235" just below, then 234's; the older sections are history. Do not ask the 192
-passes again.
+Last updated 14 November 2026, 8:00 PM Eastern. The newest install is build 246; the next one
+is the cBoy-timing build. Its checks are "Next install (after 246, cBoy's Advance timing)"
+below; every older section is history. Do not ask the 192 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.
+
+## Next install (after 246, cBoy's Advance timing)
+
+cBoy is the app's own Game Boy / Game Boy Color / Game Boy Advance emulator. Nothing here is a
+new button to find: it is about Advance games playing the way they do on the real machine, so
+these are the games to open and the things to watch. mGBA is still the default for Advance
+games, so pick cBoy for each one (Settings, then the game's own emulator choice).
+
+1. A Game Boy Advance game with music (Pokemon Emerald, any Mario Advance): the music plays at
+   the right speed and does not crackle or stutter.
+2. The same game: sound effects (jumping, coins, menu clicks) come out at the moment the thing
+   happens on screen, not a moment late.
+3. An Advance game with a lot of movement (F-Zero, Mario Kart): it feels as smooth as mGBA on
+   the same game.
+4. Any Advance game: press the Home button mid-game and come back. It carries on exactly where
+   it was, still playing.
+5. An Advance game with a save file (Pokemon): save in the game, close it, open it again, and
+   your save is there.
+6. A Game Boy Advance link-cable game if you have one (or the two-phone link with a second
+   phone when that is allowed again): it still finds its partner.
+7. Any Game Boy or Game Boy Color game on cBoy, just to confirm the older systems still play
+   exactly as they did on build 246.
 
 ## Build 246 (29 October, 5:10 AM): cAtari, cMini, and cheat codes on cGear and cBoy
 

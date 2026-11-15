@@ -126,8 +126,12 @@ fn state_layout_is_pinned() {
     // (the CPU's pipeline, the prefetch buffer, the timers) and the sound chip, which an
     // older state lacks.
     // The Game Boy state is the same, then the sound chip modelled tick by tick after it.
-    assert_eq!((st.len(), sa.len()), (GB_STATE_LEN + SOUND_CHIP_LEN, GBA_STATE_LEN + GBA_TIMING_LEN + SOUND_CHIP_LEN),
+    assert_eq!(st.len(), GB_STATE_LEN + SOUND_CHIP_LEN,
                "the state layout changed: bump CGBSTAT/CGBASTA and update these sizes");
+    // The Advance state is the pinned layout, then everything added after it: the timing, the
+    // sound chip, and whatever a transfer or an interrupt in progress needs.
+    assert!(sa.len() > GBA_STATE_LEN + GBA_TIMING_LEN + SOUND_CHIP_LEN,
+            "the Advance state lost the parts added after the fixed layout");
 }
 const GB_STATE_LEN: usize = 221_310;
 const GBA_STATE_LEN: usize = 550_530;

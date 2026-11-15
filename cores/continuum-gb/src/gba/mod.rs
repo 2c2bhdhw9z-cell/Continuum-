@@ -88,7 +88,7 @@ impl Gba {
 
     pub fn step(&mut self) {
         if self.bus.halted {
-            if self.bus.irq_requested() {
+            if self.bus.irq_elapsed() {
                 self.bus.halted = false;
             } else {
                 self.bus.halt_skip();
@@ -162,6 +162,10 @@ impl Gba {
         // Added after the layout above was fixed, so they come after it and a state made before
         // them still loads: the CPU's pipeline and the bus's timing (prefetch buffer, timers).
         out.extend(bincode::serialize(&(self.cpu.pipe, &self.bus.tm, &self.bus.apu.chip)).unwrap_or_default());
+        // And, after those, what a transfer in progress and an interrupt on its way are doing
+        // (both last a handful of cycles, but a state saved in the middle of one has to carry
+        // on the same).
+        out.extend(bincode::serialize(&self.bus.cycle_state()).unwrap_or_default());
         out
     }
 
@@ -177,6 +181,16 @@ impl Gba {
                 next.cpu.pipe = pipe;
                 next.bus.tm = tm;
                 next.bus.apu.chip = chip;
+                // A transfer or an interrupt in progress comes after that, in states new enough
+                // to have it; an older state simply carries on from where the next event is.
+                let used_here = bincode::serialized_size(&(pipe, &next.bus.tm, &next.bus.apu.chip))
+                    .map(|n| n as usize)
+                    .unwrap_or(rest.len());
+                if let Some(tail) = rest.get(used_here..).filter(|t| !t.is_empty()) {
+                    if let Ok(c) = crate::state_decode(tail) {
+                        next.bus.set_cycle_state(c);
+                    }
+                }
             }
             // An older state: its timers' counts are the counts at the moment it was made, and
             // the sound channels carry over from the way they were saved then.
