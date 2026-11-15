@@ -551,7 +551,14 @@ impl Bus {
                 let w = 16 - ((self.tm.memcnt >> 24) & 15).min(14);
                 if word { 2 * w } else { w }
             }
-            0x05 | 0x06 => if word { 2 } else { 1 },
+            0x05 => if word { 2 } else { 1 },
+            // VRAM belongs to the picture unit, which is using it all through the visible part
+            // of a line: a CPU access has to wait a cycle for it, whether it reads or writes.
+            // In the blank the unit is idle, so nothing is added there.
+            0x06 => {
+                let n = if word { 2 } else { 1 };
+                n + u32::from(self.line < 160 && self.line_cycle < HBLANK_AT)
+            }
             0x08..=0x0D => {
                 // The cartridge bus is 16 bits wide: a word is a halfword and the one after it.
                 let ws = (addr >> 25) - 4;
@@ -1475,6 +1482,19 @@ impl Bus {
         [0, 6, 8, 10][(ctrl & 3) as usize]
     }
 
+    /// How far into its prescaler period the divider already is when our cycle 0 arrives.
+    const TIMER_PHASE: u64 = 41;
+
+    /// The last cycle at or before `now` on which a prescaler of `bits` is on one of its
+    /// boundaries. One divider runs free from power-on and every timer ticks on its boundaries,
+    /// so a timer's ticks fall at a fixed phase however long ago it was switched on; our cycles
+    /// count from the first instruction the game runs, a fixed time after the console's own
+    /// power-on where the divider starts, so the boundaries sit this far off.
+    fn prescaler_at(now: u64, bits: u32) -> u64 {
+        let mask = (1u64 << bits) - 1;
+        now - (now.wrapping_sub(Self::TIMER_PHASE) & mask)
+    }
+
     /// A timer that is on and counts cycles (not another timer's overflows).
     fn timer_free(&self, i: usize) -> bool {
         let c = self.timers[i].ctrl;
@@ -1514,18 +1534,19 @@ impl Bus {
         if ctrl & 0x80 == 0 {
             return;
         }
-        let step = (1u64 << Self::timer_shift(ctrl)) - 1;
+        let bits = Self::timer_shift(ctrl);
+        let boundary = Self::prescaler_at(now, bits);
         if !was_on {
-            if self.timers[i].counter == 0xFFFF && now & step == 0 && (i == 0 || ctrl & 4 == 0) {
+            if self.timers[i].counter == 0xFFFF && boundary == now && (i == 0 || ctrl & 4 == 0) {
                 // Loading the reload value takes a cycle, and a timer stopped at $FFFF can tick
                 // in it: it overflows (interrupt and all) before it starts from the reload value.
                 self.tm.timer_at[i] = now;
                 return;
             }
             self.timers[i].counter = self.timers[i].reload;
-            self.tm.timer_at[i] = (now & !step) + 1;
+            self.tm.timer_at[i] = boundary + 1;
         } else {
-            self.tm.timer_at[i] = now & !step;
+            self.tm.timer_at[i] = boundary;
         }
     }
 

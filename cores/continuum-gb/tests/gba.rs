@@ -318,7 +318,8 @@ const ALYOSHA_PASS: &[&str] = &[
     "fifo_dma/fifo_dma_disable_3.gba", "fifo_dma/fifo_dma_disable_5.gba", "irq/BL_1.gba",
     "irq/IF_Timer.gba", "irq/IRQ_sub.gba", "irq/IRQ_sub_2.gba", "irq/IRQ_sub_slow.gba",
     "irq/halt_pc.gba", "memory/PAL_8_bit_writes.gba", "memory/VRAM_8_bit_writes.gba",
-    "memory/memory.gba", "nes/nes.gba", "ppu/hello.gba", "ppu/shades.gba", "ppu/start_up.gba",
+    "memory/memory.gba", "nes/nes.gba", "ppu/Sprite_Last_VRAM_Access.gba",
+    "ppu/Sprite_Last_VRAM_Access_Free.gba", "ppu/hello.gba", "ppu/shades.gba", "ppu/start_up.gba",
     "ppu/start_up_vbl_irq.gba", "ppu/start_up_vbl_irq_halt.gba", "ppu/stripes.gba",
     "prefetcher/bounday_test_1.gba", "prefetcher/prefetcher_boundary_1.gba",
     "prefetcher/prefetcher_boundary_2.gba", "prefetcher/prefetcher_boundary_3.gba",
@@ -331,8 +332,8 @@ const ALYOSHA_PASS: &[&str] = &[
     "prefetcher/prefetcher_full_arm_2.gba", "prefetcher/prefetcher_full_thumb.gba",
     "save/flash128.gba", "save/flash64.gba", "save/none.gba", "save/sram.gba",
     "thumb/Push_no_regs.gba", "thumb/blx.gba", "thumb/cpy.gba", "thumb/thumb.gba",
-    "timer/timer_disable.gba", "timing/dma_long.gba", "timing/prefetch_enable.gba",
-    "timing/prefetch_enable_2.gba", "unsafe/fifo_dma_disable_jam.gba",
+    "timer/timer.gba", "timer/timer_disable.gba", "timing/dma_long.gba",
+    "timing/prefetch_enable.gba", "timing/prefetch_enable_2.gba", "unsafe/fifo_dma_disable_jam.gba",
     "unsafe/fifo_dma_disable_jam_2.gba", "unsafe/unsafe.gba",
 ];
 
