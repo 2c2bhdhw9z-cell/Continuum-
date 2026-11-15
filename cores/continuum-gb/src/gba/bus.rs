@@ -298,6 +298,10 @@ pub struct Bus {
     pub exec_pc: u32,
     pub bios_latch: u32,
     open_bus: u32,
+    /// Past-the-end cartridge reads follow GBATEK's stepping rule (`unsafe/unsafe` checks it)
+    /// rather than the zero fill a fixed-size ROM array gives.
+    #[serde(skip)]
+    pub open_fill_stepping: bool,
     gb_acc: u32,
     seq_acc: u32,
     #[serde(skip)]
@@ -399,6 +403,7 @@ impl Bus {
             exec_pc: 0x0800_0000,
             bios_latch: 0xE129_F000,
             open_bus: 0,
+            open_fill_stepping: false,
             gb_acc: 0,
             seq_acc: 0,
             frame_ready: false,
@@ -927,9 +932,11 @@ impl Bus {
                     let v = r(&self.rom, a);
                     if self.rom_patches.is_empty() { v } else { self.patched(a as u32, v) }
                 } else {
-                    // Past the end of the cartridge the bus keeps counting: the whole cartridge
-                    // area is filled with 16-bit values that step by one (address / 2), which is
-                    // what GBATEK says the shared address/data lines leave behind.
+                    // Past the end of the cartridge image the space is zero-filled (GBAHawk keeps
+                    // a full-size ROM array and indexes it), while the jsmolka program that checks
+                    // the other rule (values that step by one) wants that one instead.
+                    // Past the end of the cartridge the bus keeps counting, as GBATEK describes:
+                    // the shared address/data lines leave 16-bit values that step by one.
                     (addr >> 1) & 0xFFFF
                 }
             }
