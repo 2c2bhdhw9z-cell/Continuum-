@@ -87,9 +87,10 @@ impl Gba {
     }
 
     pub fn step(&mut self) {
-        // The BIOS's wait has been interrupted and the handler has come back to it: that is the
-        // halt ending, and the processor carries on in the game.
-        if !self.bus.halted && self.cpu.pc == 0x70 {
+        // The BIOS's wait has been interrupted and the handler has come back to it. The handler
+        // ends with `subs pc, lr, #4`, and in Thumb that lands four past the wait, one instruction
+        // on ($74); both places mean the same thing here, so treat either as the wait ending.
+        if !self.bus.halted && (self.cpu.pc == 0x70 || self.cpu.pc == 0x74) {
             if let Some(back) = self.bus.halt_return.take() {
                 self.cpu.pc = back;
                 self.cpu.pipe.at = None;
@@ -98,6 +99,15 @@ impl Gba {
         if self.bus.halted {
             if self.bus.irq_elapsed() {
                 self.bus.halted = false;
+                if !self.bus.irq_line() {
+                    // A flag came up that no handler will be entered for (IME off, or the
+                    // processor told to ignore interrupts): the wait simply ends and the game
+                    // carries on where it left off.
+                    if let Some(back) = self.bus.halt_return.take() {
+                        self.cpu.pc = back;
+                    }
+                }
+                self.cpu.pipe.at = None;
             } else {
                 self.bus.halt_skip();
                 return;

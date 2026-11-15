@@ -213,8 +213,10 @@ fn mini_bios() -> Vec<u8> {
     put(0x18, 0xEA00_0042); // B $128
     // The BIOS's own wait, at $70: a processor that halts waits here for the interrupt, and the
     // handler's return comes back into it (which is why the real one's return address is $74).
-    put(0x70, 0xEAFF_FFFE); // B $70
-    put(0x74, 0xEAFF_FFFE); // B $74
+    // It has to be a loop that can be left, not `B .`: the return address the handler works back
+    // to lands on $74, so $74 has to jump back to $70 and $70 has to let the interrupt be taken.
+    put(0x70, 0xEAFF_FFFE); // B $70 (the wait the handler subtracts four from)
+    put(0x74, 0xEAFF_FFFB); // B $70 (what the handler actually returns to)
     put(0x128, 0xE92D_500F); // STMFD SP!, {R0-R3, R12, LR}
     put(0x12C, 0xE3A0_0301); // MOV R0, #$04000000
     put(0x130, 0xE28F_E000); // ADD LR, PC, #0
@@ -903,6 +905,9 @@ impl Bus {
                     let v = r(&self.rom, a);
                     if self.rom_patches.is_empty() { v } else { self.patched(a as u32, v) }
                 } else {
+                    // Past the end of the cartridge the bus keeps counting: the whole cartridge
+                    // area is filled with 16-bit values that step by one (address / 2), which is
+                    // what GBATEK says the shared address/data lines leave behind.
                     (addr >> 1) & 0xFFFF
                 }
             }
