@@ -955,6 +955,15 @@ impl Cpu {
         if pop {
             let mut a = self.r[13];
             let mut seq = false;
+            if list == 0 && !extra {
+                // An empty list is not "do nothing": the machine transfers r15 and moves the
+                // stack pointer by 0x40, exactly as a block transfer with no registers does.
+                let v = bus.read32_seq(a & !3, seq);
+                self.set_reg(15, v);
+                bus.idle(1);
+                self.r[13] = a.wrapping_add(0x40);
+                return;
+            }
             for i in 0..8 {
                 if list & (1 << i) != 0 {
                     self.r[i] = bus.read32_seq(a & !3, seq);

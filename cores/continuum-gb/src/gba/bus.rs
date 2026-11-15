@@ -384,7 +384,7 @@ impl Bus {
             halted: false,
             keys: 0,
             line_cycle: 0,
-            line: 0,
+            line: 174,
             pending: 0,
             cycles: 0,
             last_addr: 0,
@@ -498,6 +498,15 @@ impl Bus {
         }
     }
 
+    /// The interrupt's short delay does not run while the processor is held up waiting on the bus
+    /// for a DMA: it can only be entered in a cycle the processor had to itself. It does run while
+    /// the processor is busy inside itself (a multiply, say) and while it is halted.
+    fn irq_stall(&mut self, n: u32) {
+        if self.irq_pending && self.irq_requested() {
+            self.irq_at += u64::from(n);
+        }
+    }
+
     /// Starts the interrupt's delay running, if a flag is now set that IE allows and none is
     /// already on its way. A flag that is cleared again inside the seven cycles is never taken.
     pub fn irq_ready(&mut self) {
@@ -604,6 +613,9 @@ impl Bus {
         }
         #[cfg(feature = "gba_trace")]
         eprintln!("  {:6} data {addr:08X} {} {} +{c}", self.now(), if word { 32 } else { 16 }, if seq { "S" } else { "N" });
+        if self.in_dma {
+            self.irq_stall(c);
+        }
         self.tm.after_code = false;
         if !self.in_dma {
             self.tm.bus_end = self.now();
