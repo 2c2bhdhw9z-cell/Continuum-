@@ -317,6 +317,10 @@ impl Cpu {
         if self.pipe.at != Some(self.pc) {
             self.pipe_quietly(bus);
         }
+        // The read that was due when the interrupt arrived still happens (and is thrown away),
+        // then the machine enters the handler and refills its pipeline from the vector. The
+        // address it returns to is four past the instruction it stopped before, in both
+        // instruction sets, which is what the handler's own `subs pc, lr, #4` works back from.
         bus.code(self.pc.wrapping_add(2 * len), thumb, true);
         self.exception(MODE_IRQ, 0x18, self.pc.wrapping_add(4));
         self.refill(bus);
