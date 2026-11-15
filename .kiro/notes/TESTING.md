@@ -1,7 +1,7 @@
 # What to test, and what to tell me
 
 Last updated 14 November 2026, 8:00 PM Eastern. The newest install is build 246; the next one
-is the cBoy-timing build. Its checks are "Next install (after 246, cBoy's Advance timing)"
+is the cBoy-timing build (79 of Alyosha's 133 Advance timing tests inside it, and every link-port, halt and Game Boy test still passing). Its checks are "Next install (after 246, cBoy's Advance timing)"
 below; every older section is history. Do not ask the 192 passes again.
 No discs, no swapping discs, no second phone, no online, until they say otherwise. The TV check
 is still open.

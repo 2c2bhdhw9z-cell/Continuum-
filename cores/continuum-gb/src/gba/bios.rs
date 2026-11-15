@@ -29,7 +29,14 @@ pub fn swi(cpu: &mut Cpu, bus: &mut Bus, n: u32) {
             cpu.pc = if to_ram { 0x0200_0000 } else { 0x0800_0000 };
         }
         0x01 => register_ram_reset(bus, r[0]),
-        0x02 | 0x03 => bus.halted = true,
+        0x02 | 0x03 => {
+            // Halt and Stop run inside the BIOS: the processor waits at the BIOS's own wait
+            // ($70) for the interrupt, and the handler returns into that wait, not into the
+            // game. Once the interrupt has been dealt with the wait returns to the game.
+            bus.halt_return = Some(cpu.pc);
+            cpu.pc = 0x70;
+            bus.halted = true;
+        }
         0x04 | 0x05 => {
             // VBlankIntrWait is IntrWait(throw the old flag away, VBlank). "Throw away" must
             // happen on the call itself and never on the re-runs this wait does after each

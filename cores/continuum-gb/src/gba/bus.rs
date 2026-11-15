@@ -211,6 +211,10 @@ fn mini_bios() -> Vec<u8> {
         put(v, 0xEAFF_FFFE); // B . (unused vectors)
     }
     put(0x18, 0xEA00_0042); // B $128
+    // The BIOS's own wait, at $70: a processor that halts waits here for the interrupt, and the
+    // handler's return comes back into it (which is why the real one's return address is $74).
+    put(0x70, 0xEAFF_FFFE); // B $70
+    put(0x74, 0xEAFF_FFFE); // B $74
     put(0x128, 0xE92D_500F); // STMFD SP!, {R0-R3, R12, LR}
     put(0x12C, 0xE3A0_0301); // MOV R0, #$04000000
     put(0x130, 0xE28F_E000); // ADD LR, PC, #0
@@ -311,6 +315,11 @@ pub struct Bus {
     /// The clock is being run forward right now (`advance`).
     #[serde(skip)]
     in_advance: bool,
+    /// Where a halt has to go back to when it ends: the wait at $70 is the BIOS's own, and once
+    /// the interrupt has been dealt with it returns the processor to the game. Saved with the
+    /// rest of the short-lived state, not in the fixed layout above.
+    #[serde(skip)]
+    pub halt_return: Option<u32>,
     /// Saved on its own after the rest (see `BusTiming`).
     #[serde(skip)]
     pub tm: BusTiming,
@@ -390,6 +399,7 @@ impl Bus {
             in_dma: false,
             dma_wait: 0,
             in_advance: false,
+            halt_return: None,
             tm: BusTiming::default(),
             rom_patches: Vec::new(),
         }
@@ -461,22 +471,28 @@ impl Bus {
     /// jump to the handler. Every one of the Advance's timing test programs measures that
     /// delay to the cycle, and games rely on it (a wait-for-vblank loop is written in it).
     /// Writing IE, IF or IME starts the same seven cycles from the write.
-    const IRQ_DELAY: u64 = 5;
+    const IRQ_DELAY: u64 = 6;
 
     /// The few pieces of state that live only a handful of cycles — a transfer in progress on
     /// the link port, an interrupt on its way, the units a DMA has left after a higher priority
     /// channel cut in — so a save state made in the middle of one carried on the same.
-    pub fn cycle_state(&self) -> (super::sio::Sio, (bool, u64), (u8, [Option<(u32, bool)>; 4])) {
+    pub fn cycle_state(
+        &self,
+    ) -> (super::sio::Sio, (bool, u64), (u8, [Option<(u32, bool)>; 4]), Option<u32>) {
         let pend = self.dma.each_ref().map(|d| d.pending_channel);
-        (self.sio.clone(), (self.irq_pending, self.irq_at), (self.dma_wait, pend))
+        (self.sio.clone(), (self.irq_pending, self.irq_at), (self.dma_wait, pend), self.halt_return)
     }
 
-    pub fn set_cycle_state(&mut self, c: (super::sio::Sio, (bool, u64), (u8, [Option<(u32, bool)>; 4]))) {
-        let (sio, (pending, at), (wait, pend)) = c;
+    pub fn set_cycle_state(
+        &mut self,
+        c: (super::sio::Sio, (bool, u64), (u8, [Option<(u32, bool)>; 4]), Option<u32>),
+    ) {
+        let (sio, (pending, at), (wait, pend), halt_return) = c;
         self.sio = sio;
         self.irq_pending = pending;
         self.irq_at = at;
         self.dma_wait = wait;
+        self.halt_return = halt_return;
         for (d, p) in self.dma.iter_mut().zip(pend) {
             d.pending_channel = p;
         }

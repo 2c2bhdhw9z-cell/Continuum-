@@ -87,6 +87,14 @@ impl Gba {
     }
 
     pub fn step(&mut self) {
+        // The BIOS's wait has been interrupted and the handler has come back to it: that is the
+        // halt ending, and the processor carries on in the game.
+        if !self.bus.halted && self.cpu.pc == 0x70 {
+            if let Some(back) = self.bus.halt_return.take() {
+                self.cpu.pc = back;
+                self.cpu.pipe.at = None;
+            }
+        }
         if self.bus.halted {
             if self.bus.irq_elapsed() {
                 self.bus.halted = false;

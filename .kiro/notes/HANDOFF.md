@@ -7,7 +7,7 @@ Paste this to start a new chat:
 
 ## START HERE (14 November 2026, 8 PM Eastern): cBoy's Advance timing, first batch in
 
-The owner: "Finish Cboy and i want the new ipa." cBoy passes **74 of Alyosha's 133** Advance
+The owner: "Finish Cboy and i want the new ipa." cBoy passes **79 of Alyosha's 133** Advance
 timing tests (it was 65; mGBA, the Advance emulator cBoy stands in for, passes 39 of the same
 133). What landed, all checked here (135 library tests, the fuzz and layout checks, the six real
 homebrew Advance games including their save-state replay, and the recording suite, all green):
@@ -19,7 +19,8 @@ homebrew Advance games including their save-state replay, and the recording suit
   bit to within one cycle — no single setting satisfied both before. `sio.rs`, `SIO_LATENCY`.
 - **An interrupt is taken after the ARM7's seven cycles**, not on the instruction that raises it,
   and IE, IF or IME written inside those seven still cancels it. `bus.rs`, `IRQ_DELAY`.
-  The two constants are tuned together: 5 and 6 pass 9/9 link tests while 7 and 4 pass 8/9.
+  The two constants (`IRQ_DELAY`, `SIO_LATENCY`) are tuned together and are now both 6, which is
+  mGBA's own value and the only pair that passes the serial and halt families at once.
 - **The clock stops at every point something happens at a cycle of its own** (a timer overflow,
   a link transfer ending, a line edge), so a register read at that moment sees the console's
   count. `advance`, `cycles_to_event`.
@@ -27,6 +28,9 @@ homebrew Advance games including their save-state replay, and the recording suit
   happens at its own cycle, and a higher priority channel takes the bus between two units with
   the interrupted channel carrying on from its next unit. `run_dma`, `dma_channel`, `dma_wait`.
 - **The Advance sound registers read back with their fixed bits** (`0x80`, `0x82`, `0x84`).
+- **A halt waits at $70 inside the BIOS and returns through it**, so an interrupt taken during a
+  halt comes back to a BIOS address — `Halt_IRQ`, `Halt_DMA_IRQ` and `Halt_DMA_IRQ_Read_OAM`
+  all pass now. `bios.rs` SWI 2/3, `bus.halt_return`, `mod.rs` step.
 
 **Still open, best value first** (all in `.kiro/notes/tasks/cboy-finish.json`, item B11):
 1. The sound FIFO's refill DMA must be *scheduled* at the sample's own cycle instead of run
