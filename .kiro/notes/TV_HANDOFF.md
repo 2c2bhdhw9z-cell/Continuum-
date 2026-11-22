@@ -55,8 +55,9 @@ the owner a system works: frame rate in a demanding part of a real game, and mem
 
 ## Open questions to ask the owner first (short, numbered, with choices)
 
-1. Which own cores go in the first TV version: just cBoy, or cBoy plus cGear, cAtari, cMini and
-   cArcade?
+1. ANSWERED (22 November 2026): **the first TV version has cBoy only** (Game Boy, Game Boy
+   Color, Game Boy Advance). Owner: "Cboy since idr play any of the other ones that would be
+   playable on the tv." Don't add cGear, cAtari, cMini or cArcade unless he asks.
 2. Should a new own SNES core be started for the TV (and later DS), and before or after the TV
    app works?
 3. Should it look like the phone's New look (swirling background etc.) or a simpler TV layout?
