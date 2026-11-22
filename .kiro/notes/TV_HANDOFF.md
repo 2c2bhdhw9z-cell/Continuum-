@@ -23,44 +23,48 @@ built its launcher. Everything below was checked on the TV itself in that chat.
 - **Systems:** Game Boy, Game Boy Color, Game Boy Advance, SNES and DS. N64 and 3DS only if the
   TV can manage them (owner: "If 3ds or n64 is to much that's fine just Let me know what it can
   all run"). **No PS1**, nothing heavy ("it's obviously a TV").
-- **It uses the owner's cores**: the same emulators Continuum uses on the phone (mGBA and cBoy,
-  bsnes and Mesen, melonDS, and so on), built from this repo's own recipes and patches for the
-  TV's processor. RetroArch's downloadable cores are not the plan. They are only useful for a
-  quick speed test before a Continuum build exists.
+- **ONLY THE OWNER'S OWN CORES. Nobody else's emulators, ever** (owner, 22 November 2026:
+  "It needs to be my cores, nobody else's"). That means the cores written from scratch in this
+  repo under `cores/`. It does not mean mGBA, bsnes, Mesen, melonDS, ParaLLEl N64, Azahar,
+  Gearsystem or any other emulator the phone app bundles. RetroArch's downloadable cores are out
+  too, even for tests. A system with no core of the owner's own is not in the TV app.
 
-## What this TV can likely run
+## The owner's own cores, and what this TV can run
 
-These are estimates, not yet measured on the TV. The chip is a budget quad-core TV processor,
-several times slower than a recent iPhone, and it runs 32-bit ARM code only. That matters
-because several emulators' fast paths (JIT or dynarec) exist only for 64-bit ARM.
+| Own core | Folder | Systems | State (from STATUS.md and tasks/, 22 November 2026) | On this TV |
+|---|---|---|---|---|
+| **cBoy** | `cores/continuum-gb` | Game Boy, Game Boy Color, Game Boy Advance | The most finished. All Mooneye Game Boy and Color tests pass, and full Pokémon Yellow played on a phone. Advance passes 95 of Alyosha's 133 timing tests (129 is the ceiling; mGBA passes 39). Next: `tasks/cboy-finish.json` | Yes. Start here |
+| **cGear** | `cores/continuum-sms` | Master System, Game Gear (SG-1000: check) | In the app, with cheat codes | Yes, light |
+| **cAtari** | `cores/continuum-atari` | Atari 7800 | Finished 27 October, optional in Settings | Yes, light |
+| **cMini** | `cores/continuum-mini` | Pokémon Mini | Built, not tested on a phone | Yes, light |
+| **cArcade** | `cores/continuum-arcade` | Arcade: Pac-Man, Galaxian, Scramble, Frogger, Donkey Kong and their clones | Brand new, barely tested | Yes, light |
+| GameCube | `cores/continuum-gc` | GameCube | Barely started (`tasks/gamecube.json`) | No, far too heavy |
 
-| System | Owner's core | On this TV |
-|---|---|---|
-| Game Boy, Game Boy Color | mGBA, cBoy | Yes, easily |
-| Game Boy Advance | mGBA (cBoy's Advance mode is still early) | Yes |
-| SNES | bsnes, Mesen | Probably. bsnes aims for accuracy and is the heaviest SNES emulator, so test it first. Mesen is lighter, and the TV default may need to be Mesen. |
-| NES, Game Gear, Master System | Mesen/FCEUmm, Gearsystem | Yes |
-| DS | melonDS | Maybe. Without melonDS's 64-bit JIT it runs as a slower interpreter. Some games may be fine, others too slow. Test early. |
-| N64 | ParaLLEl N64 | Unlikely as it is. ParaLLEl's graphics need Vulkan, and this TV only has OpenGL ES. It would need a GLES graphics plugin (as in Mupen64Plus-Next), and even then only lighter games would run. |
-| 3DS | Azahar | No. The README says heavier systems are slow on the phone without JIT, and this chip is far slower than the phone. Tell the owner it's out. |
+The owner also wants **SNES and DS**, and maybe N64 and 3DS. None of them has an own core yet,
+so the TV app starts without them. Ask before starting a new own core.
+- **SNES:** a realistic next own core for the TV.
+- **DS:** a big job, and it would have to be light enough for this chip.
+- **N64 and 3DS:** too heavy for this TV. Tell the owner plainly.
 
-Measure each one on the TV before telling the owner a system works: frame rate in a demanding
-part of a real game, and memory in use.
+Speeds above are estimates. The chip is a budget quad-core TV processor, several times slower
+than a recent iPhone, and runs 32-bit ARM code only. Measure each core on the TV before telling
+the owner a system works: frame rate in a demanding part of a real game, and memory in use.
 - The owner's general rules (`.kiro/steering/owner-rules.md`) apply here too: plain English,
   ask before building, everything customisable, push to master, and never start an iPhone build
   without a yes.
 
 ## Open questions to ask the owner first (short, numbered, with choices)
 
-1. Defaults per system on the TV: the phone's defaults wherever they run well enough (see the table
-   above). Where one doesn't (bsnes might not), should the TV default to the lighter core of the
-   owner's two, keeping the other as a setting?
-2. Should it look like the phone's New look (swirling background etc.) or a simpler TV layout?
+1. Which own cores go in the first TV version: just cBoy, or cBoy plus cGear, cAtari, cMini and
+   cArcade?
+2. Should a new own SNES core be started for the TV (and later DS), and before or after the TV
+   app works?
+3. Should it look like the phone's New look (swirling background etc.) or a simpler TV layout?
    Every effect needs its own switch either way (owner rule).
-3. Where should games come from? Today they arrive through the phone upload page into
+4. Where should games come from? Today they arrive through the phone upload page into
    `/media/developer/games` (see below). Keep that, add Continuum's own transfer, or both?
-4. Save files and save states: TV only, or shared with the phone later?
-5. Should it replace the TV's Home screen launcher, or be an app on it? (Recommendation: an app
+5. Save files and save states: TV only, or shared with the phone later?
+6. Should it replace the TV's Home screen launcher, or be an app on it? (Recommendation: an app
    on the existing Kiro launcher, which already works.)
 
 ## The TV (facts measured on it)
@@ -89,12 +93,10 @@ part of a real game, and memory in use.
   `audio_driver = "pulse"`).
 - Its HOME is its own app folder, with config at `.config/retroarch/retroarch.cfg`. Anything in
   the app folder is lost when the app is updated or reinstalled.
-- Cores come from `http://retroarch-cores.webosbrew.org/armv7a/` (215 cores). The list includes:
-  mgba, gambatte, vbam, vba_next, gpsp, snes9x (and the 2002/2005/2010 variants), bsnes variants,
-  mesen-s, melonds, desmume, desmume2015, mupen64plus_next, mupen64plus_next_gles3, parallel_n64,
-  citra, citra2018 and azahar. **A Continuum TV app can load these same `.so` files**, and
-  Continuum's own Rust cores (cBoy, cArcade, ...) are already libretro `cdylib`s, so they can be
-  compiled for armv7 Linux and loaded the same way.
+- RetroArch downloads other people's cores from `http://retroarch-cores.webosbrew.org/armv7a/`.
+  **Those are not for Continuum** (owner rule above). What does carry over is the format: the
+  owner's own cores are already libretro `cdylib`s in Rust, so built for armv7 Linux they load the
+  same way a RetroArch core does.
 - A good reference for a light native webOS game app is Moonlight TV (mariotaku/moonlight-tv):
   native, SDL2, controller and remote support. It was not checked in this chat, so verify first.
 
@@ -217,12 +219,13 @@ can all be undone. A copy of every script is in this repo at `tools/lg-tv-kit/`.
     RetroArch uses), the binary, `lib/` and the icons.
   - Publish it on GitHub Releases, and optionally as a Homebrew Channel repository
     (`apps.json`), so the owner installs and updates it from the TV.
-- **Cores:** build the owner's cores (the ones Continuum ships) for armv7 Linux, from the same
-  sources, pins and patches as the phone. `scripts/build-core.sh` today only builds iOS dylibs, so
-  add a separate TV path; check first whether editing that file would change the iOS cache
-  fingerprint (owner rules). cBoy and cArcade are pure Rust `cdylib`s and are the easiest start.
-  Ship the cores inside the `.ipk`, or download them from this repo's Releases. The webosbrew
-  armv7a builds are only for a first speed test.
+- **Cores:** only the owner's own, from `cores/` (cBoy first), built with
+  `cargo build --release --target armv7-unknown-linux-gnueabihf` in each core's folder.
+  - They are pure Rust `cdylib`s, so no other emulator's C or C++ build is needed.
+  - Don't touch `scripts/build-core.sh`; it is the iOS core recipe and cache.
+  - A push to `cores/continuum-gb/**` starts the iPhone build. Put TV-only build files under
+    `tv/` rather than in the core's folder.
+  - Ship the cores inside the `.ipk`.
 - **Games and saves:** read `/media/developer/games` (what the upload page fills). Keep saves and
   the app's own data outside its app folder (for example `/media/developer/continuum`) so an
   update never deletes them.
