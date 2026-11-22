@@ -1,0 +1,31 @@
+[package]
+name = "continuum-tv"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Continuum for LG TVs (webOS): a light, remote-friendly player for the owner's own cores."
+publish = false
+
+# Its own workspace: the TV app is not part of the iPhone engine's workspace (the root
+# Cargo.toml), and nothing here changes how the iPhone app builds.
+[workspace]
+
+[dependencies]
+libc = "0.2"
+fontdue = "0.9"
+qrcodegen = "1.8"
+png = "0.17"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The same archive readers, at the same versions, as the iPhone engine (crates/emulator-bridge).
+zip = { version = "2", default-features = false, features = ["deflate"] }
+sevenz-rust2 = { version = "=0.20.0", default-features = false, features = ["ppmd"] }
+
+[build-dependencies]
+cc = "1"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
