@@ -58,15 +58,15 @@ the owner a system works: frame rate in a demanding part of a real game, and mem
 1. ANSWERED (22 November 2026): **the first TV version has cBoy only** (Game Boy, Game Boy
    Color, Game Boy Advance). Owner: "Cboy since idr play any of the other ones that would be
    playable on the tv." Don't add cGear, cAtari, cMini or cArcade unless he asks.
-2. Should a new own SNES core be started for the TV (and later DS), and before or after the TV
-   app works?
-3. Should it look like the phone's New look (swirling background etc.) or a simpler TV layout?
-   Every effect needs its own switch either way (owner rule).
-4. Where should games come from? Today they arrive through the phone upload page into
-   `/media/developer/games` (see below). Keep that, add Continuum's own transfer, or both?
-5. Save files and save states: TV only, or shared with the phone later?
-6. Should it replace the TV's Home screen launcher, or be an app on it? (Recommendation: an app
-   on the existing Kiro launcher, which already works.)
+2. ANSWERED (22 November 2026): **no SNES or DS core for now. cBoy only** (owner: "Just
+   cboy for now").
+3. ANSWERED: **as much like the phone's New look as possible** (swirling background, light
+   running round buttons, gold accent, glass cards). Every effect has its own switch.
+4. ANSWERED: **both, if possible**: keep the launcher's Upload page, and Continuum gets its own
+   way to send games from the phone ("if I have to deal with just a then it's whatever").
+5. ANSWERED: **TV only for now, shared with the phone later.** Use the phone app's file names
+   (`<game file name>.srm` / `.rtc`) so sharing later is easy.
+6. ANSWERED: **an app on the Kiro launcher**, not a replacement Home screen.
 
 ## The TV (facts measured on it)
 
