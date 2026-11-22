@@ -129,12 +129,21 @@ impl Ppu {
         // Mosaic blocks the screen coordinate, before scrolling is added: the blocks sit still on
         // the screen while the background slides through them, which is what the hardware does.
         let (mh, mv) = mos.bg(cnt);
-        let py = (block(y, mv) + vofs) % h;
+        // The sizes are powers of two, so the wrap is a mask (the same numbers as `% w`).
+        let (wmask, hmask) = (w - 1, h - 1);
+        let py = (block(y, mv) + vofs) & hmask;
+        let row = screen_base + (py / 256) * (w / 256) * 0x800 + ((py % 256) / 8) * 64;
+        // A map entry covers 8 pixels in a row: read it once for all of them.
+        let mut last_map = usize::MAX;
+        let mut entry = 0u16;
         for (x, o) in out.iter_mut().enumerate() {
-            let px = (block(x, mh) + hofs) % w;
-            let sbb = px / 256 + (py / 256) * (w / 256);
-            let map = screen_base + sbb * 0x800 + ((py % 256) / 8) * 64 + ((px % 256) / 8) * 2;
-            let entry = r16(vram, map & 0xFFFF);
+            let bx = if mh == 1 { x } else { block(x, mh) };
+            let px = (bx + hofs) & wmask;
+            let map = (row + (px / 256) * 0x800 + ((px % 256) / 8) * 2) & 0xFFFF;
+            if map != last_map {
+                entry = r16(vram, map);
+                last_map = map;
+            }
             let tile = (entry & 0x3FF) as usize;
             let tx = if entry & 0x400 != 0 { 7 - px % 8 } else { px % 8 };
             let ty = if entry & 0x800 != 0 { 7 - py % 8 } else { py % 8 };
@@ -404,6 +413,17 @@ impl Ppu {
         let evy = u32::from(r16(io, 0x54) & 0x1F).min(16);
         let backdrop = r16(pal, 0) & 0x7FFF;
         let prios: [u8; 4] = std::array::from_fn(|i| (r16(io, 0x08 + i * 2) & 3) as u8);
+        // The backgrounds that are on, sorted once a line by priority (lowest number first, and
+        // in background order within one): the same order the pixel loop used to search in.
+        let mut by_prio = [[0u8; 4]; 4];
+        let mut in_prio = [0usize; 4];
+        for bg in 0..4 {
+            if bg_on[bg] {
+                let p = prios[bg] as usize;
+                by_prio[p][in_prio[p]] = bg as u8;
+                in_prio[p] += 1;
+            }
+        }
         for x in 0..W {
             let mask = if any_win {
                 let mut m = winout & 0x3F;
@@ -437,8 +457,9 @@ impl Ppu {
                         }
                     }
                 }
-                for bg in 0..4 {
-                    if bg_on[bg] && prios[bg] == p && mask & (1 << bg) != 0 && lines[bg][x] != CLEAR {
+                for &bg in &by_prio[p as usize][..in_prio[p as usize]] {
+                    let bg = bg as usize;
+                    if mask & (1 << bg) != 0 && lines[bg][x] != CLEAR {
                         top[found] = (lines[bg][x], bg as u8);
                         found += 1;
                         if found == 2 {
