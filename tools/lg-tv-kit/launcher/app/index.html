@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Home</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="bg"></div>
+<div class="bgl" id="bg1"></div>
+<div class="bgl" id="bg2"></div>
+<div id="tint"></div>
+<header id="top">
+  <div id="clock"><div id="time"></div><div id="date"></div></div>
+  <nav id="bar"></nav>
+</header>
+<main id="main">
+  <section><h2>Play</h2><div class="grid" id="inputs"></div></section>
+  <section><h2>Apps</h2><div class="grid" id="apps"></div></section>
+</main>
+<div id="panel" class="hidden">
+  <div id="pbox">
+    <h1>Backgrounds</h1>
+    <nav id="pbar"></nav>
+    <div id="pbody"><div class="grid" id="pgrid"></div></div>
+    <div id="phint">OK: use this picture &nbsp;·&nbsp; Red button twice: delete it &nbsp;·&nbsp; Back: close</div>
+  </div>
+</div>
+<div id="dialog" class="hidden">
+  <div id="dbox">
+    <h1>Add pictures or games from your phone</h1>
+    <p>On a phone connected to the same Wi-Fi as this TV, open this address in the web browser:</p>
+    <div id="durl"></div>
+    <p id="dstat"></p>
+    <p class="small">Press OK or Back on the remote when you're done.</p>
+  </div>
+</div>
+<div id="msg"></div>
+<script src="catalog.js"></script>
+<script src="bg.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

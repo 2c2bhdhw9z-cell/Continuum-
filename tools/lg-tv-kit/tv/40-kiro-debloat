@@ -1,0 +1,8 @@
+#!/bin/sh
+# Homebrew Channel boot hook (Kiro debloat). RAM-only changes, redone at every boot.
+# Pause it: touch /media/developer/kiro/DISABLE-DEBLOAT. Remove it: sh /media/developer/kiro/kiro-debloat.sh restore
+K=/media/developer/kiro
+[ -e $K/DISABLE-DEBLOAT ] && exit 0
+[ -f $K/kiro-debloat.sh ] || exit 0
+(sh $K/kiro-debloat.sh boot </dev/null >>/tmp/kiro-debloat.log 2>&1 &)
+exit 0

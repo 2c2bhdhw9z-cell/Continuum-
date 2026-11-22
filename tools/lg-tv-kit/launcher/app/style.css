@@ -1,0 +1,126 @@
+/* Kiro launcher. Built for 1920x1080 on a weak TV chip: only transform and opacity animate, no blur, no shadows that change. */
+html, body {
+  margin: 0;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  background: #0b0f17;
+  color: #eef1f6;
+  font-family: "LG Smart UI", "LG Smart", "Museo Sans", "Roboto", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+/* Background: a plain gradient, and your pictures (app/bg/, chosen in the Backgrounds panel) on two layers that cross-fade.
+   The tint over a picture keeps the text readable. */
+#bg, .bgl, #tint {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+}
+#bg { background: radial-gradient(ellipse at 15% 0%, #1f2c47 0%, #0b0f17 62%); }
+.bgl {
+  background: center / cover no-repeat;
+  opacity: 0;
+  transition: opacity 1500ms ease-in-out;
+}
+#tint {
+  background: linear-gradient(rgba(6, 9, 15, .30), rgba(6, 9, 15, .62));
+  opacity: 0;
+  transition: opacity 1500ms ease-in-out;
+}
+body.haspic #tint { opacity: 1; }
+
+#top {
+  position: absolute;
+  top: 0; left: 125px; right: 125px;
+  height: 190px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+#time { font-size: 76px; font-weight: 300; letter-spacing: 1px; line-height: 1; }
+#date { font-size: 27px; opacity: .75; margin-top: 10px; }
+
+#bar { display: flex; }
+.pill {
+  margin-left: 18px;
+  padding: 14px 30px;
+  border-radius: 40px;
+  background: rgba(255, 255, 255, .10);
+  font-size: 25px;
+  transition: transform 120ms ease-out;
+}
+.pill.focus { background: #fff; color: #0b0f17; transform: scale(1.07); }
+
+#main {
+  position: absolute;
+  top: 190px; left: 0; right: 0; bottom: 0;
+  overflow: hidden;
+  padding: 0 125px;
+}
+#scroller { will-change: transform; }
+h2 { font-size: 27px; font-weight: 400; opacity: .7; margin: 18px 0 16px; }
+.grid { display: grid; grid-template-columns: repeat(6, 250px); column-gap: 34px; row-gap: 26px; }
+
+.cell { width: 250px; }
+.tile {
+  position: relative;
+  height: 140px;
+  border-radius: 14px;
+  background: #1c2333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 120ms ease-out;
+}
+.tile::after {
+  content: "";
+  position: absolute;
+  top: -6px; left: -6px; right: -6px; bottom: -6px;
+  border: 4px solid #fff;
+  border-radius: 19px;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.tile img { max-width: 130px; max-height: 130px; }
+.tile .big { font-size: 34px; font-weight: 600; text-align: center; padding: 0 14px; }
+.tile .small { position: absolute; bottom: 10px; font-size: 19px; opacity: .8; }
+.name { font-size: 22px; margin-top: 12px; opacity: .6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.cell.focus .tile { transform: scale(1.08); }
+.cell.focus .tile::after { opacity: 1; }
+.cell.focus .name { opacity: 1; }
+
+#msg {
+  position: fixed;
+  right: 125px; bottom: 34px;
+  font-size: 22px;
+  color: #ff8a80;
+  opacity: 0;
+  transition: opacity 200ms;
+}
+#msg.show { opacity: 1; }
+#msg { z-index: 30; }
+
+/* Backgrounds panel and the "Add pictures" dialog */
+.hidden { display: none !important; }
+#panel, #dialog {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(6, 9, 15, .94);
+  z-index: 10;
+}
+#dialog { z-index: 20; }
+#pbox { position: absolute; top: 60px; left: 125px; right: 125px; bottom: 40px; }
+#pbox h1, #dbox h1 { font-size: 48px; font-weight: 300; margin: 0 0 26px; }
+#pbar { display: flex; }
+#pbar .pill { margin: 0 18px 0 0; }
+/* the padding leaves room for the focused tile's grow and outline, which overflow: hidden would cut off */
+#pbody { position: absolute; top: 182px; bottom: 50px; left: -24px; right: -24px; padding: 18px 24px; overflow: hidden; }
+#phint { position: absolute; bottom: 0; font-size: 22px; opacity: .6; }
+.tile.pic { overflow: hidden; }
+.tile.pic img { width: 250px; height: 140px; max-width: none; max-height: none; object-fit: cover; }
+.cell.sel .tile::after { opacity: 1; border-color: #4caf50; }
+.cell.sel.focus .tile::after { border-color: #fff; }
+#dbox { position: absolute; top: 260px; left: 125px; right: 125px; text-align: center; }
+#dbox p { font-size: 30px; opacity: .8; margin: 12px 0; }
+#dbox p.small { font-size: 24px; opacity: .55; margin-top: 40px; }
+#durl { font-size: 68px; font-weight: 600; margin: 36px 0; letter-spacing: 1px; }

@@ -1,0 +1,8 @@
+#!/bin/sh
+# Homebrew Channel boot hook: make the Kiro launcher the Home screen (RAM only, redone at every boot).
+# Skip it: touch /media/developer/kiro/home/DISABLE. Remove it: sh /media/developer/kiro/home/kiro-home.sh disarm
+H=/media/developer/kiro/home
+[ -e $H/DISABLE ] && exit 0
+[ -f $H/kiro-home.sh ] || exit 0
+(sh $H/kiro-home.sh boot </dev/null >/dev/null 2>&1 &)
+exit 0
