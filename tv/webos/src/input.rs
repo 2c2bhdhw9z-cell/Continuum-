@@ -335,7 +335,7 @@ impl Input {
         let turbo_on = (self.turbo_tick / s.turbo_rate.max(1)) % 2 == 0;
         let mut mask: u16 = 0;
         let mut fast = false;
-        let mut apply = |a: Action, mask: &mut u16, fast: &mut bool| {
+        let apply = |a: Action, mask: &mut u16, fast: &mut bool| {
             let bit = |id: u32| 1u16 << id;
             match a {
                 Action::Up => *mask |= bit(retro::UP),

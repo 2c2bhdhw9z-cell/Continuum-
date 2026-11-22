@@ -13,6 +13,73 @@ The SSH key is never committed to this repo. The owner pastes it into each chat.
 Written 22 November 2026, 5 PM Eastern, at the end of the chat that rooted-debloated the TV and
 built its launcher. Everything below was checked on the TV itself in that chat.
 
+## Where the TV app is (updated 22 November 2026, 7 PM Eastern)
+
+**The questions are answered (see "Open questions" below). Don't ask them again.**
+
+Built in the second TV chat, in `tv/webos/` (its own Cargo workspace, nothing in `native/` or
+`crates/`, so no iPhone build starts from it):
+
+- **What it is:** a native SDL2 + OpenGL ES 2 program in Rust, `continuum-tv`. It hosts cBoy
+  (libretro, loaded with dlopen) and draws the New look itself: the swirl (the phone's exact
+  maths from `NewLookMotion.swift`, a 41x24 grid scaled up smoothly), the light running round
+  the gold buttons, the spinning ring by the CONTINUUM name, console glows, glass cards, the
+  floating tab bar (Home, Library, Favorites, Settings). Every effect has its own setting.
+- **Files:** `app.rs` (pages, sheets, playing), `ui.rs` (New look pieces, remote navigation),
+  `draw.rs` (shaders, text with the TV's own LG Smart UI font), `swirl.rs`, `retro.rs` (the
+  libretro host), `session.rs` (a game: battery save, clock, states), `settings_page.rs` (every
+  Settings card and row), `input.rs`, `audio.rs`, `library.rs`, `files.rs`, `upload.rs`
+  (Continuum's own phone transfer: a page on port 8770 with a random code, shown as a QR code,
+  stops 15 minutes after its last use), `package.sh` (builds the `.ipk`).
+- **App ID** `dev.continuum.tv`. Player data lives in `/media/developer/continuum` (settings,
+  `cboy-options.json`, `library.json`, `saves/<game file>.srm` and `.rtc` named like the phone's,
+  `states/<game file>/slotN.state` + `.png`, `auto.state`, `log.txt`). Games are read from
+  `/media/developer/games` (the launcher's Upload page and Continuum's own transfer both put
+  them there; `.zip` and `.7z` are read in place).
+- **Not tested on the TV yet.** The tunnel closed right after the first `.ipk` was built. Next:
+  install it (command below), open it, take screenshots, try the remote and the Xbox controller,
+  check sound, then measure Pokémon (the owner's main use) on the TV.
+- **Install command** (on the TV, as root, with the `.ipk` copied to `/tmp`):
+  `. /media/developer/kiro/lib.sh; lsend -i -w 60000 luna://com.webos.appInstallService/dev/install '{"id":"dev.continuum.tv","ipkUrl":"/tmp/continuum.ipk","subscribe":true}'`
+
+**Correction to the facts below: the TV's programs are 32-bit ARM with the SOFT-float ABI**
+(`/lib/ld-linux.so.3`, ELF flags 0x5000200), not hard-float. Build for
+`armv7-unknown-linux-gnueabi` with `-C target-cpu=cortex-a55 -C target-feature=-soft-float,+neon,+fp-armv8`
+(FPU instructions, soft-float calling convention). Glibc on the TV is 2.31. The processor is a
+Realtek RTD2875N: 2 Cortex-A75 + 2 Cortex-A55, all at 1.0 GHz; the A75s run cBoy twice as fast.
+
+**Build setup in a sandbox** (none of it in the repo; `/tmp` does not survive between commands,
+so it lives in `/projects/sandbox/.tvbuild`):
+- Rust's `rust-std-1.92.0-armv7-unknown-linux-gnueabi` from static.rust-lang.org, put in a
+  `rustsys/lib/rustlib/` folder next to a link to the host's own, passed with `--sysroot`.
+- A sysroot from Debian 11 **armel** packages (glibc 2.31, matching the TV): libc6, libc6-dev,
+  linux-libc-dev, libgcc-10-dev, libgcc-s1 from `archive.debian.org` (deb.debian.org dropped
+  armel). Turn their absolute symlinks into links inside the sysroot, or lld picks the static
+  libdl.a and fails.
+- Linker: `clang --target=armv7-unknown-linux-gnueabi -mfloat-abi=softfp -mfpu=neon --sysroot=... -fuse-ld=lld`.
+- `RUSTUP_TOOLCHAIN=1.92.0-x86_64-unknown-linux-gnu` (else rustup tries to add the iOS target
+  from rust-toolchain.toml and fails on a read-only home) and a writable `CARGO_HOME`.
+- SDL2: webosbrew's SDL 2.30.12 webOS backport, copied from RetroArch's app folder
+  (`com.retroarch.webos/lib/libSDL2-2.0.so.0`), shipped in the app's `lib/`. The TV's own
+  `/usr/lib/libSDL2-2.0.so.0` is LG's 2.0.14.
+
+**cBoy speed on this TV** (big core, no picture or sound, before the speed-up below):
+Game Boy Color 124 fps (twice full speed). Advance: Wigly Hunt 168, Skyland 33 (17.6 in its
+slowest second), Attack on Voxelburg 23.5. Pokémon not measured yet (no copy in the sandbox:
+measure with the owner's own games on the TV).
+
+**Owner, 22 November 2026:** "I mainly just want to play Pokemon games for right now. As long as
+it can run the Pokemon games cBoy can play and it runs at a decent speed I'm fine with that for
+now. If you need to optimize something then obviously do that and just make it to where it
+don't do a new build." So cBoy may be sped up for the TV; push those changes with `[skip ci]`
+so no iPhone build starts. They reach the phone with its next build, so they must not change
+what cBoy does: compare picture and sound fingerprints before and after (identical), and run
+its full test suite.
+- Done (commit 37dadd1): Advance 17-30% faster on the host, identical picture and sound on six
+  homebrew games, all tests pass (Alyosha pins unchanged). Timers' next overflow and the next
+  due DMA are remembered instead of recomputed on every access; text backgrounds read one map
+  entry per tile; layers are sorted by priority once a line.
+
 ## What the owner wants
 
 - **A Continuum app for the TV that is super light**, about as light as RetroArch, but easy to

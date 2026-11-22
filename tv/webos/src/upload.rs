@@ -30,10 +30,8 @@ pub struct Shared {
 }
 
 pub struct Upload {
-    pub code: String,
     pub url: String,
     pub shared: Arc<Mutex<Shared>>,
-    started: Instant,
 }
 
 fn random_code() -> String {
@@ -105,7 +103,7 @@ impl Upload {
             crate::logln!("transfer page stopped");
         });
         crate::logln!("transfer page open at {url}");
-        Ok(Upload { code, url, shared, started: Instant::now() })
+        Ok(Upload { url, shared })
     }
 
     pub fn running(&self) -> bool {
@@ -117,9 +115,6 @@ impl Upload {
         self.shared.lock().unwrap().stop = true;
     }
 
-    pub fn age(&self) -> Duration {
-        self.started.elapsed()
-    }
 }
 
 fn respond(s: &mut TcpStream, status: &str, kind: &str, body: &[u8]) -> std::io::Result<()> {

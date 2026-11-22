@@ -524,7 +524,8 @@ impl<'a> Ctx<'a> {
     }
 }
 
-/// Short hints along the bottom: which remote keys do what here.
+/// Short hints: which remote keys do what here.
+#[allow(dead_code)]
 pub fn hints(d: &mut Draw, items: &[(&str, &str)], y: f32) {
     let mut x = 80.0;
     for (k, v) in items {
