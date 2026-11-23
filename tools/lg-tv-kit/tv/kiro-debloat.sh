@@ -29,7 +29,7 @@ HIDE="com.webos.app.lgchannels com.webos.app.sportsteamsettings amazon.alexa.vie
 # LG-branded store apps that came preinstalled; all can be reinstalled from the LG Content Store
 UNINSTALL="com.lgshop.app com.lgtvod.us.app com.twin.app.audiochannel com.lgtravel.app com.volley.lgshell com.miniclip.eightballpool com.twin.app.gamingportal epoxyaisports com.twin.app.homegym de.2kit.castbrowserlg
  com.movenetworks.app.sling-tv-sling-production youtube.leanback.ytv.v1 com.fubotv.app com.peacock.tv com.apple.appletv com.amazon.luna
- amazon"
+ amazon com.wbd.stream com.cbs-all-access.webapp.prod hulu com.disney.disneyplus-prod"
 # never hidden, uninstalled or taken out of memory
 PROTECTED=" com.webos.app.livetv com.webos.app.home com.webos.app.discovery com.palm.app.settings com.webos.app.inputcommon
  com.webos.app.hdmi1 com.webos.app.hdmi2 com.webos.app.hdmi3 com.webos.app.hdmi4 com.webos.app.homeconnect airplay
