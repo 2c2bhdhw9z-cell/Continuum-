@@ -105,11 +105,17 @@ const PREFETCH_HALVES: u32 = 8;
 impl Prefetch {
     /// `n` cycles in which the cartridge bus is free for it, each doing what the console's
     /// prefetch unit does in a cycle: start a read if there is room, or carry one on.
-    fn tick(&mut self, mut n: u32) {
+    #[inline(always)]
+    fn tick(&mut self, n: u32) {
         self.arrived = false;
         if !self.run || self.check == 0 || self.full {
             return;
         }
+        self.tick_run(n);
+    }
+
+    #[inline(never)]
+    fn tick_run(&mut self, mut n: u32) {
         while n > 0 {
             if self.done == 0 {
                 if self.held == PREFETCH_HALVES {
@@ -370,6 +376,11 @@ pub struct Bus {
     /// exactly the same (`sync_sound`).
     #[serde(skip)]
     lazy_sound: u32,
+    /// Speed only (TV): one cartridge halfword's cycles in each wait-state area, [area][seq],
+    /// worked out from WAITCNT when it is written (and after a state load) instead of on every
+    /// cartridge access.
+    #[serde(skip)]
+    rom_wait: [[u32; 2]; 3],
 }
 
 impl Bus {
@@ -379,7 +390,7 @@ impl Bus {
         apu.agb = true;
         apu.write(0xFF26, 0); // the GBA starts with sound off
         let mp2k = super::mp2k::Mp2k::new(&rom);
-        Bus {
+        let mut bus = Bus {
             fifo_vol: [100; 2],
             fifo_smooth: false,
             mp2k,
@@ -440,6 +451,19 @@ impl Bus {
             next_dma: None,
             fast_until: 0,
             lazy_sound: 0,
+            rom_wait: [[0; 2]; 3],
+        };
+        bus.work_out_rom_wait();
+        bus
+    }
+
+    /// The cartridge's wait states from WAITCNT (`rom16`'s table, worked out once).
+    fn work_out_rom_wait(&mut self) {
+        let wc = u32::from(self.io16(0x204));
+        for ws in 0..3usize {
+            let seq = if wc & [0x10, 0x80, 0x400][ws] != 0 { 2 } else { [3, 5, 9][ws] };
+            let non = [5, 4, 3, 9][((wc >> (2 + ws as u32 * 3)) & 3) as usize];
+            self.rom_wait[ws] = [non, seq];
         }
     }
 
@@ -448,6 +472,7 @@ impl Bus {
         self.next_timer = None;
         self.next_dma = None;
         self.fast_until = 0;
+        self.work_out_rom_wait();
     }
 
     /// A cheat code's read: memory as the program sees it, with no time passing (cheats.rs).
@@ -590,13 +615,9 @@ impl Bus {
     // ------------------------------------------------------------ timing
 
     /// Cycles of one 16-bit cartridge read in wait-state area `ws` (0 to 2), from WAITCNT.
+    #[inline(always)]
     fn rom16(&self, ws: u32, seq: bool) -> u32 {
-        let wc = u32::from(self.io16(0x204));
-        if seq {
-            if wc & [0x10, 0x80, 0x400][ws as usize] != 0 { 2 } else { [3, 5, 9][ws as usize] }
-        } else {
-            [5, 4, 3, 9][((wc >> (2 + ws * 3)) & 3) as usize]
-        }
+        self.rom_wait[ws as usize][seq as usize]
     }
 
     /// Cycles one access takes: 32 bits wide or not, sequential (following on from the one
@@ -822,10 +843,10 @@ impl Bus {
         self.tm.bus_end = self.now();
         self.run_pending();
         if thumb {
-            let v = self.peek16(addr);
+            let v = self.fetch16(addr);
             // What an unmapped read returns afterwards: the last opcode read, arranged by where
             // the code runs from (two halves of the same opcode for most of the memory map).
-            let other = |s: &Self, a: u32| s.peek16(a);
+            let other = |s: &Self, a: u32| s.fetch16(a);
             self.open_bus = match addr >> 24 {
                 0x00 | 0x07 if addr & 2 == 0 => v | other(self, addr + 2) << 16,
                 0x00 | 0x07 => other(self, addr.wrapping_sub(2)) | v << 16,
@@ -835,7 +856,7 @@ impl Bus {
             };
             v
         } else {
-            let v = self.peek32(addr);
+            let v = self.fetch32(addr);
             self.open_bus = v;
             if addr < 0x4000 {
                 // What a BIOS read from outside returns: the last opcode the BIOS read.
@@ -880,7 +901,10 @@ impl Bus {
         self.data(addr, false, false);
         self.run_pending();
         self.before_io_read(addr);
-        self.peek16(addr)
+        if self.eeprom_at(addr) {
+            return u32::from(self.save.eeprom_read());
+        }
+        self.fetch16(addr)
     }
 
     pub fn read32(&mut self, addr: u32) -> u32 {
@@ -892,7 +916,22 @@ impl Bus {
         self.data(addr, true, seq);
         self.run_pending();
         self.before_io_read(addr);
-        self.peek32(addr)
+        if self.eeprom_at(addr) {
+            // The cartridge bus is 16 bits wide: a word is two reads, two bits.
+            let lo = u32::from(self.save.eeprom_read());
+            return lo | u32::from(self.save.eeprom_read()) << 16;
+        }
+        self.fetch32(addr)
+    }
+
+    /// The EEPROM's own address range (cartridges up to 16 MiB put it all over $0D000000).
+    /// Reading it takes the chip's next bit: the answer to a read request, or 1 (ready).
+    /// Before this the TV's cBoy always answered 1, so a game read back nothing but $FF and
+    /// called its save broken (owner, 22 November 2026: Super Mario Advance 2 said "Your save
+    /// data is corrupt").
+    #[inline(always)]
+    fn eeprom_at(&self, addr: u32) -> bool {
+        addr >> 24 == 0x0D && self.save.kind == SaveKind::Eeprom && self.rom.len() <= 0x100_0000
     }
 
     pub fn write8(&mut self, addr: u32, v: u8) {
@@ -949,6 +988,36 @@ impl Bus {
     fn vram_index(addr: u32) -> usize {
         let a = (addr & 0x1FFFF) as usize;
         if a >= 0x18000 { a - 0x8000 } else { a }
+    }
+
+    /// `peek16` with the work RAMs and the plain part of the cartridge read straight (TV speed
+    /// path); everything else goes through `peek16` itself. Same values.
+    #[inline(always)]
+    fn fetch16(&self, addr: u32) -> u32 {
+        let r = |m: &[u8], i: usize| u32::from(m[i]) | u32::from(m[i + 1]) << 8;
+        match addr >> 24 {
+            0x03 => r(&self.iwram, (addr & 0x7FFE) as usize),
+            0x02 => r(&self.ewram, (addr & 0x3FFFE) as usize),
+            0x08..=0x0C => {
+                let a = (addr & 0x1FF_FFFE) as usize;
+                if a >= 0x100 && a + 1 < self.rom.len() && self.rom_patches.is_empty() {
+                    r(&self.rom, a)
+                } else {
+                    self.peek16(addr)
+                }
+            }
+            _ => self.peek16(addr),
+        }
+    }
+
+    /// `peek32` the same way.
+    #[inline(always)]
+    fn fetch32(&self, addr: u32) -> u32 {
+        let a = addr & !3;
+        match a >> 24 {
+            0x02 | 0x03 | 0x08..=0x0C => self.fetch16(a) | self.fetch16(a + 2) << 16,
+            _ => self.peek32(addr),
+        }
     }
 
     pub fn peek8(&self, addr: u32) -> u32 {
@@ -1261,6 +1330,7 @@ impl Bus {
             0x204 => {
                 // Bit 13 is unused and bit 15 says it is an Advance (0), read-only.
                 self.set_io16(0x204, v & 0x5FFF);
+                self.work_out_rom_wait();
                 let thumb = self.tm.thumb;
                 let p = &mut self.tm.prefetch;
                 let on = v & 0x4000 != 0;
@@ -1452,13 +1522,18 @@ impl Bus {
             let seq = first_seq || left < if fifo { 4 } else { self.dma[ch].count };
             if word {
                 self.data(s & !3, true, seq);
-                let v = self.peek32(s & !3);
+                let v = if self.eeprom_at(s) {
+                    let lo = u32::from(self.save.eeprom_read());
+                    lo | u32::from(self.save.eeprom_read()) << 16
+                } else {
+                    self.peek32(s & !3)
+                };
                 self.data(d & !3, true, seq);
                 self.poke16(d & !3, v as u16);
                 self.poke16((d & !3) + 2, (v >> 16) as u16);
             } else {
                 self.data(s & !1, false, seq);
-                let v = self.peek16(s & !1);
+                let v = if self.eeprom_at(s) { u32::from(self.save.eeprom_read()) } else { self.peek16(s & !1) };
                 self.data(d & !1, false, seq);
                 self.poke16(d & !1, v as u16);
             }

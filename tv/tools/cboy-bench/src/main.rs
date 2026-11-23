@@ -35,7 +35,16 @@ static mut VH: u64 = 0xcbf29ce484222325;
 static mut AH: u64 = 0xcbf29ce484222325;
 fn mix(b: &[u8]) { unsafe { for x in b { HASH ^= *x as u64; HASH = HASH.wrapping_mul(0x100000001b3); } } }
 fn mix_to(h: *mut u64, b: &[u8]) { unsafe { for x in b { *h ^= *x as u64; *h = (*h).wrapping_mul(0x100000001b3); } } }
-unsafe extern "C" fn video(d: *const c_void, w: u32, h: u32, pitch: usize) { if !d.is_null() && std::env::var_os("HASH").is_some() { for y in 0..h as usize { let row = std::slice::from_raw_parts((d as *const u8).add(y*pitch), w as usize*4); mix(row); mix_to(&raw mut VH, row); } } }
+// SHOT=n SHOT_FILE=path: frame n's picture as raw 32-bit pixels (w, h as two u32 first).
+unsafe extern "C" fn video(d: *const c_void, w: u32, h: u32, pitch: usize) {
+    if !d.is_null() && std::env::var("SHOT").ok().and_then(|v| v.parse::<u32>().ok()) == Some(FRAME) {
+        let mut out = Vec::new(); out.extend(w.to_le_bytes()); out.extend(h.to_le_bytes());
+        for y in 0..h as usize { out.extend_from_slice(std::slice::from_raw_parts((d as *const u8).add(y*pitch), w as usize*4)); }
+        std::fs::write(std::env::var("SHOT_FILE").unwrap_or("/tmp/shot.raw".into()), out).ok();
+    }
+    video_hash(d, w, h, pitch)
+}
+unsafe fn video_hash(d: *const c_void, w: u32, h: u32, pitch: usize) { if !d.is_null() && std::env::var_os("HASH").is_some() { for y in 0..h as usize { let row = std::slice::from_raw_parts((d as *const u8).add(y*pitch), w as usize*4); mix(row); mix_to(&raw mut VH, row); } } }
 unsafe extern "C" fn audio(d: *const i16, n: usize) -> usize { if std::env::var_os("HASH").is_some() { let b = std::slice::from_raw_parts(d as *const u8, n*4); mix(b); mix_to(&raw mut AH, b); if let Some(p) = std::env::var_os("DUMPA") { use std::io::Write; let mut f = std::fs::OpenOptions::new().create(true).append(true).open(p).unwrap(); f.write_all(b).unwrap(); } } n }
 unsafe extern "C" fn poll() {}
 unsafe extern "C" fn input(_: u32, _: u32, _: u32, id: u32) -> i16 {
