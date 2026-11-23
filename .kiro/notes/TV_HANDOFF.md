@@ -29,6 +29,27 @@ with no crackle. Nothing else: no new features, no questions about other things.
 7. When done, hand over: what speed Emerald and FireRed reach, in plain words, and what the
    owner should try.
 
+**Handed over, 22 November 2026, 11:35 PM Eastern (commit 85825a9 installed):** in the app,
+Emerald's speech 59.6-59.8 fps, cBoy 11.3 ms a frame; FireRed (title and intro film, a
+minute) 59.5-59.9 fps, cBoy 12-14 ms, sound queue never below 37 ms after the start, stretched
+0.11% at most (no crackle). Super Mario Advance 2 plays: the TV's cBoy never read its EEPROM
+back (every read answered 1), so it said "Your saved data is corrupt."; fixed on the TV only
+(the phone's has the same bug, noted in STATUS.md). Mario's old resume state is kept as
+`auto.state.before-save-fix` in its states folder. Build machine: Emerald 609 fps (was 359
+this morning). `tv/tools/cboy-bench` now also takes `NOKEYS=1`, `PROF_FROM=n`, `TIMES=1`,
+`SHOT=n SHOT_FILE=...` (raw frame; `.tvbuild/raw2png.py` turns it into a PNG) and `SRM=path`.
+
+**Next, in the owner's order:** the native launcher (below), with **Max, Paramount+, Hulu and
+Disney+ gone** (owner, 11:30 PM; asked whether that means uninstalled or only hidden). Then the
+owner's Gemini tips for a few percent more (sent as screenshots, 10:54 PM): read-only checks
+first (`/sys/devices/system/cpu/cpu*/cpufreq/` governor, available and current frequencies,
+`/sys/devices/system/cpu/online`, `/sys/class/thermal`, Realtek nodes under `/proc` and `/sys`);
+then, in RAM only, the `performance` governor with the minimum frequency at the maximum while a
+game runs, all four cores kept online, Continuum at a higher priority (`nice`) than LG's
+background services, and swap settings (`swappiness`, zram if the kernel has it). **Not** the
+overclocking idea (a kernel module that raises the processor's PLL): it can freeze the TV or
+harm the fanless chip for 5-10% at most; the owner was told it is left out.
+
 **Measured on the TV, 22 November 2026, 10:50 PM Eastern (commits f5a8945 and ffa55e2,
 installed):** in the app, Emerald's opening speech: 59.5-60 fps, cBoy 12.1-12.8 ms a frame (was
 17-21), sound queue never below 52 ms, stretched 0.08% at most. FireRed's title screen: 60 fps,
