@@ -475,6 +475,81 @@ impl Ppu {
         // without either, the search stops at the first layer it finds.
         let need_second = (bldcnt >> 6) & 3 == 1 || objs.iter().any(|o| o.is_some_and(|o| o.semi));
         let wanted = if need_second { 2 } else { 1 };
+        if !any_win && !need_second {
+            // The usual line (TV speed path): no window and nothing that looks under the top
+            // layer, so the layers are painted from the back to the front, one whole layer at
+            // a time, in the reverse of the order the search below looks in. The top layer of
+            // every pixel comes out the same as the search finds it.
+            let mut col = [backdrop; W];
+            let mut lid = [5u8; W];
+            let any_obj = objs.iter().any(|o| o.is_some());
+            for p in (0..4u8).rev() {
+                for &bg in by_prio[p as usize][..in_prio[p as usize]].iter().rev() {
+                    let line = &lines[bg as usize];
+                    for x in 0..W {
+                        if line[x] != CLEAR {
+                            col[x] = line[x];
+                            lid[x] = bg;
+                        }
+                    }
+                }
+                if any_obj {
+                    for x in 0..W {
+                        if let Some(o) = objs[x] {
+                            if o.prio == p {
+                                col[x] = o.color;
+                                lid[x] = 4;
+                            }
+                        }
+                    }
+                }
+            }
+            let out = &mut self.frame[y * W..(y + 1) * W];
+            match (bldcnt >> 6) & 3 {
+                2 => {
+                    for x in 0..W {
+                        let a = col[x];
+                        let c = if bldcnt & (1 << lid[x]) != 0 {
+                            let mut v = 0;
+                            for s in [0, 5, 10] {
+                                let c = u32::from((a >> s) & 31);
+                                v |= ((c + ((31 - c) * evy >> 4)) as u16) << s;
+                            }
+                            v
+                        } else {
+                            a
+                        };
+                        out[x] = to_xrgb(c);
+                    }
+                }
+                3 => {
+                    for x in 0..W {
+                        let a = col[x];
+                        let c = if bldcnt & (1 << lid[x]) != 0 {
+                            let mut v = 0;
+                            for s in [0, 5, 10] {
+                                let c = u32::from((a >> s) & 31);
+                                v |= ((c - (c * evy >> 4)) as u16) << s;
+                            }
+                            v
+                        } else {
+                            a
+                        };
+                        out[x] = to_xrgb(c);
+                    }
+                }
+                _ => {
+                    for x in 0..W {
+                        out[x] = to_xrgb(col[x]);
+                    }
+                }
+            }
+            for i in 0..2 {
+                self.ref_x[i] += i32::from(r16(io, 0x22 + i * 0x10) as i16);
+                self.ref_y[i] += i32::from(r16(io, 0x26 + i * 0x10) as i16);
+            }
+            return;
+        }
         for x in 0..W {
             let mask = if any_win {
                 let mut m = winout & 0x3F;

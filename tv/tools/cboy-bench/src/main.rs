@@ -39,6 +39,8 @@ unsafe extern "C" fn video(d: *const c_void, w: u32, h: u32, pitch: usize) { if 
 unsafe extern "C" fn audio(d: *const i16, n: usize) -> usize { if std::env::var_os("HASH").is_some() { let b = std::slice::from_raw_parts(d as *const u8, n*4); mix(b); mix_to(&raw mut AH, b); if let Some(p) = std::env::var_os("DUMPA") { use std::io::Write; let mut f = std::fs::OpenOptions::new().create(true).append(true).open(p).unwrap(); f.write_all(b).unwrap(); } } n }
 unsafe extern "C" fn poll() {}
 unsafe extern "C" fn input(_: u32, _: u32, _: u32, id: u32) -> i16 {
+    // NOKEYS=1: press nothing (a game left alone on its title screen plays its intro).
+    if std::env::var_os("NOKEYS").is_some() { return 0; }
     let p = FRAME % 120;
     let on = if p < 6 { id == 3 } else if (40..46).contains(&p) { id == 8 } else if p > 60 { id == 7 } else { false };
     on as i16
@@ -71,6 +73,9 @@ fn main() {
         let gi = GameInfo { path: path.as_ptr(), data: rom.as_ptr() as *const c_void, size: rom.len(), meta: std::ptr::null() };
         assert!(retro_load_game(&gi));
         let prof = std::env::var_os("PROF").is_some();
+        // PROF_FROM=n: run n frames first, then start sampling (to look at one part of a game).
+        let from: u32 = std::env::var("PROF_FROM").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+        for i in 0..from { FRAME = i; retro_run(); }
         if prof {
             let mut sa: libc::sigaction = std::mem::zeroed();
             sa.sa_sigaction = on_prof as usize; sa.sa_flags = libc::SA_SIGINFO | libc::SA_RESTART;
@@ -80,7 +85,14 @@ fn main() {
         }
         let t = std::time::Instant::now();
         let per_frame = std::env::var_os("FRAMES").is_some();
-        for i in 0..frames { FRAME = i; retro_run(); if per_frame { println!("{i} v {:016x} a {:016x}", VH, AH); } }
+        // TIMES=1: the speed of every second (60 frames) on its own line, to find the slow parts.
+        let times = std::env::var_os("TIMES").is_some();
+        let mut w = std::time::Instant::now();
+        for i in from..frames {
+            FRAME = i; retro_run();
+            if per_frame { println!("{i} v {:016x} a {:016x}", VH, AH); }
+            if times && i % 60 == 59 { println!("frames {}-{} {:.1} fps", i - 59, i, 60.0 / w.elapsed().as_secs_f64()); w = std::time::Instant::now(); }
+        }
         let s = t.elapsed().as_secs_f64();
         eprintln!("{frames} frames {:.2}s = {:.1} fps hash {:016x}", s, frames as f64 / s, HASH);
         if prof {
