@@ -1,0 +1,18 @@
+# Speed, fingerprints and a sampling profile for the TV's cBoy (tv/cores/cboy), on the build
+# machine (x86-64 Linux). See tv/tools/README.md.
+[package]
+name = "cboy-bench"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[dependencies]
+cboy_tv = { package = "cboy-tv", path = "../../cores/cboy" }
+libc = "0.2"
+
+[profile.release]
+debug = 1
+lto = "fat"
+codegen-units = 1

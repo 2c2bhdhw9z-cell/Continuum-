@@ -1,5 +1,34 @@
 # Handoff: Continuum for the owner's LG TV
 
+## START HERE (next chat: finish the TV's cBoy speed-up)
+
+The owner, 22 November 2026, 9 PM Eastern: "I just want you to finish the speed up or as much
+as you can get it reasonably." The job is Pokémon on the Advance at a steady 60 fps on the TV,
+with no crackle. Nothing else: no new features, no questions about other things.
+
+1. Read `.kiro/steering/owner-rules.md` (the TV's cBoy is separate: work only in
+   `tv/cores/cboy`, never in `cores/continuum-gb`), then this file.
+2. `sh tv/tools/setup-toolchain.sh`, then `. /projects/sandbox/.tvbuild/env.sh`. Store the TV
+   key the owner pastes outside the repo (`/projects/sandbox/.tvssh/key`) with a small `tv`
+   wrapper script (see "How to work on the TV from a chat" below).
+3. Copy SDL2 and the owner's two Advance Pokémon games from the TV into the sandbox (never
+   into the repo): `libSDL2-2.0.so.0` from RetroArch's `lib/` into `.tvbuild/tvlibs/`, and
+   `/media/developer/games/Pokemon - Emerald Version (USA, Europe).zip` and
+   `Pokemon_ FireRed Version.zip`, unzipped into `.tvbuild/private/`.
+4. `cores/continuum-gb/scripts/fetch-test-roms.sh` (free test games), then
+   `bash tv/tools/check-cboy.sh`: every line SAME, and the speed of the TV's cBoy against the
+   phone's (22 November: Emerald 359 vs 287 fps on the build machine, so 25% faster).
+5. Work on speed with `tv/tools/profile-cboy.sh`. After every change, run `check-cboy.sh`
+   and the TV copy's own `cargo test --release` (in `tv/cores/cboy`; symlink its `test-roms`
+   to `cores/continuum-gb/test-roms`). Push each green step to master with `[skip ci]`.
+6. On the TV: `tv/webos/package.sh`, install, then launch straight into Emerald:
+   `luna-send -n 1 luna://com.webos.applicationManager/launch '{"id":"dev.continuum.tv","params":{"play":"Pokemon - Emerald Version (USA, Europe).zip"}}'`
+   and read "speed ... fps, cBoy ... ms a frame" in `/media/developer/continuum/log.txt`.
+   The goal is cBoy under 15 ms a frame there (22 November: about 17 ms with frame skip on).
+   Don't press buttons in the owner's games beyond what's needed, and close the app afterwards.
+7. When done, hand over: what speed Emerald and FireRed reach, in plain words, and what the
+   owner should try.
+
 Paste this to start a new chat about the TV version:
 
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-), the LG TV version. Read
