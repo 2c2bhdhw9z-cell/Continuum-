@@ -57,9 +57,9 @@ Built in the second TV chat, in `tv/webos/` (its own Cargo workspace, nothing in
   - Game pixels: pixel-perfect (7x for Game Boy, 6x for Advance) is the default, and settings
     files from before move to it (`Settings.version`). The sharp-pixel blend is measured from the
     nearest seam between two console pixels.
-- **Asked, not answered yet:** the swirl's colours for the TV: keep the phone's gold family,
-  Rainbow by default, or gold plus one clearly different colour; and whether it should move
-  faster by default.
+- **Swirl colours, answered by the owner (22 November 2026):** he picked a darker accent himself
+  (purple and pink) in Settings, Look, Accent, and the swirl follows it. So the defaults stay as
+  on the phone (gold, swirl colours from the accent). Don't change them.
 - **Next:** measure Pokémon on the Advance (the owner's own game, on the TV) and speed cBoy up
   until it is full speed; try the Xbox controller; check the Kiro launcher shows Continuum's icon
   (`sh /media/developer/kiro/kiro-home.sh catalog` was run after the install).
