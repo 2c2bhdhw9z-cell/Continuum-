@@ -13,6 +13,8 @@ extern "C" {
     fn retro_init();
     fn retro_load_game(g: *const GameInfo) -> bool;
     fn retro_run();
+    fn retro_get_memory_data(id: u32) -> *mut c_void;
+    fn retro_get_memory_size(id: u32) -> usize;
 }
 #[repr(C)] struct GameInfo { path: *const c_char, data: *const c_void, size: usize, meta: *const c_char }
 static mut FRAME: u32 = 0;
@@ -81,6 +83,13 @@ fn main() {
         let path = std::ffi::CString::new(args[1].clone()).unwrap();
         let gi = GameInfo { path: path.as_ptr(), data: rom.as_ptr() as *const c_void, size: rom.len(), meta: std::ptr::null() };
         assert!(retro_load_game(&gi));
+        // SRM=path: the game's battery save, put in as a frontend does after loading.
+        if let Some(p) = std::env::var_os("SRM") {
+            let d = std::fs::read(p).unwrap();
+            let (m, n) = (retro_get_memory_data(0) as *mut u8, retro_get_memory_size(0));
+            if !m.is_null() { std::ptr::copy_nonoverlapping(d.as_ptr(), m, d.len().min(n)); }
+            eprintln!("save {} bytes into {} bytes", d.len(), n);
+        }
         let prof = std::env::var_os("PROF").is_some();
         // PROF_FROM=n: run n frames first, then start sampling (to look at one part of a game).
         let from: u32 = std::env::var("PROF_FROM").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
