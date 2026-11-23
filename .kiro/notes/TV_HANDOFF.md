@@ -35,7 +35,7 @@ with no crackle. Nothing else: no new features, no questions about other things.
   on`); the boot hook is still the web launcher, so a reboot brings that back. My last test
   opened Continuum from the native Home with OK (worked) and pressed Home as the connection
   dropped, so Continuum's menu may still be on screen.
-- **On master, not on the TV yet:** commit 342a815, the picture speed-ups (every line painted a
+- **On master, not on the TV yet:** commits 342a815 and deae466, the picture speed-ups (every line painted a
   layer at a time with windows and blending, a colour table, whole tile rows): Emerald 657 fps
   on the build machine (612 before), all fingerprints SAME, 209 tests pass.
 - **Next time the TV is reachable:** `sh tv/webos/package.sh`, install the `.ipk`, then on the
