@@ -48,6 +48,19 @@ fn r32(m: &[u8], a: usize) -> u32 {
     u32::from(r16(m, a)) | u32::from(r16(m, a + 2)) << 16
 }
 
+/// `to_xrgb` for every colour, worked out once (TV speed path: one read a pixel instead of the
+/// arithmetic; a frame uses few colours, so the entries it reads stay in the cache).
+fn xrgb_table() -> &'static [u32; 32768] {
+    static T: std::sync::OnceLock<Box<[u32; 32768]>> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let mut t = Box::new([0u32; 32768]);
+        for (i, v) in t.iter_mut().enumerate() {
+            *v = to_xrgb(i as u16);
+        }
+        t
+    })
+}
+
 pub fn to_xrgb(c: u16) -> u32 {
     let ch = |v: u16| -> u32 {
         let v = u32::from(v & 31);
@@ -160,6 +173,22 @@ impl Ppu {
                             let c = vram[a] as usize;
                             if c == 0 { CLEAR } else { r16(pal, c * 2) & 0x7FFF }
                         };
+                    }
+                } else if n == 8 && char_base + tile * 32 + ty * 4 + 4 <= 0x10000 {
+                    // A whole tile row inside the background's memory (the usual case): its four
+                    // bytes read once, the eight pixels taken out of them, the same colours as
+                    // the loop below.
+                    let base = char_base + tile * 32 + ty * 4;
+                    let bank = (entry >> 12) as usize * 16;
+                    let bits = u32::from_le_bytes([vram[base], vram[base + 1], vram[base + 2], vram[base + 3]]);
+                    if bits == 0 {
+                        o.fill(CLEAR);
+                    } else {
+                        for (k, o) in o.iter_mut().enumerate() {
+                            let tx = if hflip { 7 - k } else { k };
+                            let c = ((bits >> (tx * 4)) & 15) as usize;
+                            *o = if c == 0 { CLEAR } else { r16(pal, (bank + c) * 2) & 0x7FFF };
+                        }
                     }
                 } else {
                     let base = char_base + tile * 32 + ty * 4;
@@ -475,165 +504,125 @@ impl Ppu {
         // without either, the search stops at the first layer it finds.
         let need_second = (bldcnt >> 6) & 3 == 1 || objs.iter().any(|o| o.is_some_and(|o| o.semi));
         let wanted = if need_second { 2 } else { 1 };
-        if !any_win && !need_second {
-            // The usual line (TV speed path): no window and nothing that looks under the top
-            // layer, so the layers are painted from the back to the front, one whole layer at
-            // a time, in the reverse of the order the search below looks in. The top layer of
-            // every pixel comes out the same as the search finds it.
-            let mut col = [backdrop; W];
-            let mut lid = [5u8; W];
-            let any_obj = objs.iter().any(|o| o.is_some());
-            for p in (0..4u8).rev() {
-                for &bg in by_prio[p as usize][..in_prio[p as usize]].iter().rev() {
-                    let line = &lines[bg as usize];
+        let _ = wanted;
+        // Every line (TV speed path): the layers are painted from the back to the front, one
+        // whole layer at a time, in the reverse of the order the hardware's search looks in
+        // (priority 0 first; at one priority the object, then the backgrounds in order). So each
+        // pixel ends with the first layer that search finds on top and the next one under it,
+        // exactly the two the per-pixel search used to find, windows and all.
+        let mut masks = [0x3Fu8; W];
+        if any_win {
+            let (w0h, w0v, w1h, w1v) = (r16(io, 0x40), r16(io, 0x44), r16(io, 0x42), r16(io, 0x46));
+            for (x, m) in masks.iter_mut().enumerate() {
+                let mut v = (winout & 0x3F) as u8;
+                if dispcnt & 0x8000 != 0 && objwin[x] {
+                    v = ((winout >> 8) & 0x3F) as u8;
+                }
+                if dispcnt & 0x4000 != 0 && inside(w1h, w1v, x) {
+                    v = ((winin >> 8) & 0x3F) as u8;
+                }
+                if dispcnt & 0x2000 != 0 && inside(w0h, w0v, x) {
+                    v = (winin & 0x3F) as u8;
+                }
+                *m = v;
+            }
+        }
+        let mut top = [backdrop; W];
+        let mut tid = [5u8; W];
+        let mut under = [backdrop; W];
+        let mut uid = [5u8; W];
+        let mut semis = [false; W];
+        let any_obj = objs.iter().any(|o| o.is_some());
+        for p in (0..4u8).rev() {
+            for &bg in by_prio[p as usize][..in_prio[p as usize]].iter().rev() {
+                let line = &lines[bg as usize];
+                let bit = 1u8 << bg;
+                if need_second {
                     for x in 0..W {
-                        if line[x] != CLEAR {
-                            col[x] = line[x];
-                            lid[x] = bg;
+                        let c = line[x];
+                        if c != CLEAR && masks[x] & bit != 0 {
+                            under[x] = top[x];
+                            uid[x] = tid[x];
+                            top[x] = c;
+                            tid[x] = bg;
+                            semis[x] = false;
                         }
                     }
-                }
-                if any_obj {
+                } else {
+                    // nothing looks under the top layer on this line
                     for x in 0..W {
-                        if let Some(o) = objs[x] {
-                            if o.prio == p {
-                                col[x] = o.color;
-                                lid[x] = 4;
-                            }
+                        let c = line[x];
+                        if c != CLEAR && masks[x] & bit != 0 {
+                            top[x] = c;
+                            tid[x] = bg;
                         }
                     }
                 }
             }
-            let out = &mut self.frame[y * W..(y + 1) * W];
-            match (bldcnt >> 6) & 3 {
-                2 => {
-                    for x in 0..W {
-                        let a = col[x];
-                        let c = if bldcnt & (1 << lid[x]) != 0 {
+            if any_obj {
+                for x in 0..W {
+                    if let Some(o) = objs[x] {
+                        if o.prio == p && masks[x] & 0x10 != 0 {
+                            under[x] = top[x];
+                            uid[x] = tid[x];
+                            top[x] = o.color;
+                            tid[x] = 4;
+                            semis[x] = o.semi;
+                        }
+                    }
+                }
+            }
+        }
+        let blend = |a: u16, b: u16| -> u16 {
+            let mut out = 0u16;
+            for s in [0, 5, 10] {
+                let ca = u32::from((a >> s) & 31);
+                let cb = u32::from((b >> s) & 31);
+                out |= (((ca * eva + cb * evb) >> 4).min(31) as u16) << s;
+            }
+            out
+        };
+        let mode = (bldcnt >> 6) & 3;
+        let out = &mut self.frame[y * W..(y + 1) * W];
+        let lut = xrgb_table();
+        if mode == 0 && !need_second {
+            for x in 0..W {
+                out[x] = lut[usize::from(top[x] & 0x7FFF)];
+            }
+        } else {
+            for x in 0..W {
+                let (a, la) = (top[x], tid[x]);
+                let (b, lb) = (under[x], uid[x]);
+                let first = bldcnt & (1 << la) != 0;
+                let second = bldcnt & (0x100 << lb) != 0;
+                let color = if semis[x] && second {
+                    blend(a, b)
+                } else if masks[x] & 0x20 != 0 && first {
+                    match mode {
+                        1 if second => blend(a, b),
+                        2 => {
                             let mut v = 0;
                             for s in [0, 5, 10] {
                                 let c = u32::from((a >> s) & 31);
                                 v |= ((c + ((31 - c) * evy >> 4)) as u16) << s;
                             }
                             v
-                        } else {
-                            a
-                        };
-                        out[x] = to_xrgb(c);
-                    }
-                }
-                3 => {
-                    for x in 0..W {
-                        let a = col[x];
-                        let c = if bldcnt & (1 << lid[x]) != 0 {
+                        }
+                        3 => {
                             let mut v = 0;
                             for s in [0, 5, 10] {
                                 let c = u32::from((a >> s) & 31);
                                 v |= ((c - (c * evy >> 4)) as u16) << s;
                             }
                             v
-                        } else {
-                            a
-                        };
-                        out[x] = to_xrgb(c);
+                        }
+                        _ => a,
                     }
-                }
-                _ => {
-                    for x in 0..W {
-                        out[x] = to_xrgb(col[x]);
-                    }
-                }
+                } else {
+                    a
+                };
+                out[x] = lut[usize::from(color & 0x7FFF)];
             }
-            for i in 0..2 {
-                self.ref_x[i] += i32::from(r16(io, 0x22 + i * 0x10) as i16);
-                self.ref_y[i] += i32::from(r16(io, 0x26 + i * 0x10) as i16);
-            }
-            return;
-        }
-        for x in 0..W {
-            let mask = if any_win {
-                let mut m = winout & 0x3F;
-                if dispcnt & 0x8000 != 0 && objwin[x] {
-                    m = (winout >> 8) & 0x3F;
-                }
-                if dispcnt & 0x4000 != 0 && inside(r16(io, 0x42), r16(io, 0x46), x) {
-                    m = (winin >> 8) & 0x3F;
-                }
-                if dispcnt & 0x2000 != 0 && inside(r16(io, 0x40), r16(io, 0x44), x) {
-                    m = winin & 0x3F;
-                }
-                m
-            } else {
-                0x3F
-            };
-            // The top two layers: (colour, layer id 0-3 BG / 4 OBJ / 5 backdrop).
-            let mut top: [(u16, u8); 2] = [(backdrop, 5), (backdrop, 5)];
-            let mut found = 0;
-            let mut semi = false;
-            'p: for p in 0..4u8 {
-                if let Some(o) = objs[x] {
-                    if o.prio == p && mask & 0x10 != 0 {
-                        top[found] = (o.color, 4);
-                        if found == 0 {
-                            semi = o.semi;
-                        }
-                        found += 1;
-                        if found == wanted {
-                            break 'p;
-                        }
-                    }
-                }
-                for &bg in &by_prio[p as usize][..in_prio[p as usize]] {
-                    let bg = bg as usize;
-                    if mask & (1 << bg) != 0 && lines[bg][x] != CLEAR {
-                        top[found] = (lines[bg][x], bg as u8);
-                        found += 1;
-                        if found == wanted {
-                            break 'p;
-                        }
-                    }
-                }
-            }
-            let (a, la) = top[0];
-            let (b, lb) = top[1];
-            let first = bldcnt & (1 << la) != 0;
-            let second = bldcnt & (0x100 << lb) != 0;
-            let blend = |a: u16, b: u16| -> u16 {
-                let mut out = 0u16;
-                for s in [0, 5, 10] {
-                    let ca = u32::from((a >> s) & 31);
-                    let cb = u32::from((b >> s) & 31);
-                    out |= (((ca * eva + cb * evb) >> 4).min(31) as u16) << s;
-                }
-                out
-            };
-            let color = if semi && second {
-                blend(a, b)
-            } else if mask & 0x20 != 0 && first {
-                match (bldcnt >> 6) & 3 {
-                    1 if second => blend(a, b),
-                    2 => {
-                        let mut out = 0;
-                        for s in [0, 5, 10] {
-                            let c = u32::from((a >> s) & 31);
-                            out |= ((c + ((31 - c) * evy >> 4)) as u16) << s;
-                        }
-                        out
-                    }
-                    3 => {
-                        let mut out = 0;
-                        for s in [0, 5, 10] {
-                            let c = u32::from((a >> s) & 31);
-                            out |= ((c - (c * evy >> 4)) as u16) << s;
-                        }
-                        out
-                    }
-                    _ => a,
-                }
-            } else {
-                a
-            };
-            self.frame[y * W + x] = to_xrgb(color);
         }
         // The affine reference points step by PB/PD once a line.
         for i in 0..2 {
