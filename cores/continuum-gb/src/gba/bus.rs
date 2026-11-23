@@ -660,7 +660,19 @@ impl Bus {
     /// Runs a DMA switched on to start straight away once its start-up time has passed: when
     /// the CPU next wants the bus. If it came due while the CPU was only busy inside itself,
     /// it ran alongside those cycles, so only what is left of it holds the CPU up.
+    #[inline(always)]
     fn dma_catch_up(&mut self) {
+        // The usual case, nothing due: decided here without a call.
+        if let Some(n) = self.next_dma {
+            if n > self.now() {
+                return;
+            }
+        }
+        self.dma_catch_up_due();
+    }
+
+    #[inline(never)]
+    fn dma_catch_up_due(&mut self) {
         let now = self.now();
         let next = match self.next_dma {
             Some(v) => v,
