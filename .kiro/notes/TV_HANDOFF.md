@@ -36,9 +36,36 @@ Built in the second TV chat, in `tv/webos/` (its own Cargo workspace, nothing in
   `states/<game file>/slotN.state` + `.png`, `auto.state`, `log.txt`). Games are read from
   `/media/developer/games` (the launcher's Upload page and Continuum's own transfer both put
   them there; `.zip` and `.7z` are read in place).
-- **Not tested on the TV yet.** The tunnel closed right after the first `.ipk` was built. Next:
-  install it (command below), open it, take screenshots, try the remote and the Xbox controller,
-  check sound, then measure Pokémon (the owner's main use) on the TV.
+- **On the TV and working (22 November 2026, 7:25 PM Eastern), checked on the TV:** it opens
+  from the Kiro launcher; the remote moves round and Back opens the game menu; the owner sent
+  Pokémon Yellow (a .zip) from his phone through Continuum's own QR transfer, and it plays at a
+  steady 60 fps with good sound (owner: "The beginning played out fine without sounding weird or
+  looking slow"); 28 MB of memory in use. Owner on the crisp pixel fix: "Looks Wayyyyyy better".
+- **Fixed on the TV that day** (each one a trap for later):
+  - webosbrew's SDL is built with `SDL_WEBOS_BROKEN_ABI`: key events have an extra
+    `inputSource` field after `windowID`, so scancode is at byte 20 and repeat at byte 17
+    (`sdl.rs` `Event::key`). Other event types are standard.
+  - The remote's Back key arrives as scancode 482 (`SDL_SCANCODE_WEBOS_BACK`). From a script,
+    press Linux key 412, not 158 (158 never reaches the app).
+  - The PowerVR driver leaves `GL_FRAGMENT_PRECISION_HIGH` undefined, and half precision
+    overflows on 1080p coordinates (a black wedge in the swirl). Shaders ask for `highp` first.
+  - fontdue unpacks every glyph of LG's 2.8 MB fonts (208 MB in use); `ab_glyph` reads them
+    lazily (28 MB). Its `pt_to_px_scale` counts 96 dpi points: pass size x 0.75.
+  - The phone's swirl is laid out in screen widths for a tall screen. On the TV the field is
+    worked out for a screen on its side (in TV heights) and turned a quarter, so the clouds keep
+    the phone's size and spacing.
+  - Game pixels: pixel-perfect (7x for Game Boy, 6x for Advance) is the default, and settings
+    files from before move to it (`Settings.version`). The sharp-pixel blend is measured from the
+    nearest seam between two console pixels.
+- **Asked, not answered yet:** the swirl's colours for the TV: keep the phone's gold family,
+  Rainbow by default, or gold plus one clearly different colour; and whether it should move
+  faster by default.
+- **Next:** measure Pokémon on the Advance (the owner's own game, on the TV) and speed cBoy up
+  until it is full speed; try the Xbox controller; check the Kiro launcher shows Continuum's icon
+  (`sh /media/developer/kiro/kiro-home.sh catalog` was run after the install).
+- **Test helper on the TV** (`/tmp`, gone after a reboot): a copy of `press.js` with more keys
+  (red 398, green 399, yellow 400, blue 401, 1-9 = 2-10, 0 = 11, back 412), and a file
+  `/media/developer/continuum/debug-input` logs every key event to `log.txt`.
 - **Install command** (on the TV, as root, with the `.ipk` copied to `/tmp`):
   `. /media/developer/kiro/lib.sh; lsend -i -w 60000 luna://com.webos.appInstallService/dev/install '{"id":"dev.continuum.tv","ipkUrl":"/tmp/continuum.ipk","subscribe":true}'`
 
