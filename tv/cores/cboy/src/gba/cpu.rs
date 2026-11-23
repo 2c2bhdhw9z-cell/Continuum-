@@ -281,7 +281,7 @@ impl Cpu {
 
     /// One instruction, or IRQ entry.
     pub fn step(&mut self, bus: &mut Bus) {
-        if bus.irq_line() && self.cpsr & I == 0 {
+        if self.cpsr & I == 0 && bus.irq_line() {
             self.irq(bus);
         }
         let thumb = self.thumb();
