@@ -29,6 +29,22 @@ with no crackle. Nothing else: no new features, no questions about other things.
 7. When done, hand over: what speed Emerald and FireRed reach, in plain words, and what the
    owner should try.
 
+**Measured on the TV, 22 November 2026, 11:10 PM Eastern (commits f5a8945 and ffa55e2,
+installed):** in the app, Emerald's opening speech: 59.5-60 fps, cBoy 12.1-12.8 ms a frame (was
+17-21), sound queue never below 52 ms, stretched 0.08% at most. FireRed's title screen: 60 fps,
+cBoy 12.9-13.3 ms (was 15.8). **Still short: FireRed's intro film** (the Gengar and Nidorino
+fight the title screen plays when left alone): cBoy 16.4 ms, 57 fps, the sound queue runs dry
+(crackle). Bench on the TV with every frame drawn: Emerald 80 fps average (was 56.5), FireRed
+intro 62-83 fps, title 56 fps. The app log now says every 10 seconds how low the sound queue got
+and how much it was stretched ("sound: queue at least ... ms"). The owner, listening during the
+tests: "haven't heard bad glitches only small minor ones barely", and the sound seemed "sped up
+then slowed" in turns; the stretch now glides (about a second) and stops at 2% (was a jump up
+to 4%). TV profile now: PPU `render_line` 11-12% (lines with windows or blending; plain lines
+are painted a layer at a time), `peek16` 6%, `Prefetch::tick` 5-7%, `Cpu::step` 5%, `text_bg`
+5-6%, `code` 4%, `arm_op` 4%, `run_pending` 3%. Next: the per-access cost in `code`/`data`
+(prefetch, wait states, the DMA check), and the windowed and blended line. The owner's new
+rule: the TV's cBoy need not match the phone's (owner-rules.md).
+
 **Progress, 22 November 2026, 10:25 PM Eastern (commit f5a8945):** the next big step below is
 done. `run_pending` now only moves the clock counters between events (line edge, timer overflow,
 sound sequencer step, output sample) and the sound chip catches up later in one go

@@ -81,6 +81,12 @@ These come straight from the owner. They are not suggestions.
   platform should reach another. On 22 November speed-ups made for the TV went into the shared
   cBoy and the owner had to ask; they were moved to the TV copy and the phone's cBoy put back.
   The same goes for any other own core that gets a TV copy later: it lives under `tv/cores/`.
+- **The TV's core has its own rules** (owner, 22 November 2026, 11 PM: "This core is for this tv
+  and has its own rules don't follow the rest of the repo this is just where it will be"). The
+  repo is only where it is kept. The TV's cBoy does not have to stay the same as the phone's
+  cBoy: matching picture and sound fingerprints are a handy check, not a requirement. What
+  counts is that games play right and fast on this TV. The ways of working (plain English, push
+  straight to master, save often) still apply.
 
 ## Git
 - NO branches. NO pull requests. Ever. Everything is committed and pushed straight to `master`.
