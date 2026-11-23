@@ -6,7 +6,7 @@
 #   - a glibc 2.31 sysroot from Debian 11 armel (archive.debian.org; deb.debian.org dropped armel)
 #   - arm-cc (clang + lld) and env.sh to source before a build
 # Afterwards, copy SDL2 from the TV once (needs the SSH tunnel; see TV_HANDOFF.md):
-#   tv 'cat /media/developer/apps/usr/palm/applications/com.retroarch.webos/lib/libSDL2-2.0.so.0' > $TVB/tvlibs/libSDL2-2.0.so.0
+#   tv 'cat /media/developer/apps/usr/palm/applications/dev.continuum.tv/lib/libSDL2-2.0.so.0' > $TVB/tvlibs/libSDL2-2.0.so.0
 set -eu
 TVB=${TVB:-/projects/sandbox/.tvbuild}
 mkdir -p "$TVB/rustsys/lib/rustlib" "$TVB/sysroot" "$TVB/tvlibs" "$TVB/cargo-home"

@@ -12,7 +12,7 @@ with no crackle. Nothing else: no new features, no questions about other things.
    key the owner pastes outside the repo (`/projects/sandbox/.tvssh/key`) with a small `tv`
    wrapper script (see "How to work on the TV from a chat" below).
 3. Copy SDL2 and the owner's two Advance Pokémon games from the TV into the sandbox (never
-   into the repo): `libSDL2-2.0.so.0` from RetroArch's `lib/` into `.tvbuild/tvlibs/`, and
+   into the repo): `libSDL2-2.0.so.0` from Continuum's own `lib/` (`/media/developer/apps/usr/palm/applications/dev.continuum.tv/lib/`; RetroArch was uninstalled on 22 November 2026, owner) into `.tvbuild/tvlibs/`, and
    `/media/developer/games/Pokemon - Emerald Version (USA, Europe).zip` and
    `Pokemon_ FireRed Version.zip`, unzipped into `.tvbuild/private/`.
 4. `cores/continuum-gb/scripts/fetch-test-roms.sh` (free test games), then
@@ -246,8 +246,8 @@ so it lives in `/projects/sandbox/.tvbuild`):
 - Linker: `clang --target=armv7-unknown-linux-gnueabi -mfloat-abi=softfp -mfpu=neon --sysroot=... -fuse-ld=lld`.
 - `RUSTUP_TOOLCHAIN=1.92.0-x86_64-unknown-linux-gnu` (else rustup tries to add the iOS target
   from rust-toolchain.toml and fails on a read-only home) and a writable `CARGO_HOME`.
-- SDL2: webosbrew's SDL 2.30.12 webOS backport, copied from RetroArch's app folder
-  (`com.retroarch.webos/lib/libSDL2-2.0.so.0`), shipped in the app's `lib/`. The TV's own
+- SDL2: webosbrew's SDL 2.30.12 webOS backport, first copied from RetroArch's app folder, shipped
+  in Continuum's `lib/` (copy it from there: RetroArch is uninstalled). The TV's own
   `/usr/lib/libSDL2-2.0.so.0` is LG's 2.0.14.
 
 **cBoy speed on this TV** (big core, no picture or sound, before the speed-up below):
@@ -394,6 +394,10 @@ can all be undone. A copy of every script is in this repo at `tools/lg-tv-kit/`.
   the same app ID `youtube.leanback.v4`. That ID is on SAM's removed list, which stops LG's own
   YouTube coming back; the Homebrew copy still runs. If LG's YouTube ever reappears as a "stub",
   remove it through `appInstallService/remove`, then reinstall AdFree from the Homebrew Channel.
+- **Also uninstalled on 22 November 2026, 11:40 PM (owner: "I'm trying to debloat my TV"):**
+  Max, Paramount+, Hulu, Disney+ (through `appInstallService/remove`, added to `kiro-debloat.sh`)
+  and RetroArch (`appInstallService/dev/remove`). Apps left: Netflix, YouTube AdFree, Apple Music,
+  Continuum, Tubi, Pluto TV, plus the Homebrew Channel, LG Input Hook and LG's own.
 - **Kiro launcher**, the TV's Home screen (`/media/developer/kiro/home`, boot hook `50-kiro-home`):
   - It's a plain HTML/CSS/JS page. LG's own Home program is bind-mounted over **in RAM only**
     by a small stand-in script, so SAM starts the page as `com.webos.app.home`. SAM is never
