@@ -929,6 +929,29 @@ impl Apu {
         if n == 0 {
             return;
         }
+        // A quiet chip (no channel running, nothing part way through): only the clocks below
+        // move, exactly as the full run would move them. Speed only; nothing else changes.
+        {
+            let c = &self.chip;
+            if c.wave.stray == 0
+                && c.noise.dmg_delay == 0
+                && !c.active[0]
+                && !c.active[1]
+                && !c.active[2]
+                && !c.noise.counting
+                && !c.noise.background
+                && c.sweep.reload == 0
+                && c.sweep.calc == 0
+                && c.sweep.hold == 0
+                && (self.agb || !(c.wave.dac && c.wave.pulsed))
+            {
+                self.chip.lf ^= (n & 1) as u8;
+                self.chip.noise.phase = self.chip.noise.phase.wrapping_add(n as u8);
+                self.chip.sweep.instant = false;
+                self.chip.wave.just_read = false;
+                return;
+            }
+        }
         if self.chip.wave.stray != 0 {
             for _ in 0..n {
                 self.chip.wave.stray -= 1;

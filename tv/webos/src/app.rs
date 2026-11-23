@@ -40,7 +40,7 @@ const TAB_NAMES: [&str; 4] = ["Home", "Library", "Favorites", "Settings"];
 /// and skipping the loops games wait in is what lets Pokémon on the Advance run at full speed on
 /// this chip (measured on the owner's TV: Emerald 22 fps without it, 56 with it).
 const TV_CORE_DEFAULTS: &[(&str, &str)] =
-    &[("cboy_tilt_source", "stick"), ("cboy_gyro_source", "stick"), ("cboy_idle_skip", "on"), ("cboy_gb_idle_skip", "on")];
+    &[("cboy_tilt_source", "stick"), ("cboy_gyro_source", "stick"), ("cboy_idle_skip", "on"), ("cboy_gb_idle_skip", "on"), ("cboy_frameskip", "auto")];
 
 /// Keep the emulator on the TV's fast processor cores (this TV has two Cortex-A75s and two
 /// A55s; cBoy runs twice as fast on an A75). The fast ones are those with the highest part

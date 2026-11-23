@@ -55,7 +55,13 @@ impl Audio {
         if queued > target * 3.0 {
             unsafe { (sdl.ClearQueuedAudio)(self.dev) };
         }
-        let nudge = ((target - queued) / target).clamp(-1.0, 1.0) * 0.005;
+        // Keep the queue at the chosen delay with a nudge too small to hear. When the game falls
+        // a little behind (a heavy moment), stretch the sound up to 4% instead of letting the
+        // queue run dry, which is what crackles.
+        let mut nudge = ((target - queued) / target).clamp(-1.0, 1.0) * 0.005;
+        if queued < target * 0.5 {
+            nudge += 0.035 * ((target * 0.5 - queued) / (target * 0.5)).clamp(0.0, 1.0);
+        }
         let step = (in_rate / self.rate as f64) * (refresh / game_fps).clamp(0.9, 1.1) / (1.0 + nudge);
         let frames = input.len() / 2;
         let vol = volume.min(100) as i32;
