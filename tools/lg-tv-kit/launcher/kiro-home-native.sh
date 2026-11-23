@@ -10,6 +10,9 @@
 #   sh kiro-home-native.sh off        LG's own Home until the next reboot (the LG Home button)
 #   sh kiro-home-native.sh web        back to the web launcher now
 #   sh kiro-home-native.sh status
+#   sh kiro-home-native.sh arm        start the native one at every boot instead of the web one
+#                                     (only after a cold reboot test the owner said yes to)
+#   sh kiro-home-native.sh disarm     back to the web launcher at boot
 K=/media/developer/kiro
 H=$K/home
 N=$H/native
@@ -17,6 +20,7 @@ N=$H/native
 EXE=/usr/bin/com.webos.app.home
 APP=/media/developer/apps/usr/palm/applications/dev.continuum.tv
 LOG=/tmp/kiro-home.log
+HOOK=/var/lib/webosbrew/init.d/50-kiro-home
 log() { echo "$(up) kiro-home-native: $*" | tee -a $LOG; }
 mounted_by() { grep " $EXE " /proc/mounts >/dev/null 2>&1; }
 
@@ -77,6 +81,37 @@ off() {
   log "LG's Home is back until the next reboot"
 }
 
+# at boot (the armed hook): pictures and the screen saver first, then the native launcher, with
+# the web one as its fallback (and LG's Home as the web one's)
+boot() {
+  sh $H/kiro-bg.sh boot </dev/null >/dev/null 2>&1
+  [ -e $H/DISABLE ] && { log "disabled ($H/DISABLE)"; return 0; }
+  for i in $(seq 1 30); do
+    lsend -n 1 -w 2000 luna://com.webos.applicationManager/running '{}' 2>/dev/null | grep -q returnValue && break
+    sleep 2
+  done
+  on
+}
+
+arm() {
+  cat > $HOOK <<EOT
+#!/bin/sh
+# Homebrew Channel boot hook: the native Kiro launcher as the Home screen (RAM only, redone at
+# every boot). Back to the web launcher: sh $H/kiro-home-native.sh disarm
+H=$H
+[ -e \$H/DISABLE ] && exit 0
+[ -x \$H/native/kiro-home ] || { (sh \$H/kiro-home.sh boot </dev/null >/dev/null 2>&1 &); exit 0; }
+(sh \$H/kiro-home-native.sh boot </dev/null >/dev/null 2>&1 &)
+exit 0
+EOT
+  chmod 755 $HOOK
+  log "boot hook: the native launcher ($HOOK)"
+}
+
+disarm() {
+  cp $H/50-kiro-home $HOOK && chmod 755 $HOOK && log "boot hook: the web launcher again ($HOOK)"
+}
+
 status() {
   grep -q " $EXE " /proc/mounts && echo "stand-in mounted over $EXE" || echo "nothing over $EXE (LG's Home)"
   native_up && echo "native launcher: running ($(pgrep -f "$N/kiro-home --home" | head -1))" || echo "native launcher: not running"
@@ -92,5 +127,8 @@ case "$1" in
   off) off ;;
   web) web ;;
   status) status ;;
+  boot) boot ;;
+  arm) arm ;;
+  disarm) disarm ;;
   *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

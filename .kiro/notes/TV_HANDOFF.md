@@ -80,7 +80,44 @@ finds the first frame where picture or sound part ways. The TV-side profiler: bu
 `tv/tools/cboy-bench` for `armv7-unknown-linux-gnueabi`, run it with `PROF=1` on the TV, read
 `/tmp/samples.txt` back and look the addresses up with `llvm-addr2line`.
 
-## Queued after the cBoy speed-up: the Home screen as a native program
+## The native Home screen: running on the TV in RAM (22 November 2026, 11:58 PM Eastern)
+
+- **What it is:** `continuum-tv --home` (`tv/webos/src/home.rs`, commit 7ab7273), copied to
+  `/media/developer/kiro/home/native/kiro-home` with its SDL in `native/lib/`. It draws the
+  web launcher's layout with the TV app's own drawing code: the clock and date, the top bar
+  (Inputs, Backgrounds, Upload, Settings, App Store, Homebrew, LG Home), the Play row (HDMI
+  inputs named by CEC, Xbox green, HDMI 2 hidden, AirPlay), the owner's six apps in his order
+  (Netflix, YouTube AdFree, Apple Music, Continuum, Tubi, Pluto TV), the background pictures
+  with the 1.5-second cross-fade and tint, the Backgrounds panel (shuffle, interval,
+  screensaver, add pictures, red twice deletes) and the upload dialog. Settings and pictures stay
+  with `kiro-bg.sh`, so the screen saver and the upload page are unchanged.
+- **How it becomes Home:** `kiro-home-native.sh on` bind-mounts `home-standin-native.sh` over
+  `/usr/bin/com.webos.app.home` (RAM only). SAM runs that as Home; it `exec`s the native program,
+  which sets `APPID=com.webos.app.home` and registers with SAM itself (`registerApp` through a
+  held-open `luna-send -i`). The current web launcher was a `_WEBOS_WINDOW_TYPE_CARD` window too
+  (`getForegroundAppInfo`), so no special window type is needed. If it isn't up and in front in
+  30 seconds, the web launcher comes back. `kiro-home-native.sh web` goes back to the web one,
+  `off` gives LG's Home until the next reboot (the LG Home button), `status` shows its memory.
+- **Checked on the TV:** it opened and came to the front; the Home key from inside Continuum
+  brought it back (SAM's `relaunch`, reason `hotKey`); the remote moved through the rows; the
+  Backgrounds panel and the upload dialog (address shown) opened and closed with Back; focus
+  starts on Netflix. **Memory: 15-17 MB** for the launcher; MemAvailable went from 250 MB with
+  the web launcher to 290 MB. Processor: 0.6% of a core while it shows, nothing behind an app.
+- **Continuum's priority:** the launcher (root) sets every continuum-tv thread to nice -10
+  every 5 seconds (checked: all its threads at -10). The app itself may not do that.
+- **Boot:** still the web launcher (`50-kiro-home` unchanged), so a reboot brings the web one
+  back. `kiro-home-native.sh arm` switches the boot hook to the native one (and `disarm`
+  back); do it only after a cold reboot test the owner has said yes to (owner rule: ask before
+  every reboot).
+- **The owner's Gemini tips, checked read-only on the TV:** all four cores are online and on
+  the `performance` governor already, and each has one speed only (1.0 GHz; `scaling_available_
+  frequencies` lists just 1000000), so there is nothing to unlock there. Temperature 64 °C
+  (`rtk-thermal`). Load average 28-29 is kernel threads waiting in D state, not work: the
+  processor is 88% idle (`top`). Swap: `eswap` and `apphib` (dm devices, 600 + 300 MB, 380 MB
+  in use), swappiness 100, `/dev/zram0` present but unused (size 0). Left as they are for now.
+  The overclocking idea (a kernel module) is not done (risk to the TV).
+
+## (History) Queued after the cBoy speed-up: the Home screen as a native program
 
 The owner, 22 November 2026, 9 PM Eastern, on learning that the TV's Home screen (the Kiro
 launcher) is a web page: he wants it native, so his games get more memory. **Start this only
