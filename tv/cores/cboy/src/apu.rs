@@ -1510,6 +1510,26 @@ impl Apu {
     // ------------------------------------------------------------ the clock and the mixer
 
     /// `t` T-cycles of sound (4 a CPU M-cycle, 2 at double speed): the chip runs a tick every 2.
+    /// How far the next output sample is along (`tick`), for the Advance's speed path, which
+    /// works out how long it can leave the chip behind without an output sample falling in it.
+    pub fn sample_acc(&self) -> u32 {
+        self.sample_acc
+    }
+
+    /// Something that lasts a few ticks is under way (just after a trigger or a sweep step):
+    /// `run` has to be given the ticks in the same pieces as always, because the sweep's hold
+    /// and its calculation are counted down in a fixed order inside one `run`. The Advance's
+    /// speed path stays off until it is over.
+    pub fn settling(&self) -> bool {
+        let c = &self.chip;
+        c.sweep.hold != 0
+            || c.sweep.reload != 0
+            || (c.sweep.calc != 0 && (self.regs[NR10] & 7 != 0 || c.sweep.unshifted))
+            || c.wave.stray != 0
+            || c.noise.dmg_delay != 0
+            || c.pending_env
+    }
+
     pub fn tick(&mut self, t: u32) {
         if self.power {
             let all = t + self.half;

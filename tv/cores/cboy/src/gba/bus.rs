@@ -360,6 +360,16 @@ pub struct Bus {
     /// due (`None`: worked out again on the next access).
     #[serde(skip)]
     next_dma: Option<u64>,
+    /// Speed only, never saved (TV): the cycle before which running the machine on changes
+    /// nothing but the clock counters and the sound chip. Up to there `run_pending` moves the
+    /// counters and leaves the sound for later; 0 = worked out again on the next access.
+    #[serde(skip)]
+    fast_until: u64,
+    /// Speed only (TV): cycles the sound chip has still to run through. No output sample, no
+    /// sequencer step and no event falls inside them, so running them later in one go comes out
+    /// exactly the same (`sync_sound`).
+    #[serde(skip)]
+    lazy_sound: u32,
 }
 
 impl Bus {
@@ -428,6 +438,8 @@ impl Bus {
             rom_patches: Vec::new(),
             next_timer: None,
             next_dma: None,
+            fast_until: 0,
+            lazy_sound: 0,
         }
     }
 
@@ -435,6 +447,7 @@ impl Bus {
     pub fn forget_cached_times(&mut self) {
         self.next_timer = None;
         self.next_dma = None;
+        self.fast_until = 0;
     }
 
     /// A cheat code's read: memory as the program sees it, with no time passing (cheats.rs).
@@ -834,15 +847,39 @@ impl Bus {
 
     // ------------------------------------------------------------ CPU access
 
+    /// Before the processor reads a register: the sound chip is brought up to date (the TV's
+    /// speed path leaves it behind between events).
+    #[inline(always)]
+    fn before_io_read(&mut self, addr: u32) {
+        if addr >> 24 == 0x04 {
+            self.sync_sound();
+        }
+    }
+
+    /// Before a register is written: the sound chip is brought up to date, and what lies ahead
+    /// is worked out again afterwards (the write can start a timer, a transfer or the sound).
+    fn before_io_write(&mut self) {
+        self.sync_sound();
+        self.fast_until = 0;
+    }
+
+    /// Start and end of a frame: everything owed is run, and what lies ahead worked out afresh.
+    pub fn sync_all(&mut self) {
+        self.sync_sound();
+        self.fast_until = 0;
+    }
+
     pub fn read8(&mut self, addr: u32) -> u32 {
         self.data(addr, false, false);
         self.run_pending();
+        self.before_io_read(addr);
         self.peek8(addr)
     }
 
     pub fn read16(&mut self, addr: u32) -> u32 {
         self.data(addr, false, false);
         self.run_pending();
+        self.before_io_read(addr);
         self.peek16(addr)
     }
 
@@ -854,6 +891,7 @@ impl Bus {
     pub fn read32_seq(&mut self, addr: u32, seq: bool) -> u32 {
         self.data(addr, true, seq);
         self.run_pending();
+        self.before_io_read(addr);
         self.peek32(addr)
     }
 
@@ -897,6 +935,7 @@ impl Bus {
         let a = (addr & 0xFF_FFFF) as usize;
         let dma_cnt = (0xB8..0xE0).contains(&a) && (a - 0xB8) % 12 == 8;
         if addr >> 24 == 0x04 && dma_cnt {
+            self.before_io_write();
             self.io_write16(a, v as u16);
             self.io_write16(a + 2, (v >> 16) as u16);
             self.run_pending();
@@ -999,6 +1038,7 @@ impl Bus {
             0x02 => self.ewram[(addr & 0x3FFFF) as usize] = v,
             0x03 => self.iwram[(addr & 0x7FFF) as usize] = v,
             0x04 => {
+                self.before_io_write();
                 let a = (addr & 0xFF_FFFF) as usize;
                 if a < 0x400 {
                     self.io_write8(a, v);
@@ -1040,6 +1080,7 @@ impl Bus {
             0x02 => w(&mut self.ewram, (addr & 0x3FFFF) as usize),
             0x03 => w(&mut self.iwram, (addr & 0x7FFF) as usize),
             0x04 => {
+                self.before_io_write();
                 let a = (addr & 0xFF_FFFF) as usize;
                 if a < 0x400 {
                     self.io_write16(a, v);
@@ -1347,6 +1388,9 @@ impl Bus {
             self.dma_wait |= 1 << ch;
             return;
         }
+        // A transfer can read and write the sound registers: the sound chip catches up first.
+        self.sync_sound();
+        self.fast_until = 0;
         self.in_dma = true;
         self.dma_wait = 1 << ch;
         while self.dma_wait != 0 {
@@ -1652,6 +1696,7 @@ impl Bus {
     /// timers share, so a slow timer's first tick can come early).
     fn timer_control(&mut self, i: usize, v: u16) {
         self.next_timer = None;
+        self.fast_until = 0;
         let now = self.cycles + 1;
         let was_on = self.timers[i].ctrl & 0x80 != 0;
         if self.timer_free(i) {
@@ -1737,10 +1782,69 @@ impl Bus {
             .min()
     }
 
+    /// Runs the rest of the machine through the cycles spent so far. The usual case (TV speed
+    /// path): nothing happens before `fast_until`, so only the clock counters move and the
+    /// sound chip's share waits in `lazy_sound`. Everything else goes the full way.
+    #[inline(always)]
     pub fn run_pending(&mut self) {
         if self.in_dma {
             return;
         }
+        let end = self.cycles + u64::from(self.pending);
+        if end < self.fast_until {
+            let n = self.pending;
+            self.pending = 0;
+            self.cycles = end;
+            self.line_cycle += n;
+            self.lazy_sound += n;
+            return;
+        }
+        self.run_pending_full();
+    }
+
+    /// Runs the sound chip through the cycles it was left behind by. They hold no output
+    /// sample, no sequencer step and no event, so this is what running them one access at a
+    /// time would have done.
+    #[inline]
+    pub fn sync_sound(&mut self) {
+        if self.lazy_sound != 0 {
+            let n = self.lazy_sound;
+            self.lazy_sound = 0;
+            self.sound(n);
+        }
+    }
+
+    /// The cycle before which running on changes nothing but the counters and the sound chip:
+    /// the next line edge, timer overflow, sound sequencer step and output sample. 0 (always
+    /// the full way) while anything shorter-lived is under way.
+    fn work_out_fast_until(&mut self) -> u64 {
+        if self.in_dma
+            || self.fifo_due != [0; 2]
+            || self.irq_write_at != 0
+            || self.cycles_to_sio().is_some()
+            || self.apu.hq
+            || self.apu.out_hz == 0
+            || self.apu.settling()
+        {
+            return 0;
+        }
+        let boundary = if self.line_cycle < HBLANK_AT { HBLANK_AT } else { LINE };
+        let mut until = self.cycles + u64::from(boundary - self.line_cycle);
+        until = until.min(self.next_timer_at());
+        // `sound` with the cycles still owed to it counted in.
+        let seq = self.seq_acc + self.lazy_sound;
+        let to_seq = if seq < 16384 { 16384 - seq } else { 32768 - seq };
+        until = until.min(self.cycles + u64::from(to_seq));
+        let hz = self.apu.out_hz;
+        let left = crate::apu::CPU_HZ - self.apu.sample_acc();
+        let ticks = left.div_ceil(hz);
+        let to_sample = (4 * u64::from(ticks)).saturating_sub(u64::from(self.gb_acc + self.lazy_sound));
+        until.min(self.cycles + to_sample)
+    }
+
+    #[inline(never)]
+    fn run_pending_full(&mut self) {
+        self.sync_sound();
         // A write to IE or IME only takes effect three cycles after it was made, so the line is
         // looked at again once that has passed (the timing programs write IE around the moment a
         // flag comes up and measure which wins).
@@ -1759,12 +1863,15 @@ impl Bus {
             self.pending = 0;
             self.advance(n);
         }
+        self.fast_until = self.work_out_fast_until();
     }
 
     /// Runs the rest of the machine for `n` cycles. It stops at every point something happens
     /// at its own cycle — a timer overflow, the link port's transfer ending, a scanline's edge —
     /// so a register read taken at that moment sees the count the console would show.
-    fn advance(&mut self, mut n: u32) {
+    fn advance(&mut self, n: u32) {
+        self.sync_sound();
+        self.fast_until = 0;
         self.in_advance = true;
         let mut left = n;
         while left > 0 {

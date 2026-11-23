@@ -119,6 +119,7 @@ impl Gba {
             // first, which runs it later).
             let irq_first = self.bus.irq_line() && self.cpu.cpsr & 0x80 == 0;
             if self.cpu.pc == hook && !irq_first {
+                self.bus.sync_all();
                 self.cheats.run(&mut self.bus);
             }
         }
@@ -159,10 +160,13 @@ impl Gba {
 
     pub fn run_frame(&mut self) {
         self.bus.frame_ready = false;
+        self.bus.sync_all();
         let start = self.bus.cycles;
         while !self.bus.frame_ready && self.bus.cycles - start < FRAME_CYCLES * 2 {
             self.step();
         }
+        // The sound chip is brought up to date, so the frame's sound is all there.
+        self.bus.sync_all();
         // The blank has started: codes with no hook run now.
         if self.cheats.hook.is_none() && !self.cheats.ops.is_empty() {
             self.cheats.run(&mut self.bus);

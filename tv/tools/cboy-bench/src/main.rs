@@ -29,9 +29,14 @@ unsafe extern "C" fn env(cmd: u32, data: *mut c_void) -> bool {
     }
 }
 static mut HASH: u64 = 0xcbf29ce484222325;
+// FRAMES=1: a picture and a sound fingerprint of every frame on its own line (to find the first
+// frame where two builds part ways).
+static mut VH: u64 = 0xcbf29ce484222325;
+static mut AH: u64 = 0xcbf29ce484222325;
 fn mix(b: &[u8]) { unsafe { for x in b { HASH ^= *x as u64; HASH = HASH.wrapping_mul(0x100000001b3); } } }
-unsafe extern "C" fn video(d: *const c_void, w: u32, h: u32, pitch: usize) { if !d.is_null() && std::env::var_os("HASH").is_some() { for y in 0..h as usize { mix(std::slice::from_raw_parts((d as *const u8).add(y*pitch), w as usize*4)); } } }
-unsafe extern "C" fn audio(d: *const i16, n: usize) -> usize { if std::env::var_os("HASH").is_some() { mix(std::slice::from_raw_parts(d as *const u8, n*4)); } n }
+fn mix_to(h: *mut u64, b: &[u8]) { unsafe { for x in b { *h ^= *x as u64; *h = (*h).wrapping_mul(0x100000001b3); } } }
+unsafe extern "C" fn video(d: *const c_void, w: u32, h: u32, pitch: usize) { if !d.is_null() && std::env::var_os("HASH").is_some() { for y in 0..h as usize { let row = std::slice::from_raw_parts((d as *const u8).add(y*pitch), w as usize*4); mix(row); mix_to(&raw mut VH, row); } } }
+unsafe extern "C" fn audio(d: *const i16, n: usize) -> usize { if std::env::var_os("HASH").is_some() { let b = std::slice::from_raw_parts(d as *const u8, n*4); mix(b); mix_to(&raw mut AH, b); if let Some(p) = std::env::var_os("DUMPA") { use std::io::Write; let mut f = std::fs::OpenOptions::new().create(true).append(true).open(p).unwrap(); f.write_all(b).unwrap(); } } n }
 unsafe extern "C" fn poll() {}
 unsafe extern "C" fn input(_: u32, _: u32, _: u32, id: u32) -> i16 {
     let p = FRAME % 120;
@@ -44,7 +49,11 @@ static COUNT: AtomicUsize = AtomicUsize::new(0);
 extern "C" fn on_prof(_: i32, _: *mut libc::siginfo_t, ctx: *mut c_void) {
     unsafe {
         let uc = ctx as *mut libc::ucontext_t;
+        #[cfg(target_arch = "x86_64")]
         let pc = (*uc).uc_mcontext.gregs[libc::REG_RIP as usize] as usize;
+        // Built for the TV (tv/tools/profile-cboy-tv.sh): the ARM program counter.
+        #[cfg(target_arch = "arm")]
+        let pc = (*uc).uc_mcontext.arm_pc as usize;
         let i = COUNT.fetch_add(1, Ordering::Relaxed);
         if i < N { SAMPLES[i] = pc; }
     }
@@ -70,7 +79,8 @@ fn main() {
             libc::setitimer(libc::ITIMER_PROF, &it, std::ptr::null_mut());
         }
         let t = std::time::Instant::now();
-        for i in 0..frames { FRAME = i; retro_run(); }
+        let per_frame = std::env::var_os("FRAMES").is_some();
+        for i in 0..frames { FRAME = i; retro_run(); if per_frame { println!("{i} v {:016x} a {:016x}", VH, AH); } }
         let s = t.elapsed().as_secs_f64();
         eprintln!("{frames} frames {:.2}s = {:.1} fps hash {:016x}", s, frames as f64 / s, HASH);
         if prof {
