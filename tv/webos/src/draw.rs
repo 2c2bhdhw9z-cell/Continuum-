@@ -148,13 +148,12 @@ const FS_GAME: &str = "varying vec2 v_uv; uniform sampler2D u_tex; uniform vec2 
 void main() {
   vec2 uv = v_uv;
   if (u_sharp > 0.5) {
-    // sharp but even pixels at any scale: nearest inside a pixel, a one-screen-pixel blend at edges
+    // Sharp, even pixels at any scale: each console pixel's own colour right across it, and a
+    // blend no wider than one TV pixel where two meet (measured from the nearest seam).
     vec2 px = uv * u_size;
     vec2 fw = max(fwidth(px), vec2(0.0001));
-    vec2 fl = floor(px);
-    vec2 fr = px - fl;
-    vec2 e = clamp((fr - 0.5) / fw + 0.5, 0.0, 1.0);
-    uv = (fl + e) / u_size;
+    vec2 seam = floor(px + 0.5);
+    uv = (seam + clamp((px - seam) / fw, -0.5, 0.5)) / u_size;
   }
   vec4 t = texture2D(u_tex, uv);
   vec3 c = vec3(t.b, t.g, t.r);

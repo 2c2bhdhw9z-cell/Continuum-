@@ -109,7 +109,7 @@ pub fn cards(s: &Settings, core: &(Vec<OptionDef>, Vec<OptionCategory>), hidden:
         title: "Picture",
         subtitle: "Screen size, pixels and LCD grid".into(),
         rows: vec![
-            c("scale", "Screen size", &[("fit", "Fill the height"), ("integer", "Pixel-perfect"), ("stretch", "Stretch")]),
+            c("scale", "Screen size", &[("integer", "Pixel-perfect"), ("fit", "Fill the height"), ("stretch", "Stretch")]),
             c("sharp", "Pixels", &[("true", "Sharp"), ("false", "Smooth")]),
             c("lcd_grid", "LCD grid", &[("0", "Off"), ("0.35", "Light"), ("0.6", "Medium"), ("0.9", "Strong")]),
             c("game_backdrop", "Behind the game", &[("black", "Black"), ("dark", "Background colour"), ("swirl", "Swirl")]),

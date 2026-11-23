@@ -188,8 +188,13 @@ pub struct Settings {
     pub focus_grow: bool,
     pub page_fades: bool,
 
+    /// Which defaults this file was written with (1: pixel-perfect became the default). A file
+    /// from before it has none, which reads as 0.
+    #[serde(default)]
+    pub version: u32,
+
     // ---- Picture ----
-    pub scale: String, // fit, integer, stretch
+    pub scale: String, // integer, fit, stretch
     pub sharp: bool,
     pub lcd_grid: f64,
     pub game_backdrop: String, // black, swirl, dark
@@ -245,7 +250,10 @@ impl Default for Settings {
             focus_pulse: true,
             focus_grow: true,
             page_fades: true,
-            scale: "fit".into(),
+            version: 1,
+            // Whole multiples of the console's pixels: at 7.5x ("fill the height") Game Boy
+            // pixels came out 7 and 8 TV pixels wide by turns, which the owner saw as uneven.
+            scale: "integer".into(),
             sharp: true,
             lcd_grid: 0.0,
             game_backdrop: "black".into(),
@@ -276,6 +284,12 @@ impl Settings {
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_default();
+        if s.version < 1 {
+            if s.scale == "fit" {
+                s.scale = "integer".into();
+            }
+            s.version = 1;
+        }
         // Any key missing from an older file gets its default mapping.
         for (k, v) in default_remote() {
             s.remote.entry(k).or_insert(v);
