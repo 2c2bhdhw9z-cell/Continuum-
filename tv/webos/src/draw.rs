@@ -4,7 +4,7 @@
 //! Everything is laid out on a 1920x1080 page and scaled to whatever the TV gives the app.
 
 use crate::gl::{self, Gl, GLint, GLuint};
-use ab_glyph::{point, Font, FontVec, PxScale, ScaleFont};
+use ab_glyph::{point, Font, FontArc, PxScale, ScaleFont};
 use std::collections::HashMap;
 
 pub type Rgba = [f32; 4];
@@ -315,7 +315,7 @@ pub struct Draw {
     game: Prog,
     field: Option<Prog>,
     field_fbo: Option<(GLuint, Texture)>,
-    fonts: Vec<FontVec>,
+    fonts: Vec<FontArc>,
     atlas: Atlas,
     text_verts: Vec<f32>,
     pub scale: f32,
@@ -336,7 +336,7 @@ fn quad(out: &mut Vec<f32>, x0: f32, y0: f32, x1: f32, y1: f32, uv: [f32; 4], lo
 }
 
 impl Draw {
-    pub fn new(gl: Gl, fonts: Vec<FontVec>, width: i32, height: i32) -> Result<Draw, String> {
+    pub fn new(gl: Gl, fonts: Vec<FontArc>, width: i32, height: i32) -> Result<Draw, String> {
         let attribs = ["a_pos", "a_uv", "a_local", "a_color"];
         let mk = |fs: &str, names: &[&'static str]| -> Result<Prog, String> {
             // Full precision first: this TV's driver leaves GL_FRAGMENT_PRECISION_HIGH out, and

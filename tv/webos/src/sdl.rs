@@ -164,6 +164,9 @@ sdl_fns! {
     GetTicks: fn() -> u32;
     Delay: fn(u32);
     GetScancodeName: fn(c_int) -> *const c_char;
+    RaiseWindow: fn(*mut c_void);
+    ShowWindow: fn(*mut c_void);
+    RestoreWindow: fn(*mut c_void);
 }
 
 impl Sdl {

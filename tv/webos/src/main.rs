@@ -7,6 +7,7 @@ mod config;
 mod draw;
 mod files;
 mod gl;
+mod home;
 mod input;
 mod library;
 mod log;
@@ -90,6 +91,11 @@ fn bench(args: &[String]) {
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
+    // The TV's Home screen (home.rs), started by home-standin-native.sh as com.webos.app.home.
+    if args.get(1).map(|a| a == "--home").unwrap_or(false) {
+        home::run(args.get(2).map(|s| s.as_str()));
+        return;
+    }
     if args.len() >= 4 && args[1] == "--bench" {
         bench(&args[2..]);
         return;

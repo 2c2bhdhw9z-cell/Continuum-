@@ -288,7 +288,7 @@ impl App {
         let gl = crate::gl::Gl::load(&getp)?;
         crate::logln!("screen {dw}x{dh}, GPU {} ({})", gl.string(crate::gl::RENDERER), gl.string(crate::gl::VERSION));
         let fonts = load_fonts()?;
-        let d = Draw::new(gl, fonts, dw, dh)?;
+        let d = Draw::new(gl, fonts.into_iter().map(ab_glyph::FontArc::new).collect(), dw, dh)?;
         let images = Images {
             gb: texture_png(&d, include_bytes!("../assets/console-gb.png")),
             gbc: texture_png(&d, include_bytes!("../assets/console-gbc.png")),
