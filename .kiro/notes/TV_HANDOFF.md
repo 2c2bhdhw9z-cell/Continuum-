@@ -29,7 +29,7 @@ with no crackle. Nothing else: no new features, no questions about other things.
 7. When done, hand over: what speed Emerald and FireRed reach, in plain words, and what the
    owner should try.
 
-**Handed over, 22 November 2026, 11:35 PM Eastern (commit 85825a9 installed):** in the app,
+**Handed over, 22 November 2026, 11:30 PM Eastern (commit 85825a9 installed):** in the app,
 Emerald's speech 59.6-59.8 fps, cBoy 11.3 ms a frame; FireRed (title and intro film, a
 minute) 59.5-59.9 fps, cBoy 12-14 ms, sound queue never below 37 ms after the start, stretched
 0.11% at most (no crackle). Super Mario Advance 2 plays: the TV's cBoy never read its EEPROM
