@@ -70,9 +70,15 @@ impl Event {
     pub fn kind(&self) -> u32 {
         self.u32_at(0)
     }
-    /// Keyboard: (scancode, keycode, repeat)
+    /// Keyboard: (scancode, keycode, repeat). webosbrew's SDL is built with
+    /// SDL_WEBOS_BROKEN_ABI: its key events carry an extra `inputSource` after `windowID`, so
+    /// everything after it sits four bytes later than in standard SDL (measured on the TV).
     pub fn key(&self) -> (i32, i32, bool) {
-        (self.i32_at(16), self.i32_at(20), self.raw[13] != 0)
+        if cfg!(target_arch = "arm") {
+            (self.i32_at(20), self.i32_at(24), self.raw[17] != 0)
+        } else {
+            (self.i32_at(16), self.i32_at(20), self.raw[13] != 0)
+        }
     }
     /// Controller button: (joystick instance id, button)
     pub fn cbutton(&self) -> (i32, u8) {

@@ -4,6 +4,7 @@
 //! Everything is laid out on a 1920x1080 page and scaled to whatever the TV gives the app.
 
 use crate::gl::{self, Gl, GLint, GLuint};
+use ab_glyph::{point, Font, FontVec, PxScale, ScaleFont};
 use std::collections::HashMap;
 
 pub type Rgba = [f32; 4];
@@ -138,7 +139,9 @@ void main() {
   vec2 t1 = (i + 1.5 + w3 / s1) / u_size;
   vec4 c = s0.y * (s0.x * tap(vec2(t0.x, t0.y)) + s1.x * tap(vec2(t1.x, t0.y)))
          + s1.y * (s0.x * tap(vec2(t0.x, t1.y)) + s1.x * tap(vec2(t1.x, t1.y)));
-  gl_FragColor = vec4(c.rgb, 1.0);
+  // a speck of noise, so a slow gradient never shows steps (bands) on the TV
+  float n = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+  gl_FragColor = vec4(c.rgb + (n - 0.5) / 255.0, 1.0);
 }";
 
 const FS_GAME: &str = "varying vec2 v_uv; uniform sampler2D u_tex; uniform vec2 u_size; uniform float u_grid; uniform float u_sharp;
@@ -208,6 +211,14 @@ pub struct Texture {
     pub h: u32,
 }
 
+struct Metrics {
+    width: usize,
+    height: usize,
+    xmin: f32,
+    ymin: f32,
+    advance_width: f32,
+}
+
 struct Glyph {
     u0: f32,
     v0: f32,
@@ -245,7 +256,7 @@ pub struct Draw {
     image: Prog,
     swirl: Prog,
     game: Prog,
-    fonts: Vec<fontdue::Font>,
+    fonts: Vec<FontVec>,
     atlas: Atlas,
     text_verts: Vec<f32>,
     pub scale: f32,
@@ -266,16 +277,19 @@ fn quad(out: &mut Vec<f32>, x0: f32, y0: f32, x1: f32, y1: f32, uv: [f32; 4], lo
 }
 
 impl Draw {
-    pub fn new(gl: Gl, fonts: Vec<fontdue::Font>, width: i32, height: i32) -> Result<Draw, String> {
+    pub fn new(gl: Gl, fonts: Vec<FontVec>, width: i32, height: i32) -> Result<Draw, String> {
         let attribs = ["a_pos", "a_uv", "a_local", "a_color"];
         let mk = |fs: &str, names: &[&'static str]| -> Result<Prog, String> {
-            let src = format!("{HEADER}{fs}");
-            let fs_src = if fs.contains("fwidth") {
-                format!("#extension GL_OES_standard_derivatives : enable\n{src}")
-            } else {
-                src
+            // Full precision first: this TV's driver leaves GL_FRAGMENT_PRECISION_HIGH out, and
+            // half precision overflows on 1080p coordinates (black patches in the swirl).
+            let ext = if fs.contains("fwidth") { "#extension GL_OES_standard_derivatives : enable\n" } else { "" };
+            let id = match gl.program(VS, &format!("{ext}precision highp float;\n{fs}"), &attribs) {
+                Ok(id) => id,
+                Err(e) => {
+                    crate::logln!("full precision refused ({e}); using the driver's default");
+                    gl.program(VS, &format!("{ext}{HEADER}{fs}"), &attribs)?
+                }
             };
-            let id = gl.program(VS, &fs_src, &attribs)?;
             let mut u = HashMap::new();
             for n in names.iter().chain(["u_view", "u_tex"].iter()) {
                 u.insert(*n, gl.uniform(id, n));
@@ -605,10 +619,29 @@ impl Draw {
         let key = (font, px, ch);
         if !self.atlas.glyphs.contains_key(&key) {
             let f = &self.fonts[font.min(self.fonts.len() - 1)];
-            let (m, bitmap) = f.rasterize(ch, px as f32);
-            let g = if m.width == 0 || m.height == 0 {
-                Some(Glyph { u0: 0.0, v0: 0.0, u1: 0.0, v1: 0.0, w: 0.0, h: 0.0, xoff: 0.0, yoff: 0.0, adv: m.advance_width })
-            } else {
+            // sizes are per em, like the phone's points
+            let scale = f.pt_to_px_scale(px as f32 * 0.75).unwrap_or(PxScale::from(px as f32));
+            let gid = f.glyph_id(ch);
+            let adv = f.as_scaled(scale).h_advance(gid);
+            let outline = f.outline_glyph(gid.with_scale_and_position(scale, point(0.0, 0.0)));
+            let drawn = outline.map(|og| {
+                let b = og.px_bounds();
+                let (w, h) = (b.width().ceil() as usize, b.height().ceil() as usize);
+                let mut bm = vec![0u8; w * h];
+                og.draw(|x, y, c| {
+                    let i = y as usize * w + x as usize;
+                    if i < bm.len() {
+                        bm[i] = (c.clamp(0.0, 1.0) * 255.0) as u8;
+                    }
+                });
+                (w, h, b.min.x, b.min.y, bm)
+            });
+            let g = match drawn {
+                None | Some((0, _, _, _, _)) | Some((_, 0, _, _, _)) => {
+                    Some(Glyph { u0: 0.0, v0: 0.0, u1: 0.0, v1: 0.0, w: 0.0, h: 0.0, xoff: 0.0, yoff: 0.0, adv })
+                }
+                Some((mw, mh, xmin, ymin, bitmap)) => {
+                let m = Metrics { width: mw, height: mh, xmin, ymin, advance_width: adv };
                 let (gw, gh) = (m.width + 1, m.height + 1);
                 if self.atlas.x + gw > ATLAS {
                     self.atlas.x = 0;
@@ -640,10 +673,11 @@ impl Draw {
                     v1: (ay + m.height) as f32 / a,
                     w: m.width as f32,
                     h: m.height as f32,
-                    xoff: m.xmin as f32,
-                    yoff: -(m.ymin as f32) - m.height as f32,
+                    xoff: m.xmin,
+                    yoff: m.ymin,
                     adv: m.advance_width,
                 })
+                }
             };
             self.atlas.glyphs.insert(key, g);
         }
@@ -667,10 +701,11 @@ impl Draw {
     pub fn text(&mut self, s: &str, x: f32, y: f32, size: f32, font: usize, c: Rgba, tracking: f32) -> f32 {
         let scale = self.scale;
         let px = (size * scale).round().max(1.0) as u32;
-        let ascent = self.fonts[font.min(self.fonts.len() - 1)]
-            .horizontal_line_metrics(px as f32)
-            .map(|m| m.ascent)
-            .unwrap_or(px as f32 * 0.8);
+        let ascent = {
+            let f = &self.fonts[font.min(self.fonts.len() - 1)];
+            let scale = f.pt_to_px_scale(px as f32 * 0.75).unwrap_or(PxScale::from(px as f32));
+            f.as_scaled(scale).ascent()
+        };
         // baseline in device pixels, centred in the line box
         let line_h = size * scale;
         let base = (y * scale + (line_h - px as f32 * 1.0) * 0.5 + ascent * 0.92).round();

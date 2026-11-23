@@ -519,8 +519,9 @@ impl<'a> Ctx<'a> {
         if !subtitle.is_empty() {
             self.d.text_fit(subtitle, r.x + 96.0, r.y + r.h * 0.5 + 4.0, 22.0, REGULAR, white(0.5), r.w - 200.0);
         }
-        let chev = if open { "⌄" } else { "›" };
-        self.d.text(chev, r.x + r.w - 52.0, r.y + (r.h - 40.0) * 0.5 - if open { 8.0 } else { 0.0 }, 40.0, BOLD, white(0.6), 0.0);
+        // the TV's font has no down-pointing chevron: minus when open, plus when closed
+        let sign = if open { "−" } else { "+" };
+        self.d.text_center(sign, r.x + r.w - 46.0, r.y + (r.h - 40.0) * 0.5, 40.0, BOLD, white(0.6));
     }
 }
 

@@ -136,9 +136,10 @@ pub struct App {
     vsync_ok: bool,
     quit: bool,
     last_scan: Instant,
+    debug_input: bool,
 }
 
-fn load_fonts() -> Result<Vec<fontdue::Font>, String> {
+fn load_fonts() -> Result<Vec<ab_glyph::FontVec>, String> {
     let dirs = [
         std::env::var("CONTINUUM_FONTS").unwrap_or_default(),
         "/usr/share/fonts".to_string(),
@@ -151,13 +152,15 @@ fn load_fonts() -> Result<Vec<fontdue::Font>, String> {
         ["LG_Smart_UI-Bold.ttf", "DejaVuSans-Bold.ttf"],
     ];
     let mut fonts = Vec::new();
+    let mut last: Option<Vec<u8>> = None;
     for choice in names.iter() {
         let mut got = None;
         'find: for d in dirs.iter().filter(|d| !d.is_empty()) {
             for n in choice.iter() {
                 if let Ok(b) = std::fs::read(format!("{d}/{n}")) {
-                    if let Ok(f) = fontdue::Font::from_bytes(b, fontdue::FontSettings::default()) {
+                    if let Ok(f) = ab_glyph::FontVec::try_from_vec(b.clone()) {
                         got = Some(f);
+                        last = Some(b);
                         break 'find;
                     }
                 }
@@ -165,13 +168,10 @@ fn load_fonts() -> Result<Vec<fontdue::Font>, String> {
         }
         match got {
             Some(f) => fonts.push(f),
-            None => {
-                if let Some(f) = fonts.last().cloned() {
-                    fonts.push(f)
-                } else {
-                    return Err("no fonts found".into());
-                }
-            }
+            None => match last.clone().and_then(|b| ab_glyph::FontVec::try_from_vec(b).ok()) {
+                Some(f) => fonts.push(f),
+                None => return Err("no fonts found".into()),
+            },
         }
     }
     Ok(fonts)
@@ -208,6 +208,8 @@ impl App {
             (sdl.GL_SetAttribute)(sdl::GL_DOUBLEBUFFER, 1);
         }
         let title = CString::new("Continuum").unwrap();
+        // webOS gives apps a 1920x1080 picture and scales it to the 4K panel (asking for
+        // 3840x2160 still gives 1920x1080, measured on the owner's TV).
         let (ww, wh) = if std::env::var_os("CONTINUUM_WINDOWED").is_some() { (1280, 720) } else { (1920, 1080) };
         let flags = sdl::WINDOW_OPENGL | sdl::WINDOW_SHOWN | if std::env::var_os("CONTINUUM_WINDOWED").is_some() { 0 } else { sdl::WINDOW_FULLSCREEN };
         let win = unsafe { (sdl.CreateWindow)(title.as_ptr(), 0, 0, ww, wh, flags) };
@@ -303,7 +305,9 @@ impl App {
             vsync_ok: true,
             quit: false,
             last_scan: Instant::now(),
+            debug_input: false,
         };
+        app.debug_input = app.paths.data.join("debug-input").exists();
         app.read_core_options();
         Ok(app)
     }
@@ -402,6 +406,15 @@ impl App {
         let mut e = Event::new();
         let in_game = self.session.is_some() && self.layers.is_empty();
         while unsafe { (self.sdl.PollEvent)(&mut e) } != 0 {
+            if self.debug_input {
+                let k = e.kind();
+                if k == sdl::KEYDOWN || k == sdl::KEYUP {
+                    let (sc, kc, rep) = e.key();
+                    crate::logln!("event {k:#x} scancode {sc} keycode {kc} repeat {rep}");
+                } else if k != 0x400 && k != 0x401 && k != 0x402 && k != 0x403 {
+                    crate::logln!("event {k:#x}");
+                }
+            }
             match e.kind() {
                 sdl::QUIT | sdl::APP_TERMINATING => self.quit = true,
                 sdl::APP_WILLENTERBACKGROUND | sdl::APP_DIDENTERBACKGROUND => self.went_away(),
@@ -1034,15 +1047,28 @@ impl App {
         self.swirl_drawn = shown;
         let base = swirl::hex_rgb(&self.s.background);
         let k = self.s.swirl_strength.min(1.0);
-        let mut buf = std::mem::take(&mut self.swirl_buf);
-        let (w, h) = swirl::field(shown, VH as f64 / VW as f64, &self.palette, k, base, &mut buf);
+        let mut field = std::mem::take(&mut self.swirl_buf);
+        // The phone's swirl is laid out on a tall screen, measured in screen widths. A TV is
+        // wide, so the same field is worked out for a screen standing on its side (measured in
+        // the TV's height) and turned a quarter: the clouds keep the size and spacing they have
+        // on the phone, instead of each one spreading over half the screen.
+        let (fw, fh) = swirl::field(shown, VW as f64 / VH as f64, &self.palette, k, base, &mut field);
+        let (w, h) = (fh, fw);
+        let mut buf = vec![255u8; (w * h * 4) as usize];
+        for i in 0..fw as usize {
+            for j in 0..fh as usize {
+                let s = (j * fw as usize + i) * 4;
+                let d = (i * w as usize + j) * 4;
+                buf[d..d + 3].copy_from_slice(&field[s..s + 3]);
+            }
+        }
+        self.swirl_buf = field;
         if w > 0 {
             match self.swirl_tex.as_mut() {
                 Some(tex) => self.d.update_texture(tex, w, h, &buf),
                 None => self.swirl_tex = Some(self.d.texture_rgba(w, h, &buf, crate::gl::LINEAR)),
             }
         }
-        self.swirl_buf = buf;
     }
 
     fn draw_background(&mut self, dt: f64, allow_motion: bool) {

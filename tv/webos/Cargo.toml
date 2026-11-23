@@ -12,7 +12,7 @@ publish = false
 
 [dependencies]
 libc = "0.2"
-fontdue = "0.9"
+ab_glyph = "0.2"
 qrcodegen = "1.8"
 png = "0.17"
 serde = { version = "1", features = ["derive"] }

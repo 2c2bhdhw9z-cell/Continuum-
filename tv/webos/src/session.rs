@@ -96,6 +96,9 @@ impl Session {
         if el >= 1.0 {
             self.fps_shown = self.fps_window.1 as f64 / el;
             self.fps_window = (Instant::now(), 0);
+            if self.frames % 600 < 60 {
+                crate::logln!("speed {:.1} fps", self.fps_shown);
+            }
         }
     }
 
