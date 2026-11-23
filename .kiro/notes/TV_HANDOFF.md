@@ -29,11 +29,69 @@ with no crackle. Nothing else: no new features, no questions about other things.
 7. When done, hand over: what speed Emerald and FireRed reach, in plain words, and what the
    owner should try.
 
-Paste this to start a new chat about the TV version:
+## Queued after the cBoy speed-up: the Home screen as a native program
+
+The owner, 22 November 2026, 9 PM Eastern, on learning that the TV's Home screen (the Kiro
+launcher) is a web page: he wants it native, so his games get more memory. **Start this only
+after the cBoy speed-up above has been handed over**, unless he says to do it first.
+
+- **Today:**
+  - The launcher lives in `/media/developer/kiro/home` (copy in `tools/lg-tv-kit/launcher/`).
+  - It's an HTML/CSS/JS page that webapp-mgr runs as `com.webos.app.home`. It's started by
+    `home-standin.sh`, which is bind-mounted in RAM over LG's `/usr/bin/com.webos.app.home`.
+  - App launches go through `kiro-api.sh` (BusyBox tcpsvd on 127.0.0.1:8766).
+  - Measured on the TV: about 30 MB (one WebAppMgr renderer at about 29 MB, plus the stand-in
+    shells and its luna-send). LG's own native Home was 20 MB, climbing to 124 MB.
+  - A native launcher is estimated at 10-20 MB. That saves about 10-20 MB while a game runs.
+    Tell the owner plainly that a game's speed depends mostly on cBoy, not on this.
+- **The goal:** the same look and every feature, as a native SDL2 + OpenGL ES program built with
+  `tv/webos`'s toolchain. It can share that app's drawing, font and remote code.
+  - The clock and date.
+  - The top bar:
+    - Inputs: launch `com.webos.app.homeconnect`.
+    - Backgrounds and Upload.
+    - Settings, App Store and Homebrew.
+    - LG Home: `kiro-home.sh off`, which lasts until the next reboot.
+  - The Play row:
+    - Xbox: HDMI 1. Its name comes from the CEC `osdName`, and the tile is green when the name
+      says Xbox.
+    - AirPlay: `luna://airplay.service/showAirplayPage`.
+    - HDMI 2 is the soundbar's ARC connection and stays hidden.
+  - The apps grid comes from `listLaunchPoints`, with the order list and the skip list in
+    `app/main.js`.
+  - Backgrounds:
+    - None, one picture, or shuffle with a chosen interval.
+    - The screensaver switch.
+    - The red button pressed twice deletes the focused picture.
+    - Keep `kiro-bg.sh`, `bg.conf`, `app/bg/` and `screensaver/Slideshow.qml` exactly as they
+      are, so the screensaver and the upload page keep working unchanged.
+  - Upload: `kiro-bg.sh upload`, which starts `upload.js` on port 8767 for pictures and games.
+    Show its address on screen.
+  - The remote: arrows, OK and Back. The Home key brings the launcher back to the front.
+- **How it becomes Home:**
+  - Keep the stand-in way. Never restart SAM: on these TVs that breaks the HDMI picture and the
+    ARC sound.
+  - Instead of asking webapp-mgr for a page, the stand-in starts the native program.
+  - The program registers with SAM as `com.webos.app.home` (`registerApp`). It handles
+    "relaunch" (the Home key) and "close", as `home-standin.sh` does today.
+  - Verify, without assuming, how a native SDL2 window gets the "home" window type that
+    surface-manager expects. LG's own Home is native Qt/QML with `"defaultWindowType": "home"`.
+- **Safety:**
+  - Test in RAM first, the way `kiro-home.sh on` does.
+  - Keep its fallback: if the launcher isn't up within 30 seconds, LG's Home comes back.
+  - Keep the web launcher as the fallback until the native one has passed a cold reboot. Then
+    switch the `50-kiro-home` boot hook over.
+  - Ask the owner before each reboot.
+- **Measure:** memory 8 minutes after a cold boot, the same way as the earlier readings
+  (MemAvailable and the processes' RSS), with and without a game running.
+
+Paste this to start a new chat about the TV version (the key and a fresh Pinggy address go
+below it):
 
 > Continue Continuum (repo 2c2bhdhw9z-cell/Continuum-), the LG TV version. Read
-> `.kiro/steering/owner-rules.md`, then `.kiro/notes/TV_HANDOFF.md`, then ask me the open
-> questions in it before building anything. My TV's SSH key and today's connection address are
+> `.kiro/steering/owner-rules.md`, then the "START HERE" section of `.kiro/notes/TV_HANDOFF.md`,
+> and finish the speed-up of the TV's cBoy so Pokémon on the Advance runs at a steady 60 with no
+> crackle. Work only in the TV's own cBoy. My TV's SSH key and today's connection address are
 > below.
 > (then paste the `-----BEGIN OPENSSH PRIVATE KEY-----` block and the Pinggy `tcp://...` line)
 
