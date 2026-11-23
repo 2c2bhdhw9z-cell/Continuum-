@@ -29,7 +29,7 @@ with no crackle. Nothing else: no new features, no questions about other things.
 7. When done, hand over: what speed Emerald and FireRed reach, in plain words, and what the
    owner should try.
 
-**Measured on the TV, 22 November 2026, 11:10 PM Eastern (commits f5a8945 and ffa55e2,
+**Measured on the TV, 22 November 2026, 10:50 PM Eastern (commits f5a8945 and ffa55e2,
 installed):** in the app, Emerald's opening speech: 59.5-60 fps, cBoy 12.1-12.8 ms a frame (was
 17-21), sound queue never below 52 ms, stretched 0.08% at most. FireRed's title screen: 60 fps,
 cBoy 12.9-13.3 ms (was 15.8). **Still short: FireRed's intro film** (the Gengar and Nidorino
