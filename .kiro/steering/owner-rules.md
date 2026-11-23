@@ -87,6 +87,11 @@ These come straight from the owner. They are not suggestions.
   cBoy: matching picture and sound fingerprints are a handy check, not a requirement. What
   counts is that games play right and fast on this TV. The ways of working (plain English, push
   straight to master, save often) still apply.
+- **TV problems get fixed and put on the TV straight away, even while the owner is testing on
+  it** (owner, 22 November 2026, 11:20 PM, furious: "if something needs to be fixed and it's to
+  do with the tv. Yes. Fix it."). The "fix nothing while he is testing" rule is for the phone
+  app, not the TV. A bug found on the TV that the phone's cores share is fixed on the TV only and
+  just noted for the phone (STATUS.md), unless he asks for the phone too.
 
 ## Git
 - NO branches. NO pull requests. Ever. Everything is committed and pushed straight to `master`.

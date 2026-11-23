@@ -327,6 +327,13 @@ launch with an empty library.
 
 ## Next up
 
+**Phone's cBoy, found on the TV (22 November 2026): EEPROM saves are never read back.** At
+$0D000000 `peek16` (cores/continuum-gb/src/gba/bus.rs) answers 1 and `Save::eeprom_read` is never
+called, so every Advance game with an EEPROM save reads back only $FF. Super Mario Advance 2
+says "Your saved data is corrupt." on the TV; the same will happen on the phone. Fixed in the
+TV's own copy only (tv/cores/cboy, commit 85825a9). The owner: "Just the tv. Just note it." So
+the phone's cBoy is not changed until he says so.
+
 **29 October 2026, 5:10 AM Eastern, read this first.** **Build 246** (`82f6631`) is the newest
 install: https://github.com/2c2bhdhw9z-cell/Continuum-/releases/download/build-246-82f6631/Continuum-246.ipa
 (checked: 0.8.0 build 246, 41 emulators). New since 244: cAtari (Atari 7800), cMini (Pokémon
