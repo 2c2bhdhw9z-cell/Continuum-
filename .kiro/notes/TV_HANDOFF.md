@@ -60,9 +60,31 @@ Built in the second TV chat, in `tv/webos/` (its own Cargo workspace, nothing in
 - **Swirl colours, answered by the owner (22 November 2026):** he picked a darker accent himself
   (purple and pink) in Settings, Look, Accent, and the swirl follows it. So the defaults stay as
   on the phone (gold, swirl colours from the accent). Don't change them.
-- **Next:** measure Pokémon on the Advance (the owner's own game, on the TV) and speed cBoy up
-  until it is full speed; try the Xbox controller; check the Kiro launcher shows Continuum's icon
-  (`sh /media/developer/kiro/kiro-home.sh catalog` was run after the install).
+- **Pokémon on the Advance is the open problem** (owner, 22 November 2026, 8:30 PM: "Audio is
+  crackling ... more bad than good"). Measured on the TV, in Emerald's opening speech:
+  - cBoy as it was this morning, no idle skip: 22 fps.
+  - With `cboy_idle_skip=on` (now a TV default, `TV_CORE_DEFAULTS` in app.rs): 43 fps in the app.
+  - With the cBoy speed-ups (all identical output, see commits 37dadd1, 96a609f, a565c15) and
+    the emulator held on the fast cores: about 47-50 fps, cBoy 18-21 ms a frame.
+  - With `cboy_frameskip=auto` (also a TV default now): 55-57 fps, cBoy about 17 ms a frame.
+  - The sound now stretches up to 4% when the queue runs low (audio.rs), which covers 57+ fps.
+  - Host profile (Emerald, idle skip on): PPU about 18%, the Game Boy sound chip about 12%, and
+    the rest the per-access timing (advance, run_pending, prefetch, wait states, peek16, DMA
+    check), about 300 TV cycles per Advance instruction. The m4a sound mixer loop in IWRAM
+    (03001DBC-03001E0C) is a third of the instructions.
+  - **Next big step for cBoy:** stop running the whole machine (`run_pending` -> `advance`)
+    after every opcode fetch. Let cycles collect in `pending` until the next event (timer
+    overflow, line edge, serial, FIFO refill, IE/IME write landing, DMA due) or until anything
+    reads the time (IO registers, VRAM wait states use `line_cycle`). It must keep the picture
+    and sound fingerprints identical (`.tvbuild/pcmp.sh` and `cmp.sh` compare against the
+    unchanged cBoy; the Pokémon games for it are the owner's own, copied from the TV into
+    `.tvbuild/private`, never into the repo).
+- Also next: try the Xbox controller; check the Kiro launcher shows Continuum's icon
+  (`sh /media/developer/kiro/kiro-home.sh catalog` was run after the install). Menus cost about
+  16 ms of processor a frame drawing (each shape is its own draw call with a dozen uniform
+  calls); batching would make them lighter.
+- **Home closes the app fully** (owner: "it should fully close if I hit the home button"): on
+  `SDL_APP_WILLENTERBACKGROUND` it saves the battery save and an auto state, then quits.
 - **Test helper on the TV** (`/tmp`, gone after a reboot): a copy of `press.js` with more keys
   (red 398, green 399, yellow 400, blue 401, 1-9 = 2-10, 0 = 11, back 412), and a file
   `/media/developer/continuum/debug-input` logs every key event to `log.txt`.
