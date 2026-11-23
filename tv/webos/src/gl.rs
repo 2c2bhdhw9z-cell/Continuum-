@@ -109,6 +109,7 @@ gl_fns! {
     Uniform3f: fn(GLint, GLfloat, GLfloat, GLfloat);
     Uniform4f: fn(GLint, GLfloat, GLfloat, GLfloat, GLfloat);
     Uniform4fv: fn(GLint, GLsizei, *const GLfloat);
+    Uniform3fv: fn(GLint, GLsizei, *const GLfloat);
     GenBuffers: fn(GLsizei, *mut GLuint);
     BindBuffer: fn(GLenum, GLuint);
     BufferData: fn(GLenum, isize, *const c_void, GLenum);

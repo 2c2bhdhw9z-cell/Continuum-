@@ -92,6 +92,53 @@ impl Palette {
     }
 }
 
+/// Everything one frame of the field needs apart from the per-point maths, for the graphics
+/// chip's version of it (draw.rs FS_FIELD).
+pub struct FieldParams {
+    pub t: f32,
+    pub mix: f32,
+    pub cols: u32,
+    pub rows: u32,
+    pub whirls: [[f32; 3]; 2],
+    pub clouds: Vec<[f32; 3]>,
+    pub pal: Vec<[f32; 3]>,
+}
+
+pub fn params(time: f64, tall: f64, p: &Palette, k: f64) -> Option<FieldParams> {
+    let t = time * 1.5;
+    if p.lightness.is_empty() || tall <= 0.0 {
+        return None;
+    }
+    let cols = 40usize;
+    let rows = ((cols as f64 * tall).round() as usize).max(1);
+    let (spin, wobble) = (0.08, 0.13);
+    let mut whirls = [[0f32; 3]; 2];
+    for (v, w) in whirls.iter_mut().enumerate() {
+        let fv = v as f64;
+        *w = [
+            (0.5 + 0.28 * (t * 0.051 + fv * 2.6).sin()) as f32,
+            (tall * (0.5 + 0.28 * (t * 0.039 + fv * 1.9 + 0.8).sin())) as f32,
+            ((if v == 0 { 3.0 } else { -3.0 }) * (0.75 + 0.25 * (t * 0.11 + fv).sin())) as f32,
+        ];
+    }
+    let cx = 0.5 + 0.05 * (t * 0.07).sin();
+    let cy = tall * (0.5 + 0.04 * (t * 0.053 + 1.0).sin());
+    let m = p.ring.len();
+    let clouds = p
+        .ring
+        .iter()
+        .enumerate()
+        .map(|(s, &colour)| {
+            let fs = s as f64;
+            let angle = t * spin + 2.0 * std::f64::consts::PI * fs / m as f64;
+            let reach = 1.0 + wobble / 0.3 * (t * (0.13 + 0.02 * fs) + fs * 2.1).sin();
+            [(cx + 0.30 * reach * angle.cos()) as f32, (cy + 0.31 * tall * reach * angle.sin()) as f32, colour as f32]
+        })
+        .collect();
+    let pal = (0..p.lightness.len()).map(|c| [p.lightness[c] as f32, p.chroma[c] as f32, p.hue[c] as f32]).collect();
+    Some(FieldParams { t: t as f32, mix: (0.35 + 0.6 * k) as f32, cols: cols as u32, rows: rows as u32, whirls, clouds, pal })
+}
+
 /// One frame of the swirl as a small RGBA grid (`width` x `height`) covering the screen and
 /// `OVER` past each edge. `tall` is height / width.
 pub fn field(time: f64, tall: f64, p: &Palette, k: f64, base: [f64; 3], out: &mut Vec<u8>) -> (u32, u32) {

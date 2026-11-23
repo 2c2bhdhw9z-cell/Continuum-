@@ -35,6 +35,50 @@ impl Images {
 }
 
 const TAB_NAMES: [&str; 4] = ["Home", "Library", "Favorites", "Settings"];
+
+/// cBoy settings that start differently on the TV than on the phone. A TV has no motion sensor,
+/// and skipping the loops games wait in is what lets Pokémon on the Advance run at full speed on
+/// this chip (measured on the owner's TV: Emerald 22 fps without it, 56 with it).
+const TV_CORE_DEFAULTS: &[(&str, &str)] =
+    &[("cboy_tilt_source", "stick"), ("cboy_gyro_source", "stick"), ("cboy_idle_skip", "on"), ("cboy_gb_idle_skip", "on")];
+
+/// Keep the emulator on the TV's fast processor cores (this TV has two Cortex-A75s and two
+/// A55s; cBoy runs twice as fast on an A75). The fast ones are those with the highest part
+/// number in /proc/cpuinfo.
+fn pin_to_fast_cores() {
+    let info = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
+    let mut cpu: Option<usize> = None;
+    let mut parts: Vec<(usize, u32)> = Vec::new();
+    for l in info.lines() {
+        if let Some(v) = l.strip_prefix("processor") {
+            cpu = v.trim_start_matches([' ', '\t', ':']).trim().parse().ok();
+        } else if let Some(v) = l.strip_prefix("CPU part") {
+            let v = v.trim_start_matches([' ', '\t', ':']).trim().trim_start_matches("0x");
+            if let (Some(c), Ok(p)) = (cpu, u32::from_str_radix(v, 16)) {
+                parts.push((c, p));
+            }
+        }
+    }
+    let best = match parts.iter().map(|p| p.1).max() {
+        Some(b) => b,
+        None => return,
+    };
+    if parts.iter().all(|p| p.1 == best) {
+        return;
+    }
+    unsafe {
+        let mut set: libc::cpu_set_t = std::mem::zeroed();
+        for (c, p) in &parts {
+            if *p == best {
+                libc::CPU_SET(*c, &mut set);
+            }
+        }
+        if libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &set) == 0 {
+            let fast: Vec<usize> = parts.iter().filter(|p| p.1 == best).map(|p| p.0).collect();
+            crate::logln!("running on the fast cores {fast:?}");
+        }
+    }
+}
 const PAGE_ADD: usize = 4;
 
 #[derive(Clone)]
@@ -137,6 +181,10 @@ pub struct App {
     quit: bool,
     last_scan: Instant,
     debug_input: bool,
+    vsync_on: bool,
+    timing: [f64; 4],
+    /// The driver won't let a game run off the screen's refresh: the old way is used.
+    free_running: bool,
 }
 
 fn load_fonts() -> Result<Vec<ab_glyph::FontVec>, String> {
@@ -306,6 +354,9 @@ impl App {
             quit: false,
             last_scan: Instant::now(),
             debug_input: false,
+            vsync_on: true,
+            timing: [0.0; 4],
+            free_running: false,
         };
         app.debug_input = app.paths.data.join("debug-input").exists();
         app.read_core_options();
@@ -333,13 +384,18 @@ impl App {
         self.core_defs = (h.options.defs.clone(), h.options.categories.clone());
         self.core_hidden = h.options.hidden.clone();
         self.core_defaults = h.options.defs.iter().map(|d| (d.key.clone(), d.default.clone())).collect();
+        for (k, v) in TV_CORE_DEFAULTS {
+            if self.core_defaults.contains_key(*k) {
+                self.core_defaults.insert(k.to_string(), v.to_string());
+            }
+        }
     }
 
     /// The core's options to start a game with: the player's choices, and the TV's own defaults
     /// where a phone default makes no sense (there is no motion sensor in a TV).
     fn core_preset(&self) -> Vec<(String, String)> {
         let mut v: Vec<(String, String)> = self.core_vals.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        for (k, dv) in [("cboy_tilt_source", "stick"), ("cboy_gyro_source", "stick")] {
+        for (k, dv) in TV_CORE_DEFAULTS.iter().copied() {
             if !self.core_vals.contains_key(k) {
                 v.push((k.to_string(), dv.to_string()));
             }
@@ -354,7 +410,24 @@ impl App {
     // ------------------------------------------------------------------------------------
     // the loop
 
+    /// webOS passes the launch parameters to a native app as JSON in its first argument:
+    /// `{"play": "<game file name>"}` starts that game straight away.
+    pub fn launch_params(&mut self, arg: Option<&str>) {
+        let v: serde_json::Value = match arg.and_then(|a| serde_json::from_str(a).ok()) {
+            Some(v) => v,
+            None => return,
+        };
+        if let Some(name) = v.get("play").and_then(|p| p.as_str()) {
+            let found = self.lib.games.iter().find(|g| g.id == name || g.path.file_name().map(|f| f.to_string_lossy() == name).unwrap_or(false)).map(|g| g.id.clone());
+            match found {
+                Some(id) => self.play(&id, false),
+                None => crate::logln!("asked to play {name}, which isn't in the library"),
+            }
+        }
+    }
+
     pub fn run(&mut self) {
+        pin_to_fast_cores();
         while !self.quit {
             let now = Instant::now();
             let dt = now.duration_since(self.last_frame).as_secs_f64().min(0.1);
@@ -363,14 +436,37 @@ impl App {
             self.events();
             self.input.tick();
             if self.session.is_some() && self.layers.is_empty() {
+                let t0 = Instant::now();
                 self.game_frame();
+                self.timing[0] += t0.elapsed().as_secs_f64();
             } else {
                 self.menu_input();
             }
             self.housekeeping();
+            let t1 = Instant::now();
             self.draw_frame(dt as f32);
+            self.timing[1] += t1.elapsed().as_secs_f64();
+            let in_game = self.session.is_some() && self.layers.is_empty();
+            self.set_vsync(!in_game);
+            let t2 = Instant::now();
             unsafe { (self.sdl.GL_SwapWindow)(self.win) };
-            if !self.vsync_ok {
+            self.timing[2] += t2.elapsed().as_secs_f64();
+            {
+                self.timing[3] += 1.0;
+                if self.timing[3] >= 600.0 {
+                    let n = self.timing[3];
+                    crate::logln!(
+                        "per frame: game {:.1} ms, drawing {:.1} ms, showing {:.1} ms",
+                        self.timing[0] / n * 1000.0,
+                        self.timing[1] / n * 1000.0,
+                        self.timing[2] / n * 1000.0
+                    );
+                    self.timing = [0.0; 4];
+                }
+            }
+            if in_game && !self.free_running {
+                self.pace_game();
+            } else if !self.vsync_ok {
                 let spent = now.elapsed().as_secs_f64();
                 let want = 1.0 / 60.0;
                 if spent < want {
@@ -381,7 +477,55 @@ impl App {
         self.shutdown();
     }
 
+    /// Menus wait for the screen's refresh (smooth and light). A game doesn't: when a frame of
+    /// it takes a little longer than one refresh, waiting would halve its speed, so the game is
+    /// paced by its sound instead and the screen shows whichever frame is newest.
+    fn set_vsync(&mut self, on: bool) {
+        if self.vsync_on == on {
+            return;
+        }
+        let r = unsafe { (self.sdl.GL_SetSwapInterval)(if on { 1 } else { 0 }) };
+        if r != 0 && !on {
+            crate::logln!("the screen can't stop waiting for refresh: {}", self.sdl.error());
+            self.free_running = true;
+        }
+        self.vsync_on = on;
+    }
+
+    /// Hold a game to its own speed: wait while more sound is queued than the delay setting.
+    fn pace_game(&mut self) {
+        let (fps, target) = match (&self.session, &self.audio) {
+            (Some(s), Some(a)) => (s.core.av.timing.fps.max(1.0), a.target_ms as f64),
+            (Some(s), None) => {
+                // no sound: a plain timer
+                let want = 1.0 / s.core.av.timing.fps.max(1.0);
+                let spent = self.last_frame.elapsed().as_secs_f64();
+                if spent < want {
+                    std::thread::sleep(Duration::from_secs_f64(want - spent));
+                }
+                return;
+            }
+            _ => return,
+        };
+        let frame_ms = 1000.0 / fps;
+        let a = self.audio.as_ref().unwrap();
+        for _ in 0..40 {
+            let q = a.queued_ms(&self.sdl);
+            if q <= target + frame_ms * 0.5 {
+                break;
+            }
+            std::thread::sleep(Duration::from_micros(((q - target) * 500.0).clamp(500.0, 8000.0) as u64));
+        }
+    }
+
     fn measure_refresh(&mut self, dt: f64) {
+        // Only in the menus: a game's own frames would count its time, not the screen's.
+        if self.session.is_some() {
+            if self.frame_times.len() < 240 {
+                self.frame_times.clear();
+            }
+            return;
+        }
         if self.frame_times.len() < 240 {
             if dt > 0.0 {
                 self.frame_times.push(dt);
@@ -395,7 +539,7 @@ impl App {
                     crate::logln!("the screen doesn't wait for refresh ({:.1} ms frames); pacing by timer", med * 1000.0);
                 } else {
                     let hz = 1.0 / med;
-                    self.refresh = if (55.0..62.0).contains(&hz) { 60.0 } else if (48.0..52.0).contains(&hz) { 50.0 } else { hz };
+                    self.refresh = if (48.0..52.0).contains(&hz) { 50.0 } else { 60.0 };
                     crate::logln!("screen refresh {:.2} Hz (using {})", hz, self.refresh);
                 }
             }
@@ -417,7 +561,12 @@ impl App {
             }
             match e.kind() {
                 sdl::QUIT | sdl::APP_TERMINATING => self.quit = true,
-                sdl::APP_WILLENTERBACKGROUND | sdl::APP_DIDENTERBACKGROUND => self.went_away(),
+                // Home (or any other app) takes the screen: save everything and close fully,
+                // so nothing keeps running behind the launcher (owner, 22 November 2026).
+                sdl::APP_WILLENTERBACKGROUND | sdl::APP_DIDENTERBACKGROUND => {
+                    self.went_away();
+                    self.quit = true;
+                }
                 sdl::WINDOWEVENT => {
                     let w = e.window_event();
                     if w == sdl::WINDOWEVENT_FOCUS_LOST || w == sdl::WINDOWEVENT_HIDDEN {
@@ -610,7 +759,8 @@ impl App {
                 if let Some(a) = self.audio.as_mut() {
                     let t = sess.core.av.timing;
                     let samples = std::mem::take(&mut retro::host().audio);
-                    a.push(&self.sdl, &samples, t.sample_rate, t.fps, self.refresh, self.s.volume);
+                    let shown = if self.free_running { self.refresh } else { t.fps };
+                    a.push(&self.sdl, &samples, t.sample_rate, t.fps, shown, self.s.volume);
                     retro::host().audio = samples;
                 }
             }
@@ -1007,7 +1157,7 @@ impl App {
                 self.core_vals.clear();
                 self.core_dirty = Some(Instant::now());
                 if self.session.is_some() {
-                    for (k, v) in self.core_preset().into_iter().chain(self.core_defaults.clone()) {
+                    for (k, v) in self.core_defaults.clone() {
                         retro::host().options.set(&k, &v);
                     }
                 }
@@ -1037,9 +1187,8 @@ impl App {
             self.palette_key = key;
             self.swirl_drawn = -1.0;
         }
-        let t = if moving { self.swirl_clock + dt * self.s.swirl_speed } else { self.swirl_clock };
-        self.swirl_clock = t;
-        let shown = if moving { t } else { 37.0 + t * 0.0 };
+        let _ = dt;
+        let shown = if moving { self.swirl_clock } else { 37.0 };
         // 30 updates a second is plenty for something this slow
         if self.swirl_drawn >= 0.0 && (shown - self.swirl_drawn).abs() < 1.0 / 30.0 * self.s.swirl_speed.max(0.25) && self.swirl_tex.is_some() {
             return;
@@ -1076,10 +1225,28 @@ impl App {
         self.d.begin(th_bg);
         match self.s.background_style.as_str() {
             "swirl" => {
-                self.update_swirl(dt, allow_motion && self.s.background_moves);
-                if let Some(t) = &self.swirl_tex {
-                    let o = swirl::OVER as f32;
-                    self.d.swirl(t, -o * VW, -o * VH, (1.0 + 2.0 * o) * VW, (1.0 + 2.0 * o) * VH);
+                let o = swirl::OVER as f32;
+                let moving = allow_motion && self.s.background_moves;
+                // the graphics chip works the field out every frame; the processor only if it can't
+                let key = format!("{}|{}|{}", self.s.accent, self.s.swirl_source, self.s.swirl_own);
+                if key != self.palette_key {
+                    self.palette = Palette::new(&self.s.swirl_colours());
+                    self.palette_key = key;
+                    self.swirl_drawn = -1.0;
+                }
+                if moving {
+                    self.swirl_clock += dt * self.s.swirl_speed;
+                }
+                let shown = if moving { self.swirl_clock } else { 37.0 };
+                let base = swirl::hex_rgb(&self.s.background);
+                let gpu = swirl::params(shown, VW as f64 / VH as f64, &self.palette, self.s.swirl_strength.min(1.0))
+                    .map(|p| self.d.swirl_gpu(&p, [base[0] as f32, base[1] as f32, base[2] as f32], o, -o * VW, -o * VH, (1.0 + 2.0 * o) * VW, (1.0 + 2.0 * o) * VH))
+                    .unwrap_or(false);
+                if !gpu {
+                    self.update_swirl(dt, moving);
+                    if let Some(t) = &self.swirl_tex {
+                        self.d.swirl(t, -o * VW, -o * VH, (1.0 + 2.0 * o) * VW, (1.0 + 2.0 * o) * VH);
+                    }
                 }
             }
             "glow" => {

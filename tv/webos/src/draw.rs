@@ -144,6 +144,64 @@ void main() {
   gl_FragColor = vec4(c.rgb + (n - 0.5) / 255.0, 1.0);
 }";
 
+/// The swirl's colour field (swirl.rs `field`), one grid point per pixel of a small texture,
+/// worked out on the graphics chip so the menus cost the processor nothing. Rows are the TV's
+/// height, columns its width (the field turned a quarter, as on the processor).
+const FS_FIELD: &str = "uniform vec4 u_t;      // t, tall, mix, over
+uniform vec2 u_grid;   // cols, rows
+uniform vec3 u_base;
+uniform vec3 u_whirl[2];
+uniform vec3 u_cloud[8];  // x, y, colour
+uniform float u_nclouds;
+uniform vec3 u_pal[4];    // lightness, chroma, hue
+uniform float u_npal;
+float gam(float c) { c = clamp(c, 0.0, 1.0); return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1.0 / 2.4) - 0.055; }
+void main() {
+  float t = u_t.x; float tall = u_t.y; float over = u_t.w;
+  float i = floor(gl_FragCoord.y);
+  float j = floor(gl_FragCoord.x);
+  float qx = -over + (1.0 + 2.0 * over) * i / u_grid.x;
+  float qy = (-over + (1.0 + 2.0 * over) * j / u_grid.y) * tall;
+  for (int v = 0; v < 2; v++) {
+    vec3 w = u_whirl[v];
+    float dx = qx - w.x; float dy = qy - w.y;
+    float a = w.z * exp(-(dx * dx + dy * dy) / 0.12);
+    float ca = cos(a); float sa = sin(a);
+    qx = w.x + dx * ca - dy * sa;
+    qy = w.y + dx * sa + dy * ca;
+  }
+  float px = qx + 0.05 * sin(qy * 3.1 + t * 0.37) + 0.025 * sin(qy * 5.3 - t * 0.29 + 1.3);
+  float py = qy + 0.05 * sin(qx * 2.7 - t * 0.31 + 2.1) + 0.025 * sin(qx * 4.9 + t * 0.23);
+  float falloff = 1.0 / (2.0 * 0.22 * 0.22);
+  float total = 0.0; float l = 0.0; float ch = 0.0; float hu = 0.0;
+  for (int c = 0; c < 4; c++) {
+    if (float(c) >= u_npal) break;
+    float wsum = 0.0;
+    for (int s = 0; s < 8; s++) {
+      if (float(s) >= u_nclouds) break;
+      vec3 cl = u_cloud[s];
+      if (abs(cl.z - float(c)) < 0.5) {
+        float dx = px - cl.x; float dy = py - cl.y;
+        wsum += exp(-(dx * dx + dy * dy) * falloff);
+      }
+    }
+    float v = pow(wsum + 1e-4, 1.8);
+    total += v;
+    l += v * u_pal[c].x; ch += v * u_pal[c].y; hu += v * u_pal[c].z;
+  }
+  l /= total; ch /= total; hu /= total;
+  vec3 lab = vec3(l, ch * cos(hu), ch * sin(hu));
+  float l0 = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;
+  float m0 = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;
+  float s0 = lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z;
+  float L = l0 * l0 * l0; float M = m0 * m0 * m0; float S = s0 * s0 * s0;
+  vec3 rgb = vec3(gam(4.0767416621 * L - 3.3077115913 * M + 0.2309699292 * S),
+                  gam(-1.2684380046 * L + 2.6097574011 * M - 0.3413193965 * S),
+                  gam(-0.0041960863 * L - 0.7034186147 * M + 1.7076147010 * S));
+  vec3 outc = u_base * (1.0 - u_t.z) + rgb * u_t.z;
+  gl_FragColor = vec4(clamp(outc, 0.0, 1.0), 1.0);
+}";
+
 const FS_GAME: &str = "varying vec2 v_uv; uniform sampler2D u_tex; uniform vec2 u_size; uniform float u_grid; uniform float u_sharp;
 void main() {
   vec2 uv = v_uv;
@@ -255,6 +313,8 @@ pub struct Draw {
     image: Prog,
     swirl: Prog,
     game: Prog,
+    field: Option<Prog>,
+    field_fbo: Option<(GLuint, Texture)>,
     fonts: Vec<FontVec>,
     atlas: Atlas,
     text_verts: Vec<f32>,
@@ -305,6 +365,13 @@ impl Draw {
         let text = mk(FS_TEXT, &[]).map_err(|e| format!("text shader: {e}"))?;
         let image = mk(FS_IMAGE, &["u_half", "u_radius", "u_bgr"]).map_err(|e| format!("image shader: {e}"))?;
         let swirl = mk(FS_SWIRL, &["u_size"]).map_err(|e| format!("swirl shader: {e}"))?;
+        let field = match mk(FS_FIELD, &["u_t", "u_grid", "u_base", "u_whirl", "u_cloud", "u_nclouds", "u_pal", "u_npal"]) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                crate::logln!("the swirl's field shader didn't build ({e}); the processor works it out");
+                None
+            }
+        };
         let game = match mk(FS_GAME, &["u_size", "u_grid", "u_sharp"]) {
             Ok(p) => p,
             Err(e) => {
@@ -331,6 +398,8 @@ impl Draw {
             image,
             swirl,
             game,
+            field,
+            field_fbo: None,
             fonts,
             atlas: Atlas { tex, x: 0, y: 0, row_h: 0, glyphs: HashMap::new() },
             text_verts: Vec::new(),
@@ -590,6 +659,87 @@ impl Draw {
         let mut v = Vec::with_capacity(60);
         quad(&mut v, x, y, x + w, y + h, [0.0, 0.0, 1.0, 1.0], [0.0; 4], [1.0; 4]);
         self.submit(&v);
+    }
+
+    /// The swirl worked out on the graphics chip (into a small texture, one point per pixel)
+    /// and drawn over `x,y,w,h` like the processor's version. False when this driver can't.
+    #[allow(clippy::too_many_arguments)]
+    pub fn swirl_gpu(&mut self, p: &crate::swirl::FieldParams, base: [f32; 3], over: f32, x: f32, y: f32, w: f32, h: f32) -> bool {
+        if self.field.is_none() {
+            return false;
+        }
+        self.flush_text();
+        let (tw, th) = (p.rows + 1, p.cols + 1);
+        let gl = &self.gl;
+        if self.field_fbo.as_ref().map(|(_, t)| t.w != tw || t.h != th).unwrap_or(true) {
+            let tex = self.texture_rgba(tw, th, &vec![0u8; (tw * th * 4) as usize], gl::LINEAR);
+            let mut fbo = 0;
+            let ok = unsafe {
+                (gl.GenFramebuffers)(1, &mut fbo);
+                (gl.BindFramebuffer)(gl::FRAMEBUFFER, fbo);
+                (gl.FramebufferTexture2D)(gl::FRAMEBUFFER, gl::COLOR_ATTACHMENT0, gl::TEXTURE_2D, tex.id, 0);
+                let st = (gl.CheckFramebufferStatus)(gl::FRAMEBUFFER);
+                (gl.BindFramebuffer)(gl::FRAMEBUFFER, 0);
+                st == gl::FRAMEBUFFER_COMPLETE
+            };
+            if !ok {
+                crate::logln!("no off-screen drawing on this driver; the processor works the swirl out");
+                self.field = None;
+                return false;
+            }
+            self.field_fbo = Some((fbo, tex));
+        }
+        let fbo = self.field_fbo.as_ref().unwrap().0;
+        let prog = self.field.as_ref().unwrap();
+        let u = |n: &str| prog.u[n];
+        let mut clouds = [0f32; 24];
+        for (i, c) in p.clouds.iter().take(8).enumerate() {
+            clouds[i * 3..i * 3 + 3].copy_from_slice(c);
+        }
+        let mut pal = [0f32; 12];
+        for (i, c) in p.pal.iter().take(4).enumerate() {
+            pal[i * 3..i * 3 + 3].copy_from_slice(c);
+        }
+        let whirls = [p.whirls[0][0], p.whirls[0][1], p.whirls[0][2], p.whirls[1][0], p.whirls[1][1], p.whirls[1][2]];
+        unsafe {
+            (gl.BindFramebuffer)(gl::FRAMEBUFFER, fbo);
+            (gl.Viewport)(0, 0, tw as i32, th as i32);
+            (gl.Disable)(gl::BLEND);
+            (gl.Disable)(gl::SCISSOR_TEST);
+            (gl.UseProgram)(prog.id);
+            (gl.Uniform2f)(u("u_view"), tw as f32, th as f32);
+            (gl.Uniform4f)(u("u_t"), p.t, VW / VH, p.mix, over);
+            (gl.Uniform2f)(u("u_grid"), p.cols as f32, p.rows as f32);
+            (gl.Uniform3f)(u("u_base"), base[0], base[1], base[2]);
+            (gl.Uniform3fv)(u("u_whirl"), 2, whirls.as_ptr());
+            (gl.Uniform3fv)(u("u_cloud"), 8, clouds.as_ptr());
+            (gl.Uniform1f)(u("u_nclouds"), p.clouds.len().min(8) as f32);
+            (gl.Uniform3fv)(u("u_pal"), 4, pal.as_ptr());
+            (gl.Uniform1f)(u("u_npal"), p.pal.len().min(4) as f32);
+        }
+        let mut v = Vec::with_capacity(60);
+        quad(&mut v, 0.0, 0.0, tw as f32, th as f32, [0.0; 4], [0.0; 4], [1.0; 4]);
+        self.submit(&v);
+        unsafe {
+            (gl.BindFramebuffer)(gl::FRAMEBUFFER, 0);
+            (gl.Viewport)(0, 0, self.width, self.height);
+            (gl.Enable)(gl::BLEND);
+        }
+        self.apply_clip();
+        // now draw it smoothly scaled, exactly like the processor-made grid
+        let p2 = &self.swirl;
+        self.use_prog(p2);
+        let t = &self.field_fbo.as_ref().unwrap().1;
+        unsafe {
+            (self.gl.ActiveTexture)(gl::TEXTURE0);
+            (self.gl.BindTexture)(gl::TEXTURE_2D, t.id);
+            (self.gl.Uniform2f)(p2.u["u_size"], t.w as f32, t.h as f32);
+        }
+        let mut v = Vec::with_capacity(60);
+        // a framebuffer's first row is its bottom: flip so row 0 (the top of the field) is on top
+        quad(&mut v, x, y, x + w, y + h, [0.0, 0.0, 1.0, 1.0], [0.0; 4], [1.0; 4]);
+        self.submit(&v);
+        true
     }
 
     /// The game's picture. `sharp` keeps pixels square; `grid` (0 to 1) draws an LCD grid.

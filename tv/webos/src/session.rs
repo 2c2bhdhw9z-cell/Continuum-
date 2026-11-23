@@ -15,6 +15,7 @@ pub struct Session {
     pub fps_shown: f64,
     fps_window: (Instant, u32),
     pub resumed: bool,
+    pub core_time: f64,
 }
 
 fn srm_path(paths: &Paths, id: &str) -> std::path::PathBuf {
@@ -54,6 +55,7 @@ impl Session {
             fps_shown: 0.0,
             fps_window: (Instant::now(), 0),
             resumed: false,
+            core_time: 0.0,
         };
         // The battery save and clock go in before the first frame (cBoy reads the clock once).
         if let Ok(b) = std::fs::read(srm_path(paths, &game.id)) {
@@ -89,16 +91,20 @@ impl Session {
         let h = retro::host();
         h.buttons[0] = buttons;
         h.analog[0] = stick;
+        let t = Instant::now();
         self.core.run();
+        self.core_time += t.elapsed().as_secs_f64();
         self.frames += 1;
         self.fps_window.1 += 1;
         let el = self.fps_window.0.elapsed().as_secs_f64();
         if el >= 1.0 {
-            self.fps_shown = self.fps_window.1 as f64 / el;
+            let n = self.fps_window.1.max(1) as f64;
+            self.fps_shown = n / el;
             self.fps_window = (Instant::now(), 0);
             if self.frames % 600 < 60 {
-                crate::logln!("speed {:.1} fps", self.fps_shown);
+                crate::logln!("speed {:.1} fps, cBoy {:.1} ms a frame", self.fps_shown, self.core_time / n * 1000.0);
             }
+            self.core_time = 0.0;
         }
     }
 

@@ -95,7 +95,10 @@ fn main() {
         return;
     }
     match app::App::new() {
-        Ok(mut a) => a.run(),
+        Ok(mut a) => {
+            a.launch_params(args.get(1).map(|s| s.as_str()));
+            a.run()
+        }
         Err(e) => {
             logln!("Continuum couldn't start: {e}");
             std::process::exit(1);
