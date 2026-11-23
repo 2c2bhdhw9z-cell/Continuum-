@@ -29,6 +29,23 @@ with no crackle. Nothing else: no new features, no questions about other things.
 7. When done, hand over: what speed Emerald and FireRed reach, in plain words, and what the
    owner should try.
 
+**Night of 22-23 November 2026 (owner asleep, TV left on; the tunnel dropped at 12:02 AM):**
+- **On the TV now:** Continuum with the TV cBoy of commit 85825a9 plus the native Home screen
+  (commit 7ab7273 and the first-app focus fix), running as Home in RAM (`kiro-home-native.sh
+  on`); the boot hook is still the web launcher, so a reboot brings that back. My last test
+  opened Continuum from the native Home with OK (worked) and pressed Home as the connection
+  dropped, so Continuum's menu may still be on screen.
+- **On master, not on the TV yet:** commit 342a815, the picture speed-ups (every line painted a
+  layer at a time with windows and blending, a colour table, whole tile rows): Emerald 657 fps
+  on the build machine (612 before), all fingerprints SAME, 209 tests pass.
+- **Next time the TV is reachable:** `sh tv/webos/package.sh`, install the `.ipk`, then on the
+  TV `sh /media/developer/kiro/home/kiro-home-native.sh install` (copies the new binary into
+  `native/`) and `... on` (restarts the native Home). Then measure Emerald and FireRed again.
+- **Then, with the owner's yes to a reboot:** `kiro-home-native.sh arm`, a cold reboot, and
+  check the native Home comes up by itself (fallback: the web one, then LG's).
+- Screenshots over this tunnel: the second `ssh` right after a capture often fails; retry it
+  after a few seconds (`for i in 1 2 3 4; do tv 'cat /tmp/s.jpg' > s.jpg && [ -s s.jpg ] && break; sleep 5; done`).
+
 **Handed over, 22 November 2026, 11:30 PM Eastern (commit 85825a9 installed):** in the app,
 Emerald's speech 59.6-59.8 fps, cBoy 11.3 ms a frame; FireRed (title and intro film, a
 minute) 59.5-59.9 fps, cBoy 12-14 ms, sound queue never below 37 ms after the start, stretched
