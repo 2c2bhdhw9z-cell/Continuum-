@@ -351,15 +351,6 @@ pub struct Bus {
     /// byte), sorted. Not saved: the app sets the codes.
     #[serde(skip)]
     pub rom_patches: Vec<(u32, u8)>,
-    /// Speed only, never saved: the cycle the next counting timer overflows (`u64::MAX` when
-    /// none is counting), so the clock isn't worked out for all four timers on every access.
-    /// `None` means a timer changed and it has to be worked out again.
-    #[serde(skip)]
-    next_timer: Option<u64>,
-    /// Speed only, never saved: the earliest cycle a DMA switched on to start straight away is
-    /// due (`None`: worked out again on the next access).
-    #[serde(skip)]
-    next_dma: Option<u64>,
 }
 
 impl Bus {
@@ -426,15 +417,7 @@ impl Bus {
             halt_return: None,
             tm: BusTiming::default(),
             rom_patches: Vec::new(),
-            next_timer: None,
-            next_dma: None,
         }
-    }
-
-    /// Forget the times worked out ahead (after a state load replaced the timers or the DMAs).
-    pub fn forget_cached_times(&mut self) {
-        self.next_timer = None;
-        self.next_dma = None;
     }
 
     /// A cheat code's read: memory as the program sees it, with no time passing (cheats.rs).
@@ -660,32 +643,8 @@ impl Bus {
     /// Runs a DMA switched on to start straight away once its start-up time has passed: when
     /// the CPU next wants the bus. If it came due while the CPU was only busy inside itself,
     /// it ran alongside those cycles, so only what is left of it holds the CPU up.
-    #[inline(always)]
     fn dma_catch_up(&mut self) {
-        // The usual case, nothing due: decided here without a call.
-        if let Some(n) = self.next_dma {
-            if n > self.now() {
-                return;
-            }
-        }
-        self.dma_catch_up_due();
-    }
-
-    #[inline(never)]
-    fn dma_catch_up_due(&mut self) {
         let now = self.now();
-        let next = match self.next_dma {
-            Some(v) => v,
-            None => {
-                let v = self.tm.dma_due.iter().copied().min().unwrap_or(u64::MAX);
-                self.next_dma = Some(v);
-                v
-            }
-        };
-        if next > now {
-            return;
-        }
-        self.next_dma = None;
         for ch in 0..4 {
             let due = self.tm.dma_due[ch];
             if due > now {
@@ -1201,7 +1160,6 @@ impl Bus {
                 }
                 if !on {
                     self.tm.dma_due[ch] = u64::MAX;
-                    self.next_dma = None;
                 }
             }
             0x84 => {
@@ -1311,7 +1269,6 @@ impl Bus {
         if (self.io16(base + 10) >> 12) & 3 == 0 {
             // It starts two cycles after the write that switched it on has ended.
             self.tm.dma_due[ch] = self.cycles + 2;
-            self.next_dma = None;
         }
     }
 
@@ -1651,7 +1608,6 @@ impl Bus {
     /// step from the cycle after that (the prescaler is one free-running divider all four
     /// timers share, so a slow timer's first tick can come early).
     fn timer_control(&mut self, i: usize, v: u16) {
-        self.next_timer = None;
         let now = self.cycles + 1;
         let was_on = self.timers[i].ctrl & 0x80 != 0;
         if self.timer_free(i) {
@@ -1695,23 +1651,7 @@ impl Bus {
         }
     }
 
-    /// The cycle the next counting timer overflows, `u64::MAX` when none is counting.
-    fn next_timer_at(&mut self) -> u64 {
-        if let Some(t) = self.next_timer {
-            return t;
-        }
-        let mut m = u64::MAX;
-        for i in 0..4 {
-            if self.timer_free(i) {
-                m = m.min(self.timer_overflow_at(i));
-            }
-        }
-        self.next_timer = Some(m);
-        m
-    }
-
     fn timer_overflow(&mut self, i: usize, at: u64) {
-        self.next_timer = None;
         self.timers[i].counter = self.timers[i].reload;
         self.tm.timer_at[i] = at;
         if self.timers[i].ctrl & 0x40 != 0 {
@@ -1770,21 +1710,11 @@ impl Bus {
         while left > 0 {
             let boundary = if self.line_cycle < HBLANK_AT { HBLANK_AT } else { LINE };
             let mut step = left.min(boundary - self.line_cycle);
-            // The same as cycles_to_event, with the timers' part remembered between accesses.
-            let timer_at = self.next_timer_at();
-            let timer = (timer_at != u64::MAX).then(|| timer_at.saturating_sub(self.cycles));
-            let event = match (timer, self.cycles_to_sio()) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            };
-            if let Some(d) = event {
+            if let Some(d) = self.cycles_to_event() {
                 step = step.min(d.clamp(1, u64::from(u32::MAX)) as u32);
             }
             self.cycles += u64::from(step);
-            // Only an overflow that is due now has anything to run.
-            if timer_at <= self.cycles {
-                self.run_timers();
-            }
+            self.run_timers();
             self.line_cycle += step;
             left -= step;
             if self.line_cycle == HBLANK_AT {

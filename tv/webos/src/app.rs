@@ -296,7 +296,7 @@ impl App {
         };
         let s = Settings::load(&paths.settings());
         let lib = Library::load(&paths);
-        let core_path = paths.app.join("cores/libcontinuum_gb.so").to_string_lossy().into_owned();
+        let core_path = paths.app.join("cores/libcboy_tv.so").to_string_lossy().into_owned();
         let core_vals: HashMap<String, String> = std::fs::read_to_string(paths.core_options())
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())

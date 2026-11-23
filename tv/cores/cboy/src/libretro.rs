@@ -1,0 +1,1940 @@
+//! The libretro entry points. One machine at a time, behind a mutex.
+
+#![allow(clippy::missing_safety_doc)]
+
+use std::ffi::{c_char, c_void};
+use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::gb::GameBoy;
+use crate::gba::{self, Gba};
+use crate::ppu::{H, W};
+
+#[repr(C)]
+pub struct RetroSystemInfo {
+    pub library_name: *const c_char,
+    pub library_version: *const c_char,
+    pub valid_extensions: *const c_char,
+    pub need_fullpath: bool,
+    pub block_extract: bool,
+}
+
+#[repr(C)]
+pub struct RetroGameGeometry {
+    pub base_width: u32,
+    pub base_height: u32,
+    pub max_width: u32,
+    pub max_height: u32,
+    pub aspect_ratio: f32,
+}
+
+#[repr(C)]
+pub struct RetroSystemTiming {
+    pub fps: f64,
+    pub sample_rate: f64,
+}
+
+#[repr(C)]
+pub struct RetroSystemAvInfo {
+    pub geometry: RetroGameGeometry,
+    pub timing: RetroSystemTiming,
+}
+
+#[repr(C)]
+pub struct RetroGameInfo {
+    pub path: *const c_char,
+    pub data: *const c_void,
+    pub size: usize,
+    pub meta: *const c_char,
+}
+
+type EnvFn = unsafe extern "C" fn(u32, *mut c_void) -> bool;
+type VideoFn = unsafe extern "C" fn(*const c_void, u32, u32, usize);
+type AudioFn = unsafe extern "C" fn(i16, i16);
+type AudioBatchFn = unsafe extern "C" fn(*const i16, usize) -> usize;
+type PollFn = unsafe extern "C" fn();
+type InputFn = unsafe extern "C" fn(u32, u32, u32, u32) -> i16;
+
+const ENV_SET_PIXEL_FORMAT: u32 = 10;
+const PIXEL_FORMAT_XRGB8888: u32 = 1;
+const MEMORY_SAVE_RAM: u32 = 0;
+const MEMORY_RTC: u32 = 1;
+const MEMORY_SYSTEM_RAM: u32 = 2;
+const MEMORY_VIDEO_RAM: u32 = 3;
+const DEVICE_JOYPAD: u32 = 1;
+const DEVICE_ANALOG: u32 = 5;
+const ENV_GET_SYSTEM_DIRECTORY: u32 = 9;
+const ENV_GET_SAVE_DIRECTORY: u32 = 31;
+const ENV_GET_RUMBLE_INTERFACE: u32 = 23;
+/// libretro.h: `25 | RETRO_ENVIRONMENT_EXPERIMENTAL` (0x10000). The bit is part of the number; a
+/// plain 25 is answered by nobody, which left every motion cartridge with a still console.
+pub const ENV_GET_SENSOR_INTERFACE: u32 = 25 | 0x10000;
+/// libretro.h: `26 | RETRO_ENVIRONMENT_EXPERIMENTAL`.
+pub const ENV_GET_CAMERA_INTERFACE: u32 = 26 | 0x10000;
+/// libretro.h `RETRO_CAMERA_BUFFER_RAW_FRAMEBUFFER`: the frame as pixels in memory, which is
+/// the only kind this app serves (the other is an OpenGL texture).
+const CAMERA_BUFFER_RAW_FRAMEBUFFER: u64 = 1;
+/// libretro.h `RETRO_ENVIRONMENT_SET_NETPACKET_INTERFACE`: the core takes over what crosses
+/// between two players, which is how the link cable reaches a second phone. (76 was an earlier
+/// number for this and was taken out of the API; 78 is the one that is there.)
+pub const ENV_SET_NETPACKET_INTERFACE: u32 = 78;
+/// libretro.h: the packet must arrive, and in the order it was sent, which a cable's bytes must.
+const NETPACKET_RELIABLE: i32 = 1 << 0;
+/// libretro.h: send it now rather than at the frontend's convenience.
+const NETPACKET_FLUSH_HINT: i32 = 1 << 2;
+/// libretro.h `RETRO_NETPACKET_BROADCAST`: to everyone else in the session. A Game Boy cable has
+/// two ends, so that is the one other phone.
+const NETPACKET_BROADCAST: u16 = 0xFFFF;
+
+/// The RTC block the frontend saves: live registers (5), latched (5), 6 spare, then the Unix
+/// time (u64, little-endian) the registers were true at. HuC3 uses it differently (see
+/// `write_rtc_block`).
+const RTC_LEN: usize = 24;
+/// T-cycles in one second of the cartridge clock.
+const GB_HZ: u32 = 4_194_304;
+
+type RumbleFn = unsafe extern "C" fn(u32, u32, u16) -> bool;
+#[repr(C)]
+struct RumbleInterface {
+    set_rumble_state: Option<RumbleFn>,
+}
+type SensorStateFn = unsafe extern "C" fn(u32, u32, u32) -> bool;
+type SensorInputFn = unsafe extern "C" fn(u32, u32) -> f32;
+#[repr(C)]
+struct SensorInterface {
+    set_sensor_state: Option<SensorStateFn>,
+    get_sensor_input: Option<SensorInputFn>,
+}
+
+type CameraStartFn = unsafe extern "C" fn() -> bool;
+type CameraStopFn = unsafe extern "C" fn();
+type CameraFrameRawFn = unsafe extern "C" fn(*const u32, u32, u32, usize);
+type CameraFrameGlFn = unsafe extern "C" fn(u32, u32, *const f32);
+type CameraLifetimeFn = unsafe extern "C" fn();
+
+/// libretro.h `struct retro_camera_callback`, field for field and in order. `caps`, the size and
+/// the three callbacks are the core's to fill in; `start` and `stop` come back from the frontend.
+#[repr(C)]
+struct CameraInterface {
+    caps: u64,
+    width: u32,
+    height: u32,
+    start: Option<CameraStartFn>,
+    stop: Option<CameraStopFn>,
+    frame_raw_framebuffer: Option<CameraFrameRawFn>,
+    frame_opengl_texture: Option<CameraFrameGlFn>,
+    initialized: Option<CameraLifetimeFn>,
+    deinitialized: Option<CameraLifetimeFn>,
+}
+
+/// The newest picture from the frontend's camera, as the Game Boy Camera's sensor sees it: 128
+/// by 120 shades of grey. libretro hands frames over on the thread that runs `retro_run`, just
+/// before it, so it is parked here and picked up at the top of the frame.
+static CAMERA_FRAME: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+
+type NetpacketSendFn = unsafe extern "C" fn(i32, *const c_void, usize, u16);
+type NetpacketPollReceiveFn = unsafe extern "C" fn();
+type NetpacketStartFn = unsafe extern "C" fn(u16, Option<NetpacketSendFn>, Option<NetpacketPollReceiveFn>);
+type NetpacketReceiveFn = unsafe extern "C" fn(*const c_void, usize, u16);
+type NetpacketStopFn = unsafe extern "C" fn();
+type NetpacketPollFn = unsafe extern "C" fn();
+type NetpacketConnectedFn = unsafe extern "C" fn(u16) -> bool;
+type NetpacketDisconnectedFn = unsafe extern "C" fn(u16);
+
+/// libretro.h `struct retro_netpacket_callback`, field for field and in order.
+#[repr(C)]
+struct NetpacketInterface {
+    start: Option<NetpacketStartFn>,
+    receive: Option<NetpacketReceiveFn>,
+    stop: Option<NetpacketStopFn>,
+    poll: Option<NetpacketPollFn>,
+    connected: Option<NetpacketConnectedFn>,
+    disconnected: Option<NetpacketDisconnectedFn>,
+    protocol_version: *const c_char,
+}
+
+/// The version of cBoy's own cable talk. Two phones must agree on it or the frontend tells them
+/// so instead of letting the games get out of step. Bump it if the packet ever changes shape.
+const LINK_PROTOCOL: &[u8] = b"cboy-link-1\0";
+/// The Advance's: its own, so a phone playing a Game Boy game never links to one playing an
+/// Advance game.
+const ADVANCE_LINK_PROTOCOL: &[u8] = b"cboy-advance-link-1\0";
+
+/// This phone's end of the cable, and the frontend's way of putting a packet on it. Kept apart
+/// from `CORE` on purpose: the frontend touches these from its own thread, between frames, and a
+/// callback that waited for the machine's own lock could sit there for a whole frame.
+static LINK: Mutex<crate::link::Cable> = Mutex::new(crate::link::Cable::new());
+static LINK_SEND: Mutex<Option<NetpacketSendFn>> = Mutex::new(None);
+/// The Advance's end of the cable (`gba::sio`). Only one of the two is ever in use: the game
+/// loaded says which, and each refuses the other's packets.
+static ADVANCE_LINK: Mutex<gba::sio::Cable> = Mutex::new(gba::sio::Cable::new());
+
+/// The app has joined this phone to another one.
+unsafe extern "C" fn netpacket_start(client: u16, send: Option<NetpacketSendFn>, _poll_receive: Option<NetpacketPollReceiveFn>) {
+    if let Ok(mut s) = LINK_SEND.lock() {
+        *s = send;
+    }
+    if let Ok(mut c) = LINK.lock() {
+        c.start();
+    }
+    // The phone that hosted the session (client 0) is the parent in the Advance's multi-player
+    // mode, the one that joined is the child.
+    if let Ok(mut c) = ADVANCE_LINK.lock() {
+        c.start(client == 0);
+    }
+    log_line("linked up with another phone");
+}
+
+/// A packet from the other phone. Parked only: the machine is touched on its own frame.
+unsafe extern "C" fn netpacket_receive(buf: *const c_void, len: usize, _client: u16) {
+    // The Wireless Adapter's radio messages are bigger than the cable's (a host sends up to 87
+    // bytes at a time).
+    if buf.is_null() || len == 0 || len > 256 {
+        return;
+    }
+    let bytes = std::slice::from_raw_parts(buf as *const u8, len);
+    if let Ok(mut c) = LINK.lock() {
+        c.deliver(bytes);
+    }
+    if let Ok(mut c) = ADVANCE_LINK.lock() {
+        c.deliver(bytes);
+    }
+}
+
+/// Between frames: everything the machine has put on the cable goes over now.
+unsafe extern "C" fn netpacket_poll() {
+    let Some(send) = LINK_SEND.lock().ok().and_then(|s| *s) else { return };
+    let mut queued = Vec::new();
+    if let Ok(mut c) = LINK.lock() {
+        while let Some(p) = c.take_out() {
+            queued.push(p.to_vec());
+        }
+    }
+    if let Ok(mut c) = ADVANCE_LINK.lock() {
+        while let Some(p) = c.take_out() {
+            queued.push(p.to_vec());
+        }
+    }
+    // Outside the lock: the frontend may answer a send by handing a packet straight back.
+    for p in queued {
+        send(NETPACKET_RELIABLE | NETPACKET_FLUSH_HINT, p.as_ptr() as *const c_void, p.len(), NETPACKET_BROADCAST);
+    }
+}
+
+/// The session is over.
+unsafe extern "C" fn netpacket_stop() {
+    if let Ok(mut s) = LINK_SEND.lock() {
+        *s = None;
+    }
+    if let Ok(mut c) = LINK.lock() {
+        c.stop();
+    }
+    if let Ok(mut c) = ADVANCE_LINK.lock() {
+        c.stop();
+    }
+    log_line("the other phone is gone, so the cable is unplugged");
+}
+
+/// Offers the frontend cBoy's side of a two-phone link. A frontend that has no such thing says
+/// no and nothing changes: the console simply has nothing plugged into it.
+unsafe fn offer_the_link(env: EnvFn, advance: bool) {
+    let mut cb = NetpacketInterface {
+        start: Some(netpacket_start),
+        receive: Some(netpacket_receive),
+        stop: Some(netpacket_stop),
+        poll: Some(netpacket_poll),
+        connected: None,
+        disconnected: None,
+        protocol_version: if advance { ADVANCE_LINK_PROTOCOL } else { LINK_PROTOCOL }.as_ptr() as *const c_char,
+    };
+    if !env(ENV_SET_NETPACKET_INTERFACE, &mut cb as *mut NetpacketInterface as *mut c_void) {
+        log_line("this app cannot join two phones up, so the link cable has nothing on the end");
+    }
+}
+
+/// The frontend's camera frame: XRGB8888 pixels in memory. Shrunk to the sensor's size (nearest
+/// sampling, which is plenty for 128 pixels across) and turned to shades of grey, because the
+/// camera chip in the cartridge only ever saw brightness.
+unsafe extern "C" fn camera_frame(data: *const u32, width: u32, height: u32, pitch: usize) {
+    use crate::cart::{SENSOR_H, SENSOR_W};
+    let (w, h) = (width as usize, height as usize);
+    if data.is_null() || w == 0 || h == 0 || pitch < w * 4 {
+        return;
+    }
+    let stride = pitch / 4;
+    let pixels = std::slice::from_raw_parts(data, stride * (h - 1) + w);
+    let mut grey = vec![0u8; SENSOR_W * SENSOR_H];
+    for y in 0..SENSOR_H {
+        let row = (y * h / SENSOR_H) * stride;
+        for x in 0..SENSOR_W {
+            let p = pixels[row + x * w / SENSOR_W];
+            let (r, g, b) = ((p >> 16) & 0xFF, (p >> 8) & 0xFF, p & 0xFF);
+            grey[y * SENSOR_W + x] = ((77 * r + 150 * g + 29 * b) >> 8) as u8;
+        }
+    }
+    if let Ok(mut slot) = CAMERA_FRAME.lock() {
+        *slot = Some(grey);
+    }
+}
+
+/// Asks the frontend for its camera, at the size the Game Boy Camera's sensor works in. Returns
+/// its start and stop, or `None` when there is no camera to be had: every frontend is allowed to
+/// refuse, and then the game simply sees a flat grey instead of a picture.
+unsafe fn ask_for_camera(env: EnvFn) -> Option<(CameraStartFn, CameraStopFn)> {
+    let mut cb = CameraInterface {
+        caps: 1 << CAMERA_BUFFER_RAW_FRAMEBUFFER,
+        width: crate::cart::SENSOR_W as u32,
+        height: crate::cart::SENSOR_H as u32,
+        start: None,
+        stop: None,
+        frame_raw_framebuffer: Some(camera_frame),
+        frame_opengl_texture: None,
+        initialized: None,
+        deinitialized: None,
+    };
+    let got = env(ENV_GET_CAMERA_INTERFACE, &mut cb as *mut CameraInterface as *mut c_void);
+    match (got, cb.start, cb.stop) {
+        (true, Some(start), Some(stop)) => Some((start, stop)),
+        _ => {
+            log_line("no camera from the app, so the Game Boy Camera sees a flat grey");
+            None
+        }
+    }
+}
+
+struct Core {
+    gb: GameBoy,
+    /// Set when the loaded ROM is a Game Boy Advance one (then `gb` is an idle placeholder).
+    gba: Option<Box<Gba>>,
+    frame: Vec<u32>,
+    out: Vec<u32>,
+    rtc_block: [u8; RTC_LEN],
+    rtc_synced: bool,
+    stuck_frames: u32,
+    stuck_reports: u32,
+    settings: crate::options::Settings,
+    post: crate::options::Post,
+    system_dir: Option<String>,
+    frame_no: u64,
+    rumble: Option<RumbleFn>,
+    sensors: Option<SensorInterface>,
+    sensors_started: bool,
+    /// The frontend's camera start and stop, for a Game Boy Camera cartridge only.
+    camera: Option<(CameraStartFn, CameraStopFn)>,
+    camera_started: bool,
+    /// The frontend took the request for a light reading (no iPhone does). Until it has, the
+    /// sunlight setting's "Light sensor" choice falls back to half sun instead of pitch dark.
+    light_sensor: bool,
+    /// What the "Next start" options were when the game loaded.
+    next_start: NextStart,
+    last_motor: Option<bool>,
+    /// Auto frame skip: the last retro_run took longer than a frame.
+    behind: bool,
+    /// Frames skipped in a row by auto frame skip.
+    skipped_run: u32,
+    /// A Game Boy Player style reset under way (see `PlayerReset`).
+    player_reset: Option<PlayerReset>,
+    /// Fractions of a sample left over from the silent frames of a held reset.
+    held_frac: u64,
+    buzz_phase: u32,
+    /// The second of two Game Boys on this phone, when the player has asked for two.
+    second: Option<Box<Second>>,
+}
+
+/// A reset on a Game Boy Player: the game plays on while the picture fades out, then the
+/// console starts again but is held for a moment, dark and silent, before the game begins. As
+/// measured by speedrunners on the real thing (GSE, the speedrun emulator, does the same): the
+/// fade lasts about 0.59 s (full brightness for its first ninth, black for its last), the hold
+/// about 1.58 s.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum PlayerReset {
+    Fading(u32),
+    Held(u32),
+}
+
+const PLAYER_FADE_FRAMES: u32 = 35;
+const PLAYER_HOLD_FRAMES: u32 = 94;
+
+/// How bright frame `left` of the fade is, from 1 down to 0.
+fn player_fade(left: u32) -> f32 {
+    let total = PLAYER_FADE_FRAMES as f32;
+    let part = total / 9.0;
+    ((left as f32 - part) / (total - 2.0 * part)).clamp(0.0, 1.0)
+}
+
+/// The options whose text promises "Next start". The app asks the core for the sound rate and
+/// the size of the picture once, as the game loads, and keeps what it was told, so changing
+/// either one under a running game only made the sound crackle and the picture squash. They are
+/// held at what the game started with until it is loaded again.
+#[derive(Clone, Copy)]
+struct NextStart {
+    sample_rate: u32,
+    sgb_border: bool,
+    border_always: bool,
+    /// Two Game Boys, and the shape of their picture: side by side or one above the other, and
+    /// both screens or one.
+    dual: bool,
+    dual_side_by_side: bool,
+    dual_both: bool,
+}
+
+impl NextStart {
+    fn of(s: &crate::options::Settings) -> NextStart {
+        NextStart {
+            sample_rate: s.sample_rate, sgb_border: s.sgb_border, border_always: s.border_always,
+            dual: s.dual, dual_side_by_side: s.dual_side_by_side, dual_both: s.dual_show == crate::options::Which::Both,
+        }
+    }
+}
+
+/// The second of two Game Boys on one phone (`dual.rs`). The frontend knows nothing about it, so
+/// it keeps its own picture, sound and battery save.
+struct Second {
+    gb: GameBoy,
+    post: crate::options::Post,
+    /// Its last finished picture, 160x144, taken as it finished (`dual::run_frame`).
+    picture: Vec<u32>,
+    /// Sound it made that has not gone out yet.
+    leftover: Vec<i16>,
+    /// Where its battery save lives: next to the app's saves, named after the game.
+    save_path: Option<std::path::PathBuf>,
+    /// What is in that file now, so it is only written when the game has changed it.
+    written: Vec<u8>,
+    rtc_block: [u8; RTC_LEN],
+    frames: u32,
+    /// The save is another game's own battery save in the app (`<game>.srm`, the cartridge
+    /// memory alone, its clock beside it in `<game>.rtc`), not cBoy's own file: the second Game
+    /// Boy plays a different game, with that game's real progress.
+    app_layout: bool,
+}
+
+/// How often the second console's save is written when it has changed: every two seconds, so
+/// at most that much play is lost if the phone stops the app.
+const SECOND_SAVE_FRAMES: u32 = 120;
+
+/// The cartridge clock as the block that is saved with the game (`RTC_LEN`).
+fn rtc_to_block(cart: &crate::cart::Cart, block: &mut [u8; RTC_LEN]) {
+    if cart.kind == crate::cart::MbcKind::HuC3 {
+        // HuC3 counts minutes of the day and days, not MBC3's registers: bytes 0-3 hold those
+        // two, byte 10 the seconds into the current minute.
+        let (m, d) = (cart.huc3.minutes, cart.huc3.days);
+        block[..4].copy_from_slice(&[m as u8, (m >> 8) as u8, d as u8, (d >> 8) as u8]);
+        block[4..10].fill(0);
+        block[10] = (cart.rtc.sub / GB_HZ).min(59) as u8;
+    } else {
+        block[..5].copy_from_slice(&cart.rtc.regs);
+        block[5..10].copy_from_slice(&cart.rtc.latched);
+    }
+    block[16..24].copy_from_slice(&now_secs().to_le_bytes());
+}
+
+/// The cartridge clock back from its saved block. How it moves on depends on the clock option.
+fn rtc_from_block(cart: &mut crate::cart::Cart, block: &[u8; RTC_LEN], settings: &crate::options::Settings) {
+    let stamp = u64::from_le_bytes(block[16..24].try_into().unwrap_or([0; 8]));
+    let mode = settings.rtc_mode;
+    let offset = settings.rtc_offset_hours * 3600;
+    // Real time: the clock runs on while the game is closed.
+    let closed = if stamp != 0 && mode == crate::options::RtcMode::Real {
+        now_secs().saturating_sub(stamp)
+    } else {
+        0
+    };
+    if cart.kind == crate::cart::MbcKind::HuC3 {
+        let b = block;
+        if stamp != 0 {
+            cart.huc3.minutes = (u16::from(b[0]) | u16::from(b[1]) << 8) % 1440;
+            cart.huc3.days = u16::from(b[2]) | u16::from(b[3]) << 8;
+            let secs = u64::from(b[10].min(59)) + closed;
+            cart.huc3.advance_minutes(secs / 60);
+            cart.rtc.sub = (secs % 60) as u32 * GB_HZ;
+        }
+        if mode == crate::options::RtcMode::Phone {
+            let t = gba::gpio::local_time(offset);
+            cart.huc3.minutes = ((t[4] * 60 + t[5]) % 1440) as u16;
+        }
+        return;
+    }
+    let rtc = &mut cart.rtc;
+    if stamp != 0 {
+        rtc.regs.copy_from_slice(&block[..5]);
+        rtc.latched.copy_from_slice(&block[5..10]);
+        rtc.advance_seconds(closed);
+    }
+    if mode == crate::options::RtcMode::Phone {
+        let t = gba::gpio::local_time(offset);
+        rtc.regs[0] = t[6].min(59) as u8;
+        rtc.regs[1] = t[5] as u8;
+        rtc.regs[2] = t[4] as u8;
+    }
+}
+
+/// The settings that apply to a running Game Boy (`Core::apply_live`).
+fn apply_gb(gb: &mut GameBoy, s: &crate::options::Settings) {
+    gb.bus.ppu.layers = s.gb_layers;
+    gb.bus.apu.chan_vol = s.chan_vol;
+    gb.wait.on = s.gb_idle_skip;
+    gb.bus.link_loopback = s.link_loopback;
+    gb.bus.apu.out_hz = s.sample_rate;
+    gb.bus.apu.hq = s.audio_hq;
+    gb.bus.ppu.no_sprite_limit = !s.sprite_limit;
+    // Between frames (line 144, never mid-line), so switching drawers live is safe.
+    gb.bus.ppu.exact = s.exact_renderer;
+}
+
+/// One Game Boy's picture without a border, 160x144: what the first console's picture is when
+/// two share the screen, and what the second console's always is.
+fn picture(gb: &GameBoy, post: &mut crate::options::Post, s: &crate::options::Settings, frame: &mut Vec<u32>) {
+    use crate::options::Machine;
+    frame.resize(W * H, 0);
+    gb.frame_xrgb(frame);
+    let ppu = &gb.bus.ppu;
+    if let Some(sgb) = gb.bus.sgb.as_ref() {
+        sgb.colour(&ppu.shade, frame, snes_rgb);
+        post.blend(frame, s.blend);
+        return;
+    }
+    let colour = gb.bus.cgb || (gb.bus.cgb_hardware && s.gbc_colours());
+    let machine = if colour { Machine::Cgb } else { Machine::Dmg };
+    post.video(frame, &ppu.shade, &ppu.source, s, machine, &gb.bus.cart.title);
+}
+
+/// The battery save of the second console as it goes in its file: the cartridge memory, then the
+/// clock's block when the cartridge has a clock.
+fn second_save_bytes(gb: &GameBoy, rtc: &[u8; RTC_LEN]) -> Vec<u8> {
+    let cart = &gb.bus.cart;
+    let mut out = cart.ram.clone();
+    if cart.has_rtc {
+        out.extend_from_slice(rtc);
+    }
+    out
+}
+
+/// The second console's battery save file: the game's own name, in the app's save folder.
+unsafe fn second_save_path(env: EnvFn, game_path: *const c_char) -> Option<std::path::PathBuf> {
+    let mut dir: *const c_char = std::ptr::null();
+    if !env(ENV_GET_SAVE_DIRECTORY, &mut dir as *mut *const c_char as *mut c_void) || dir.is_null() {
+        return None;
+    }
+    let dir = std::path::PathBuf::from(std::ffi::CStr::from_ptr(dir).to_string_lossy().into_owned());
+    let stem = if game_path.is_null() {
+        None
+    } else {
+        let p = std::path::PathBuf::from(std::ffi::CStr::from_ptr(game_path).to_string_lossy().into_owned());
+        p.file_stem().map(|s| s.to_string_lossy().into_owned())
+    };
+    Some(dir.join(format!("{} (second Game Boy).sav", stem.unwrap_or_else(|| "game".into()))))
+}
+
+impl Second {
+    /// The second console, with its battery save from its own file when there is one.
+    fn new(mut gb: GameBoy, save_path: Option<std::path::PathBuf>, s: &crate::options::Settings, app_layout: bool) -> Second {
+        let mut rtc_block = [0u8; RTC_LEN];
+        let mut written = Vec::new();
+        if app_layout {
+            let cart = &mut gb.bus.cart;
+            if let Some(bytes) = save_path.as_ref().and_then(|p| std::fs::read(p).ok()) {
+                let ram = cart.ram.len();
+                if cart.has_battery && bytes.len() >= ram {
+                    cart.ram.copy_from_slice(&bytes[..ram]);
+                    written = bytes[..ram].to_vec();
+                    log_line("second Game Boy: its game's own save is loaded");
+                }
+            }
+            if let Some(clock) = save_path.as_ref().and_then(|p| std::fs::read(p.with_extension("rtc")).ok()) {
+                if cart.has_rtc && clock.len() == RTC_LEN {
+                    rtc_block.copy_from_slice(&clock);
+                    rtc_from_block(cart, &rtc_block, s);
+                }
+            }
+            if cart.has_rtc {
+                rtc_to_block(cart, &mut rtc_block);
+            }
+            return Second {
+                gb, post: crate::options::Post::default(), picture: vec![0; W * H], leftover: Vec::new(),
+                save_path, written, rtc_block, frames: 0, app_layout,
+            };
+        }
+        if let Some(bytes) = save_path.as_ref().and_then(|p| std::fs::read(p).ok()) {
+            let cart = &mut gb.bus.cart;
+            let ram = cart.ram.len();
+            if cart.has_battery && bytes.len() >= ram {
+                cart.ram.copy_from_slice(&bytes[..ram]);
+                if cart.has_rtc && bytes.len() >= ram + RTC_LEN {
+                    rtc_block.copy_from_slice(&bytes[ram..ram + RTC_LEN]);
+                    rtc_from_block(cart, &rtc_block, s);
+                }
+                written = bytes;
+                log_line("second Game Boy: its save is loaded");
+            } else {
+                log_line("second Game Boy: its save file does not fit this game, so it starts without one");
+            }
+        }
+        if gb.bus.cart.has_rtc {
+            rtc_to_block(&gb.bus.cart, &mut rtc_block);
+        }
+        Second {
+            gb, post: crate::options::Post::default(), picture: vec![0; W * H], leftover: Vec::new(),
+            save_path, written, rtc_block, frames: 0, app_layout,
+        }
+    }
+
+    /// Writes the battery save when the game has changed it since the last write: to a file
+    /// beside it first, then over it, so a phone that stops the app mid-write keeps the old one.
+    fn write_save(&mut self) {
+        let cart = &self.gb.bus.cart;
+        if !cart.has_battery || cart.ram.is_empty() {
+            return;
+        }
+        let Some(path) = self.save_path.as_ref() else { return };
+        let bytes = if self.app_layout { cart.ram.clone() } else { second_save_bytes(&self.gb, &self.rtc_block) };
+        if self.app_layout && cart.has_rtc {
+            let clock = path.with_extension("rtc");
+            let part = clock.with_extension("rtc.part");
+            let _ = std::fs::write(&part, self.rtc_block).and_then(|_| std::fs::rename(&part, &clock));
+        }
+        // The clock's own block moves every second; only a change to the game's memory, or a
+        // first save, is worth a write.
+        let ram = cart.ram.len();
+        if self.written.len() >= ram && self.written[..ram] == bytes[..ram] {
+            return;
+        }
+        let part = path.with_extension("sav.part");
+        match std::fs::write(&part, &bytes).and_then(|_| std::fs::rename(&part, path)) {
+            Ok(()) => self.written = bytes,
+            Err(e) => log_line(&format!("second Game Boy: its save could not be written: {e}")),
+        }
+    }
+}
+
+struct Callbacks {
+    env: Option<EnvFn>,
+    video: Option<VideoFn>,
+    audio_batch: Option<AudioBatchFn>,
+    poll: Option<PollFn>,
+    input: Option<InputFn>,
+}
+
+static CORE: Mutex<Option<Core>> = Mutex::new(None);
+/// The cheat codes the app has set, by its index (empty: switched off). Kept apart from the
+/// machine so codes set before a game opens, or across a restart, still apply.
+static CHEATS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Puts the codes switched on now into the console the app's game plays on: the Advance's cheat
+/// device (gba/cheats.rs), or the Game Boy's (cheats.rs). Not the second Game Boy, whose game
+/// may be another.
+fn install_cheats(core: &mut Core) {
+    let codes = CHEATS.lock().map(|c| c.clone()).unwrap_or_default();
+    let on = codes.iter().map(String::as_str).filter(|c| !c.trim().is_empty());
+    if let Some(g) = core.gba.as_mut() {
+        let device = gba::cheats::Device::from_codes(on);
+        g.bus.rom_patches = device.rom_patches.clone();
+        g.cheats = device;
+    } else {
+        core.gb.bus.cheats = crate::cheats::Cheats::from_codes(on);
+    }
+}
+
+/// libretro's log callback (printf-style, variadic).
+type LogFn = unsafe extern "C" fn(level: u32, fmt: *const std::ffi::c_char, ...);
+#[repr(C)]
+struct RetroLogCallback {
+    log: Option<LogFn>,
+}
+const ENV_GET_LOG_INTERFACE: u32 = 27;
+static LOG: Mutex<Option<LogFn>> = Mutex::new(None);
+
+/// Sends one line to the frontend's log (level INFO), prefixed "cBoy: ".
+fn log_line(line: &str) {
+    let Some(log) = LOG.lock().ok().and_then(|l| *l) else { return };
+    let Ok(text) = std::ffi::CString::new(format!("cBoy: {line}\n").replace('\0', " ")) else { return };
+    unsafe { log(1, c"%s".as_ptr(), text.as_ptr()) };
+}
+static CB: Mutex<Callbacks> = Mutex::new(Callbacks {
+    env: None,
+    video: None,
+    audio_batch: None,
+    poll: None,
+    input: None,
+});
+
+fn now_secs() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// SNES 15-bit BGR (Super Game Boy palettes) to XRGB.
+fn snes_rgb(c: u16) -> u32 {
+    let ch = |v: u16| -> u32 {
+        let v = u32::from(v & 0x1F);
+        (v << 3) | (v >> 2)
+    };
+    ch(c) << 16 | ch(c >> 5) << 8 | ch(c >> 10)
+}
+
+/// Reads a file from <system>/cboy/ or <system>/.
+fn system_file(dir: Option<&str>, name: &str) -> Option<Vec<u8>> {
+    let dir = dir?;
+    std::fs::read(format!("{dir}/cboy/{name}")).or_else(|_| std::fs::read(format!("{dir}/{name}"))).ok()
+}
+
+/// Per-frame inputs read from the frontend.
+#[derive(Default, Clone, Copy)]
+struct Inputs {
+    gb_buttons: u8,
+    /// The second player's, for the second of two Game Boys.
+    gb_buttons2: u8,
+    gba_keys: u16,
+    tilt: (f32, f32),
+    turn: f32,
+    light: Option<u8>,
+}
+
+impl Core {
+    /// Logs (sparsely) when the game seems stuck: no VBlank interrupt taken for two seconds
+    /// while it has them enabled and the LCD on, or the CPU locked. A phone report then says
+    /// where the CPU was.
+    fn watch_lockup(&mut self, vblanks_before: u32) {
+        let b = &self.gb.bus;
+        let c = &self.gb.cpu;
+        let waiting = b.ie & 1 != 0 && b.ppu.lcdc & 0x80 != 0 && b.irq_taken[0] == vblanks_before;
+        self.stuck_frames = if waiting || c.locked { self.stuck_frames + 1 } else { 0 };
+        if self.stuck_frames == 120 && self.stuck_reports < 5 {
+            self.stuck_reports += 1;
+            let line = format!(
+                "stuck: no VBlank interrupt for 2 s. PC {:04X} SP {:04X} IME {} halted {} locked {} \
+                 IE {:02X} IF {:02X} LCDC {:02X} STAT {:02X} LY {} ROM bank {} VBK {} SVBK {} \
+                 speed {} interrupts taken {:?}",
+                c.pc, c.sp, c.ime, c.halted, c.locked, b.ie, b.iflag, b.ppu.lcdc, b.ppu.read_stat(),
+                b.ppu.ly, b.cart.rom_bank, b.vbk, b.svbk,
+                if b.double_speed { "double" } else { "normal" }, b.irq_taken);
+            log_line(&line);
+        }
+    }
+
+    /// Fills the block the frontend saves (as `<game>.rtc`, next to the battery save).
+    fn write_rtc_block(&mut self) {
+        rtc_to_block(&self.gb.bus.cart, &mut self.rtc_block);
+    }
+
+    /// Once, on the first frame: the frontend has written the saved block by then. How the
+    /// clock moves on depends on the clock option.
+    fn read_rtc_block(&mut self) {
+        rtc_from_block(&mut self.gb.bus.cart, &self.rtc_block, &self.settings);
+    }
+
+    /// Puts the "Next start" options back to what the game started with, after a re-read has
+    /// picked up the player's new choice (see `NextStart`). The choice is kept by the frontend
+    /// and takes effect the next time the game is opened.
+    fn hold_next_start(&mut self, shown_before: crate::options::Which) {
+        let held = self.next_start;
+        self.settings.sample_rate = held.sample_rate;
+        self.settings.sgb_border = held.sgb_border;
+        self.settings.border_always = held.border_always;
+        self.settings.dual = held.dual;
+        self.settings.dual_side_by_side = held.dual_side_by_side;
+        // One screen or the other can change at once; both screens or one changes the shape.
+        if (self.settings.dual_show == crate::options::Which::Both) != held.dual_both {
+            self.settings.dual_show = shown_before;
+        }
+    }
+
+    /// Settings that apply to a running machine. Called on load, on every option change and
+    /// after a state is loaded (the state does not carry them).
+    fn apply_live(&mut self) {
+        if self.settings.palette_auto {
+            self.settings.dmg_palette = if self.gb.console == crate::gb::Model::Mgb {
+                crate::options::palette("pocket")
+            } else {
+                crate::ppu::SHADES
+            };
+        }
+        let s = &self.settings;
+        if let Some(g) = self.gba.as_mut() {
+            g.bus.ppu.layers = s.gba_layers;
+            g.bus.apu.chan_vol = s.chan_vol;
+            g.bus.fifo_vol = s.fifo_vol;
+            g.bus.fifo_smooth = s.gba_smooth;
+            if g.bus.mp2k.on != s.gba_music_hq {
+                g.bus.mp2k.on = s.gba_music_hq;
+                g.bus.mp2k.restart();
+            }
+            g.bus.gbp = s.player_handshake();
+            g.bus.vba_compat = s.vba_compat;
+            g.bus.gpio.clock_offset = s.rtc_offset_hours * 3600;
+            g.bus.gpio.game_clock = s.gba_game_clock;
+            g.bus.rfu_allowed = s.gba_wireless;
+            if !s.gba_wireless {
+                g.bus.rfu.active = false;
+            }
+            g.idle_skip = s.idle_skip;
+            g.bus.apu.out_hz = s.sample_rate;
+            g.bus.apu.hq = s.audio_hq;
+        } else {
+            apply_gb(&mut self.gb, s);
+            if let Some(two) = self.second.as_mut() {
+                apply_gb(&mut two.gb, s);
+            }
+        }
+        if let Some(g) = self.gba.as_mut() {
+            g.bus.ppu.obj_limit = s.gba_obj_limit;
+        }
+    }
+
+    unsafe fn read_inputs(&mut self, input: Option<InputFn>) -> Inputs {
+        let mut i = Inputs::default();
+        let Some(input) = input else { return i };
+        let s = &self.settings;
+        // Index 0 is the left stick, 1 the right; axis 0 is X, 1 is Y.
+        let (side, dz) = (u32::from(s.swap_stick), s.stick_deadzone);
+        let stick_of = |port: u32, id: u32| {
+            let v = f32::from(input(port, DEVICE_ANALOG, side, id)) / 32768.0;
+            if v.abs() <= dz { 0.0 } else { v.signum() * (v.abs() - dz) / (1.0 - dz).max(0.01) }
+        };
+        let stick = |id: u32| stick_of(0, id);
+        let turbo_on = s.turbo_period > 0 && self.frame_no % u64::from(s.turbo_period) < u64::from(s.turbo_period / 2);
+        // One player's buttons, as a Game Boy's (A B Select Start Right Left Up Down) and as an
+        // Advance's KEYINPUT (the same, then R L).
+        let buttons = |port: u32| -> (u8, u16) {
+            let (sx, sy) = if s.stick_dpad { (stick_of(port, 0), stick_of(port, 1)) } else { (0.0, 0.0) };
+            let pad = |id: u32| input(port, DEVICE_JOYPAD, 0, id) != 0;
+            let mut dirs = [pad(4) || sy < -0.5, pad(5) || sy > 0.5, pad(6) || sx < -0.5, pad(7) || sx > 0.5];
+            if !s.opposing {
+                if dirs[0] && dirs[1] { dirs[0] = false; dirs[1] = false; }
+                if dirs[2] && dirs[3] { dirs[2] = false; dirs[3] = false; }
+            }
+            let held = |id: u32| match id { 4..=7 => dirs[(id - 4) as usize], _ => pad(id) };
+            let a = held(8) || (s.turbo_period > 0 && held(9) && turbo_on);
+            let b = held(0) || (s.turbo_period > 0 && held(1) && turbo_on);
+            let (mut gb_bits, mut gba_bits) = (0u8, 0u16);
+            let gb = [a, b, held(2), held(3), held(7), held(6), held(4), held(5)];
+            for (bit, on) in gb.iter().enumerate() {
+                gb_bits |= u8::from(*on) << bit;
+            }
+            let gba = [a, b, held(2), held(3), held(7), held(6), held(4), held(5), held(11), held(10)];
+            for (bit, on) in gba.iter().enumerate() {
+                gba_bits |= u16::from(*on) << bit;
+            }
+            (gb_bits, gba_bits)
+        };
+        (i.gb_buttons, i.gba_keys) = buttons(0);
+        // The second player, for the second of two Game Boys.
+        if self.second.is_some() {
+            i.gb_buttons2 = buttons(1).0;
+        }
+        let sensors = self.sensors.as_ref();
+        let read = |id: u32| sensors.and_then(|x| x.get_sensor_input).map_or(0.0, |f| f(0, id));
+        i.tilt = match s.tilt {
+            crate::options::Source::Phone => (read(0).clamp(-1.0, 1.0), read(1).clamp(-1.0, 1.0)),
+            crate::options::Source::Stick => (stick(0), stick(1)),
+            crate::options::Source::Off => (0.0, 0.0),
+        };
+        i.turn = match s.gyro {
+            crate::options::Source::Phone => (read(5) / 4.0).clamp(-1.0, 1.0),
+            crate::options::Source::Stick => stick(0),
+            crate::options::Source::Off => 0.0,
+        };
+        let k = s.motion_scale;
+        i.tilt = ((i.tilt.0 * k).clamp(-1.0, 1.0), (i.tilt.1 * k).clamp(-1.0, 1.0));
+        i.turn = (i.turn * k).clamp(-1.0, 1.0);
+        i.light = Some(crate::options::sunlight(s.solar, self.light_sensor.then(|| read(6))));
+        i
+    }
+
+    /// Turns the phone's sensors on (or off again) for what the cartridge has and the options
+    /// ask for. On the first frame, and again after any option change, so switching Tilt input to
+    /// Phone motion mid-game starts the motion sensor (`sensors_started` is cleared then).
+    unsafe fn start_sensors(&mut self) {
+        if self.sensors_started {
+            return;
+        }
+        self.sensors_started = true;
+        let Some(set) = self.sensors.as_ref().and_then(|s| s.set_sensor_state) else { return };
+        let s = &self.settings;
+        let phone = crate::options::Source::Phone;
+        let has_tilt = self.gb.bus.cart.kind == crate::cart::MbcKind::Mbc7
+            || self.gba.as_ref().is_some_and(|g| g.bus.gpio.hw == gba::gpio::Hardware::Tilt);
+        let has_gyro = self.gba.as_ref().is_some_and(|g| g.bus.gpio.hw == gba::gpio::Hardware::Gyro);
+        let has_light = self.gba.as_ref().is_some_and(|g| g.bus.gpio.hw == gba::gpio::Hardware::Solar);
+        // libretro sensor actions: 0/1 accelerometer on/off, 2/3 gyroscope, 4/5 illuminance.
+        if has_tilt {
+            if s.tilt == phone { set(0, 0, 60) } else { set(0, 1, 0) };
+        }
+        if has_gyro {
+            if s.gyro == phone { set(0, 2, 60) } else { set(0, 3, 0) };
+        }
+        if has_light {
+            // A frontend that turns the light reading down leaves `light_sensor` false, and the
+            // Light sensor choice then sits at half sun rather than pitch dark.
+            self.light_sensor = if s.solar.is_none() {
+                set(0, 4, 10)
+            } else {
+                set(0, 5, 0);
+                false
+            };
+        }
+    }
+
+    /// Starts the phone's camera, once, and hands the cartridge whatever picture has arrived
+    /// since the last frame. Only a Game Boy Camera cartridge ever gets here, so no other game
+    /// makes the phone ask for camera permission.
+    unsafe fn run_camera(&mut self) {
+        let Some((start, _)) = self.camera else { return };
+        if !self.camera_started {
+            self.camera_started = true;
+            if !start() {
+                log_line("the camera is switched off for games, so the Game Boy Camera sees a flat grey");
+            }
+        }
+        if let Some(frame) = CAMERA_FRAME.lock().ok().and_then(|mut f| f.take()) {
+            self.gb.bus.cart.camera.image = frame;
+        }
+    }
+
+    fn feed(&mut self, i: &Inputs) {
+        if let Some(g) = self.gba.as_mut() {
+            g.set_keys(i.gba_keys);
+            g.bus.gpio.tilt = i.tilt;
+            g.bus.gpio.gyro_rate = i.turn;
+            if let Some(l) = i.light {
+                g.bus.gpio.light = l;
+            }
+        } else if let Some(two) = self.second.as_mut() {
+            // The on-screen buttons and the first controller play the console the player picked;
+            // a second controller plays the other one. Tilt goes with the on-screen buttons.
+            let (mine, theirs) = (i.gb_buttons, i.gb_buttons2);
+            let (first, second) = if self.settings.dual_controls_second { (theirs, mine) } else { (mine, theirs) };
+            self.gb.bus.set_buttons(first);
+            two.gb.bus.set_buttons(second);
+            if self.settings.dual_controls_second {
+                two.gb.bus.cart.tilt = i.tilt;
+            } else {
+                self.gb.bus.cart.tilt = i.tilt;
+            }
+        } else {
+            self.gb.bus.set_buttons(i.gb_buttons);
+            self.gb.bus.cart.tilt = i.tilt;
+        }
+    }
+
+    fn snapshot(&self) -> Vec<u8> {
+        match (&self.gba, &self.second) {
+            (Some(g), _) => g.save_state(),
+            (None, Some(two)) => crate::dual::save_state(&self.gb, &two.gb),
+            (None, None) => self.gb.save_state(),
+        }
+    }
+
+    fn load(&mut self, s: &[u8]) -> Result<(), String> {
+        let r = match (self.gba.as_mut(), self.second.as_mut()) {
+            (Some(g), _) => g.load_state(s),
+            (None, Some(two)) => crate::dual::load_state(&mut self.gb, &mut two.gb, s),
+            (None, None) => self.gb.load_state(s),
+        };
+        self.apply_live();
+        install_cheats(self);
+        r
+    }
+
+    fn restore(&mut self, s: &[u8]) {
+        let _ = self.load(s);
+    }
+
+    /// Runs one frame, drawing it or not.
+    fn run_one(&mut self, draw: bool) {
+        if let Some(g) = self.gba.as_mut() {
+            g.bus.ppu.no_render = !draw;
+            g.run_frame();
+        } else if let Some(two) = self.second.as_mut() {
+            let Second { gb: second, post, picture: shown, .. } = &mut **two;
+            self.gb.bus.ppu.no_render = !draw;
+            second.bus.ppu.no_render = !draw;
+            let s = &self.settings;
+            crate::dual::run_frame(&mut self.gb, second, |g| {
+                if draw {
+                    picture(g, post, s, shown);
+                }
+            });
+        } else {
+            self.gb.bus.ppu.no_render = !draw;
+            self.gb.run_frame();
+        }
+    }
+
+    fn motor(&self) -> bool {
+        match (&self.gba, &self.second) {
+            (Some(g), _) => g.bus.gpio.motor || g.bus.gbp_motor,
+            // The console the on-screen buttons play is the one in the player's hands.
+            (None, Some(two)) if self.settings.dual_controls_second => two.gb.bus.cart.motor,
+            _ => self.gb.bus.cart.motor,
+        }
+    }
+
+    /// Builds the output picture from the machine's frame. Returns (width, height).
+    fn compose(&mut self) -> (usize, usize) {
+        use crate::options::Machine;
+        let title = self.gb.bus.cart.title.clone();
+        if let Some(g) = self.gba.as_ref() {
+            self.out.clear();
+            self.out.extend_from_slice(&g.bus.ppu.frame);
+            self.post.video(&mut self.out, &[], &[], &self.settings, Machine::Gba, &title);
+            return (gba::ppu::W, gba::ppu::H);
+        }
+        if self.second.is_some() {
+            return self.compose_pair();
+        }
+        self.frame.resize(W * H, 0);
+        self.gb.frame_xrgb(&mut self.frame);
+        let ppu = &self.gb.bus.ppu;
+        if let Some(sgb) = self.gb.bus.sgb.as_ref() {
+            sgb.colour(&ppu.shade, &mut self.frame, snes_rgb);
+            self.post.blend(&mut self.frame, self.settings.blend);
+            if self.settings.sgb_border {
+                sgb.compose(&self.frame, &mut self.out, snes_rgb);
+                return (crate::sgb::BW, crate::sgb::BH);
+            }
+            self.out.clear();
+            self.out.extend_from_slice(&self.frame);
+            return (W, H);
+        }
+        // A Color colours a black-and-white game through its own palette memory, so when the
+        // player has asked for a Color's colours the picture already is them. Otherwise the Game
+        // Boy palette or cBoy's own look goes over the shades, as on a Game Boy.
+        let colour = self.gb.bus.cgb || (self.gb.bus.cgb_hardware && self.settings.gbc_colours());
+        let machine = if colour { Machine::Cgb } else { Machine::Dmg };
+        let (shade, source) = (ppu.shade.clone(), ppu.source.clone());
+        self.post.video(&mut self.frame, &shade, &source, &self.settings, machine, &title);
+        self.out.clear();
+        if self.settings.border_always {
+            // A plain frame in the darkest colour of the picture's palette.
+            self.out.resize(crate::sgb::BW * crate::sgb::BH, 0x0010_1010);
+            for y in 0..H {
+                let row = (crate::sgb::GY + y) * crate::sgb::BW + crate::sgb::GX;
+                self.out[row..row + W].copy_from_slice(&self.frame[y * W..(y + 1) * W]);
+            }
+            return (crate::sgb::BW, crate::sgb::BH);
+        }
+        self.out.extend_from_slice(&self.frame);
+        (W, H)
+    }
+
+    /// Two Game Boys' pictures as one: side by side or one above the other, or only one of
+    /// them, the second first when the player has swapped them. Returns (width, height).
+    fn compose_pair(&mut self) -> (usize, usize) {
+        use crate::options::Which;
+        let Some(two) = self.second.as_mut() else { return (W, H) };
+        let s = &self.settings;
+        picture(&self.gb, &mut self.post, s, &mut self.frame);
+        two.picture.resize(W * H, 0);
+        self.out.clear();
+        match s.dual_show {
+            Which::First => {
+                self.out.extend_from_slice(&self.frame);
+                return (W, H);
+            }
+            Which::Second => {
+                self.out.extend_from_slice(&two.picture);
+                return (W, H);
+            }
+            Which::Both => {}
+        }
+        let (one, other) = if s.dual_swap { (&two.picture, &self.frame) } else { (&self.frame, &two.picture) };
+        if s.dual_side_by_side {
+            for y in 0..H {
+                self.out.extend_from_slice(&one[y * W..(y + 1) * W]);
+                self.out.extend_from_slice(&other[y * W..(y + 1) * W]);
+            }
+            (W * 2, H)
+        } else {
+            self.out.extend_from_slice(one);
+            self.out.extend_from_slice(other);
+            (W, H * 2)
+        }
+    }
+
+    /// The size of the picture the player sees, which the app was told as the game loaded.
+    fn picture_size(&self) -> (usize, usize) {
+        let s = &self.settings;
+        if self.gba.is_some() {
+            (gba::ppu::W, gba::ppu::H)
+        } else if self.second.is_some() {
+            match (s.dual_show, s.dual_side_by_side) {
+                (crate::options::Which::Both, true) => (W * 2, H),
+                (crate::options::Which::Both, false) => (W, H * 2),
+                _ => (W, H),
+            }
+        } else if (self.gb.bus.sgb.is_some() && s.sgb_border) || s.border_always {
+            (crate::sgb::BW, crate::sgb::BH)
+        } else {
+            (W, H)
+        }
+    }
+
+    fn take_samples(&mut self) -> Vec<i16> {
+        use crate::options::Which;
+        let first = match self.gba.as_mut() {
+            Some(g) => return std::mem::take(&mut g.bus.apu.samples),
+            None => std::mem::take(&mut self.gb.bus.apu.samples),
+        };
+        let Some(two) = self.second.as_mut() else { return first };
+        // The second console's sound waits in `leftover` and goes out as much at a time as the
+        // first console made, so the app gets one steady stream whichever is heard. The two
+        // run in step, so it never runs more than a slice ahead or behind.
+        two.leftover.append(&mut two.gb.bus.apu.samples);
+        let n = first.len().min(two.leftover.len());
+        let mut out = first;
+        match self.settings.dual_audio {
+            Which::First => {}
+            Which::Second => {
+                out[..n].copy_from_slice(&two.leftover[..n]);
+                let last = if n >= 2 { [out[n - 2], out[n - 1]] } else { [0, 0] };
+                for pair in out[n..].chunks_mut(2) {
+                    pair.copy_from_slice(&last[..pair.len()]);
+                }
+            }
+            Which::Both => {
+                for (a, b) in out.iter_mut().zip(&two.leftover[..n]) {
+                    *a = ((i32::from(*a) + i32::from(*b)) / 2) as i16;
+                }
+            }
+        }
+        two.leftover.drain(..n);
+        // Never more than a frame's worth held over, whatever happens.
+        let keep = out.len().max(2048);
+        if two.leftover.len() > keep {
+            let extra = two.leftover.len() - keep;
+            two.leftover.drain(..extra);
+        }
+        out
+    }
+
+    fn give_samples(&mut self, mut v: Vec<i16>) {
+        v.clear();
+        if let Some(two) = self.second.as_mut() {
+            two.gb.bus.apu.samples.clear();
+        }
+        match self.gba.as_mut() {
+            Some(g) => g.bus.apu.samples = v,
+            None => self.gb.bus.apu.samples = v,
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn retro_api_version() -> u32 {
+    1
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn retro_get_system_info(info: *mut RetroSystemInfo) {
+    if info.is_null() {
+        return;
+    }
+    *info = RetroSystemInfo {
+        library_name: c"cBoy".as_ptr(),
+        // Carries the save-state format: the app refuses a state whose recorded version differs, so a
+        // state from a build with another layout is never loaded as garbage.
+        library_version: c"0.3.0 (state format 3)".as_ptr(),
+        valid_extensions: c"gb|gbc|dmg|cgb|sgb|gba|agb".as_ptr(),
+        need_fullpath: false,
+        block_extract: false,
+    };
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn retro_get_system_av_info(info: *mut RetroSystemAvInfo) {
+    if info.is_null() {
+        return;
+    }
+    let pair = CORE.lock().ok().and_then(|c| c.as_ref().and_then(|c| c.second.is_some().then(|| c.picture_size())));
+    let (is_gba, sgb_border, rate, sgb_clock) = CORE.lock().ok().and_then(|c| c.as_ref().map(|c| {
+        // A Super Game Boy runs from the SNES clock: about 2.4% fast (NTSC) or 1.5% (PAL). The
+        // Super Game Boy 2 has a clock of its own, a Game Boy's.
+        let real_sgb = c.gb.bus.sgb.is_some() && c.gb.console != crate::gb::Model::Sgb2 && c.settings.sgb_fast;
+        let clock = match (real_sgb, c.settings.sgb_pal) {
+            (true, false) => 21_477_272.0 / 5.0,
+            (true, true) => 21_281_370.0 / 5.0,
+            _ => 4_194_304.0,
+        };
+        (c.gba.is_some(), (c.gb.bus.sgb.is_some() && c.settings.sgb_border) || c.settings.border_always, c.settings.sample_rate, clock)
+    })).unwrap_or((false, false, crate::apu::OUT_HZ, 4_194_304.0));
+    let (w, h, aspect, fps) = if let Some((w, h)) = pair {
+        // Two Game Boys' screens, square pixels like one's.
+        (w as u32, h as u32, w as f32 / h as f32, sgb_clock / 70_224.0)
+    } else if is_gba {
+        (gba::ppu::W as u32, gba::ppu::H as u32, 1.5f32, 16_777_216.0 / 280_896.0)
+    } else if sgb_border {
+        (crate::sgb::BW as u32, crate::sgb::BH as u32, 8.0 / 7.0, sgb_clock / 70_224.0)
+    } else {
+        (W as u32, H as u32, 10.0 / 9.0, sgb_clock / 70_224.0)
+    };
+    *info = RetroSystemAvInfo {
+        geometry: RetroGameGeometry {
+            base_width: w,
+            base_height: h,
+            max_width: (crate::sgb::BW as u32).max(w),
+            max_height: (crate::sgb::BH as u32).max(h),
+            aspect_ratio: aspect,
+        },
+        timing: RetroSystemTiming { fps, sample_rate: f64::from(rate) },
+    };
+}
+
+#[no_mangle]
+pub extern "C" fn retro_set_environment(cb: EnvFn) {
+    if let Ok(mut c) = CB.lock() {
+        c.env = Some(cb);
+    }
+    unsafe { crate::options::declare(cb) };
+}
+#[no_mangle]
+pub extern "C" fn retro_set_video_refresh(cb: VideoFn) {
+    if let Ok(mut c) = CB.lock() {
+        c.video = Some(cb);
+    }
+}
+#[no_mangle]
+pub extern "C" fn retro_set_audio_sample(_cb: AudioFn) {}
+#[no_mangle]
+pub extern "C" fn retro_set_audio_sample_batch(cb: AudioBatchFn) {
+    if let Ok(mut c) = CB.lock() {
+        c.audio_batch = Some(cb);
+    }
+}
+#[no_mangle]
+pub extern "C" fn retro_set_input_poll(cb: PollFn) {
+    if let Ok(mut c) = CB.lock() {
+        c.poll = Some(cb);
+    }
+}
+#[no_mangle]
+pub extern "C" fn retro_set_input_state(cb: InputFn) {
+    if let Ok(mut c) = CB.lock() {
+        c.input = Some(cb);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn retro_init() {}
+#[no_mangle]
+pub extern "C" fn retro_deinit() {
+    if let Ok(mut core) = CORE.lock() {
+        *core = None;
+    }
+}
+#[no_mangle]
+pub extern "C" fn retro_set_controller_port_device(_port: u32, _device: u32) {}
+
+/// Builds the machine the options ask for.
+fn build_machine(rom: Vec<u8>, s: &crate::options::Settings, dir: Option<&str>) -> Option<(GameBoy, Option<Box<Gba>>)> {
+    use crate::gb::Model;
+    if gba::is_gba_rom(&rom) {
+        let idle = GameBoy::new(vec![0; 0x8000]).ok()?;
+        let mut g = None;
+        if s.gba_bios_file {
+            match system_file(dir, "gba_bios.bin") {
+                Some(bios) => match Gba::with_bios(rom.clone(), bios) {
+                    Ok(mut m) => {
+                        if s.gba_bios_skip_logo {
+                            m.cpu = gba::cpu::Cpu::default();
+                            log_line("using the Game Boy Advance BIOS file, skipping its logo");
+                        } else {
+                            log_line("starting from the Game Boy Advance BIOS file");
+                        }
+                        g = Some(m);
+                    }
+                    Err(e) => log_line(&format!("BIOS file not used: {e}")),
+                },
+                None => log_line("no gba_bios.bin in the system folder; using the built-in BIOS"),
+            }
+        }
+        let mut g = Box::new(g.unwrap_or_else(|| Gba::new(rom)));
+        if let Some((kind, bits)) = s.gba_save {
+            g.bus.save = gba::save::Save::new(kind);
+            g.bus.save.eeprom_addr_bits = bits;
+            log_line(&format!("save chip set by option: {kind:?}"));
+        }
+        if let Some(hw) = s.gba_hardware {
+            g.bus.gpio = gba::gpio::Gpio::new(hw);
+        }
+        if g.bus.gpio.hw != gba::gpio::Hardware::None {
+            log_line(&format!("cartridge extras: {:?}", g.bus.gpio.hw));
+        }
+        return Some((idle, Some(g)));
+    }
+    let mut rom = rom;
+    if let Some(why) = crate::cart::cutoff_reason(&rom) {
+        log_line(&why);
+        return None;
+    }
+    if s.force_color && rom.len() > 0x143 && rom[0x143] & 0x80 == 0 && !matches!(s.model, Model::Dmg | Model::Dmg0 | Model::Mgb | Model::Sgb | Model::Sgb2) {
+        rom[0x143] = 0x80;
+        log_line("Game Boy cartridge run in Color mode (option)");
+    }
+    // The reason is logged, not dropped: the app shows the core's last line when a game is
+    // refused, so an unsupported cartridge says so in words instead of "rejected the content".
+    let cart = match crate::cart::Cart::new(rom.clone()) {
+        Ok(c) => c,
+        Err(why) => {
+            log_line(&why);
+            return None;
+        }
+    };
+    let colour = cart.cgb_flag & 0x80 != 0;
+    // Header byte 0x146 = 3 marks Super Game Boy support (needs the old licensee code 0x33).
+    let sgb_cart = rom.get(0x146) == Some(&3) && rom.get(0x14B) == Some(&0x33);
+    let model = s.console_for(cart.cgb_flag, sgb_cart);
+    let boot = if s.boot_rom {
+        let name = boot_file(model, colour || s.gbc_colours());
+        let f = system_file(dir, name);
+        if f.is_none() {
+            log_line(&format!("no {name} in the system folder, so the game simply starts"));
+        }
+        f
+    } else {
+        None
+    };
+    let had_boot = boot.is_some();
+    let mut gb = match GameBoy::with_model(rom.clone(), model, boot) {
+        Ok(gb) => gb,
+        Err(e) => {
+            log_line(&format!("boot ROM not used: {e}"));
+            GameBoy::with_model(rom, model, None).ok()?
+        }
+    };
+    if s.cgb_rev0 && !had_boot {
+        gb.set_cgb_revision_0();
+    }
+    gb.set_cgb_revision(s.cgb_rev);
+    // A black-and-white game on a Color, in the colours the player asked for.
+    if let (crate::options::Colorize::Gbc(choice), false, true) = (s.colorize, colour, gb.bus.cgb_hardware) {
+        let how = match choice {
+            Some(i) => {
+                gb.pick_colours(&crate::compat::PICKS[i % crate::compat::PICKS.len()]);
+                "the button scheme picked in the settings"
+            }
+            None if had_boot => "the colours its own start-up file picks for it",
+            None => "the colours a Color picks for it",
+        };
+        log_line(&format!("black-and-white game on a Game Boy Color, in {how}"));
+    }
+    Some((gb, None))
+}
+
+/// The start-up file a console runs when the player has one: the Color's own for a game that
+/// wants its colours (a colour game, or a black-and-white one in a Color's colours, which are
+/// that file's to pick), and otherwise each console's own.
+fn boot_file(model: crate::gb::Model, colour: bool) -> &'static str {
+    use crate::gb::Model;
+    match model {
+        Model::Dmg0 => "dmg0_boot.bin",
+        Model::Mgb => "mgb_boot.bin",
+        Model::Sgb => "sgb_boot.bin",
+        Model::Sgb2 => "sgb2_boot.bin",
+        Model::Cgb | Model::Agb if colour => "cgb_boot.bin",
+        _ => "dmg_boot.bin",
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn retro_load_game(game: *const RetroGameInfo) -> bool {
+    if game.is_null() || (*game).data.is_null() {
+        return false;
+    }
+    let rom = std::slice::from_raw_parts((*game).data as *const u8, (*game).size).to_vec();
+    let env = CB.lock().ok().and_then(|c| c.env);
+    let mut system_dir = None;
+    let mut rumble = None;
+    let mut sensors = None;
+    if let Some(env) = env {
+        let mut cb = RetroLogCallback { log: None };
+        if env(ENV_GET_LOG_INTERFACE, &mut cb as *mut RetroLogCallback as *mut c_void) {
+            if let Ok(mut l) = LOG.lock() {
+                *l = cb.log;
+            }
+        }
+        let mut fmt = PIXEL_FORMAT_XRGB8888;
+        if !env(ENV_SET_PIXEL_FORMAT, &mut fmt as *mut u32 as *mut c_void) {
+            return false;
+        }
+        let mut dir: *const c_char = std::ptr::null();
+        if env(ENV_GET_SYSTEM_DIRECTORY, &mut dir as *mut *const c_char as *mut c_void) && !dir.is_null() {
+            system_dir = Some(std::ffi::CStr::from_ptr(dir).to_string_lossy().into_owned());
+        }
+        let mut r = RumbleInterface { set_rumble_state: None };
+        if env(ENV_GET_RUMBLE_INTERFACE, &mut r as *mut RumbleInterface as *mut c_void) {
+            rumble = r.set_rumble_state;
+        }
+        let mut si = SensorInterface { set_sensor_state: None, get_sensor_input: None };
+        if env(ENV_GET_SENSOR_INTERFACE, &mut si as *mut SensorInterface as *mut c_void) {
+            sensors = Some(si);
+        }
+    }
+    let mut settings = env.map(|e| crate::options::read(e, system_dir.as_deref())).unwrap_or_default();
+    // The second Game Boy plays the same game, or the one picked for it on this game's card.
+    let picked = (settings.dual && !settings.dual_second_rom.is_empty())
+        .then(|| std::fs::read(&settings.dual_second_rom).ok())
+        .flatten()
+        .filter(|r| !gba::is_gba_rom(r) && crate::cart::Cart::new(r.clone()).is_ok());
+    if settings.dual && !settings.dual_second_rom.is_empty() && picked.is_none() {
+        log_line("second Game Boy: its game could not be opened, so it plays this one");
+    }
+    let second_is_other = picked.is_some();
+    let second_rom = if settings.dual { picked.or_else(|| Some(rom.clone())) } else { None };
+    let Some((gb, gba_machine)) = build_machine(rom, &settings, system_dir.as_deref()) else { return false };
+    // Two Game Boys: the same cartridge again, its own save in its own file. Game Boy and Color
+    // games only.
+    if gba_machine.is_some() && settings.dual {
+        log_line("two Game Boys on one phone is for Game Boy and Color games, so this Advance game runs on one");
+        settings.dual = false;
+    }
+    let second = match (second_rom, gba_machine.is_none()) {
+        (Some(r), true) => match build_machine(r, &settings, system_dir.as_deref()) {
+            Some((g, None)) if second_is_other => {
+                let path = (!settings.dual_second_save.is_empty()).then(|| std::path::PathBuf::from(&settings.dual_second_save));
+                // Before two games link, both saves are kept as they were: trading changes both,
+                // and a session cut off in the middle must not cost either game its progress.
+                for save in [path.clone(), (!settings.dual_first_save.is_empty()).then(|| std::path::PathBuf::from(&settings.dual_first_save))].into_iter().flatten() {
+                    let keep = save.with_extension("srm.before-link");
+                    if std::fs::copy(&save, &keep).is_ok() {
+                        log_line(&format!("kept \"{}\" as it was before linking", keep.display()));
+                    }
+                }
+                log_line(&format!("two Game Boys on this phone, joined by a link cable; the second plays \"{}\"", g.bus.cart.title));
+                Some(Box::new(Second::new(g, path, &settings, true)))
+            }
+            Some((g, None)) => {
+                let path = env.and_then(|e| second_save_path(e, (*game).path));
+                log_line(&format!("two Game Boys on this phone, joined by a link cable; the second one's save is {}",
+                    path.as_ref().map_or("not kept (no save folder)".into(), |p| format!("\"{}\"", p.display()))));
+                Some(Box::new(Second::new(g, path, &settings, false)))
+            }
+            _ => None,
+        },
+        _ => None,
+    };
+    // Only the Game Boy Camera cartridge asks for the phone's camera, and nothing is captured
+    // until the first frame starts it.
+    if let Ok(mut f) = CAMERA_FRAME.lock() {
+        *f = None;
+    }
+    let camera = match (env, gba_machine.is_none() && gb.bus.cart.kind == crate::cart::MbcKind::Camera) {
+        (Some(env), true) => ask_for_camera(env),
+        _ => None,
+    };
+    // A fresh game starts with nothing on the cable, whatever the last one was up to.
+    if let Ok(mut c) = LINK.lock() {
+        c.stop();
+    }
+    // Two Game Boys on this phone are already joined to each other.
+    if let Ok(mut c) = ADVANCE_LINK.lock() {
+        c.stop();
+    }
+    if let (Some(env), true) = (env, second.is_none()) {
+        offer_the_link(env, gba_machine.is_some());
+    }
+    if gba_machine.is_some() {
+        log_line("loaded a Game Boy Advance ROM");
+    } else {
+        let c = &gb.bus.cart;
+        log_line(&format!("loaded \"{}\" as {}{}: {:?}, ROM {} KB, RAM {} KB, battery {}, clock {}, header $143 = {:02X}",
+            c.title, if gb.bus.cgb { "Game Boy Color" } else { "Game Boy" },
+            if gb.bus.sgb.is_some() { " (Super Game Boy)" } else { "" }, c.kind,
+            c.file_len.max(1) / 1024,
+            c.ram.len() / 1024, c.has_battery, c.has_rtc, c.cgb_flag));
+    }
+    let next_start = NextStart::of(&settings);
+    let mut core = Core {
+        gb, gba: gba_machine, frame: vec![0; W * H], out: Vec::new(), rtc_block: [0; RTC_LEN], rtc_synced: false,
+        stuck_frames: 0, stuck_reports: 0, settings, post: crate::options::Post::default(), system_dir,
+        frame_no: 0, rumble, sensors, sensors_started: false, light_sensor: false, next_start,
+        camera, camera_started: false,
+        last_motor: None, behind: false, skipped_run: 0, buzz_phase: 0, player_reset: None, held_frac: 0,
+        second,
+    };
+    core.apply_live();
+    core.write_rtc_block();
+    core.rtc_block[16..24].fill(0); // "nothing saved yet" until the frontend writes its copy
+    install_cheats(&mut core);
+    if let Ok(mut slot) = CORE.lock() {
+        *slot = Some(core);
+        return true;
+    }
+    false
+}
+
+#[no_mangle]
+pub extern "C" fn retro_load_game_special(_t: u32, _info: *const RetroGameInfo, _n: usize) -> bool {
+    false
+}
+
+#[no_mangle]
+pub extern "C" fn retro_unload_game() {
+    if let Ok(mut core) = CORE.lock() {
+        if let Some(c) = core.as_mut() {
+            // The phone's camera goes off with the game, not when the app next notices.
+            if let (Some((_, stop)), true) = (c.camera, c.camera_started) {
+                unsafe { stop() };
+            }
+            if let Some(two) = c.second.as_mut() {
+                two.write_save();
+            }
+        }
+        *core = None;
+    }
+    // The next game starts with none: codes are written for one game.
+    if let Ok(mut codes) = CHEATS.lock() {
+        codes.clear();
+    }
+    if let Ok(mut f) = CAMERA_FRAME.lock() {
+        *f = None;
+    }
+    // The cable goes with the game: the next one starts with nothing attached.
+    if let Ok(mut c) = LINK.lock() {
+        c.stop();
+    }
+    if let Ok(mut c) = ADVANCE_LINK.lock() {
+        c.stop();
+    }
+    if let Ok(mut s) = LINK_SEND.lock() {
+        *s = None;
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn retro_get_region() -> u32 {
+    0
+}
+
+#[no_mangle]
+pub extern "C" fn retro_reset() {
+    if let Ok(mut slot) = CORE.lock() {
+        if let Some(core) = slot.as_mut() {
+            if core.gba.is_none() && core.settings.gbp_reset && core.gb.console == crate::gb::Model::Agb {
+                // A Game Boy Player fades out first; the reset itself comes at the end of it.
+                if core.player_reset.is_none() {
+                    core.player_reset = Some(PlayerReset::Fading(PLAYER_FADE_FRAMES));
+                }
+                return;
+            }
+            core.restart();
+        }
+    }
+}
+
+impl Core {
+    /// The console starting again: the same cartridge, its saves and clock kept.
+    fn restart(&mut self) {
+        let core = self;
+        {
+            let dir = core.system_dir.clone();
+            if let Some(g) = core.gba.as_mut() {
+                let rom = std::mem::take(&mut g.bus.rom);
+                let save = g.bus.save.clone();
+                let gpio_hw = g.bus.gpio.hw;
+                if let Some((_, Some(mut fresh))) = build_machine(rom, &core.settings, dir.as_deref()) {
+                    fresh.bus.save = save;
+                    fresh.bus.gpio = gba::gpio::Gpio::new(gpio_hw);
+                    *g = fresh;
+                }
+            } else {
+                let rom = std::mem::take(&mut core.gb.bus.cart.rom);
+                let ram = std::mem::take(&mut core.gb.bus.cart.ram);
+                let rtc = core.gb.bus.cart.rtc.clone();
+                // HuC3's clock and clock memory too: Restart is not a new cartridge.
+                let huc3 = core.gb.bus.cart.huc3.clone();
+                if let Some((mut gb, None)) = build_machine(rom, &core.settings, dir.as_deref()) {
+                    if gb.bus.cart.ram.len() == ram.len() {
+                        gb.bus.cart.ram = ram;
+                    }
+                    gb.bus.cart.rtc = rtc;
+                    gb.bus.cart.huc3 = huc3;
+                    core.gb = gb;
+                }
+                // The second Game Boy starts again with the first, its save and clock kept too.
+                if let Some(two) = core.second.as_mut() {
+                    let old = &mut two.gb.bus.cart;
+                    let (rom, ram, rtc, huc3) = (std::mem::take(&mut old.rom), std::mem::take(&mut old.ram), old.rtc.clone(), old.huc3.clone());
+                    if let Some((mut gb, None)) = build_machine(rom, &core.settings, dir.as_deref()) {
+                        if gb.bus.cart.ram.len() == ram.len() {
+                            gb.bus.cart.ram = ram;
+                        }
+                        gb.bus.cart.rtc = rtc;
+                        gb.bus.cart.huc3 = huc3;
+                        two.gb = gb;
+                        two.leftover.clear();
+                    }
+                }
+            }
+            core.apply_live();
+            install_cheats(core);
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn retro_run() {
+    let (video, audio, poll, input, env) = match CB.lock() {
+        Ok(c) => (c.video, c.audio_batch, c.poll, c.input, c.env),
+        Err(_) => return,
+    };
+    if let Some(poll) = poll {
+        poll();
+    }
+    let Ok(mut slot) = CORE.lock() else { return };
+    let Some(core) = slot.as_mut() else { return };
+    if let Some(env) = env {
+        if crate::options::changed(env) {
+            let shown_before = core.settings.dual_show;
+            core.settings = crate::options::read(env, core.system_dir.as_deref());
+            core.hold_next_start(shown_before);
+            core.apply_live();
+            // The tilt, turn or sunlight source may have changed: ask for the sensors again.
+            core.sensors_started = false;
+        }
+    }
+    core.start_sensors();
+    core.run_camera();
+    // On or off the cable before the frame runs, so a transfer the game starts in it knows
+    // whether there is anybody to wait for.
+    if core.gba.is_none() && core.second.is_none() {
+        if let Ok(c) = LINK.lock() {
+            c.attach(&mut core.gb.bus);
+        }
+    }
+    if let (Some(g), Ok(c)) = (core.gba.as_mut(), ADVANCE_LINK.lock()) {
+        c.attach(&mut g.bus);
+    }
+    let inputs = core.read_inputs(input);
+    if let Some(PlayerReset::Held(left)) = core.player_reset {
+        // Held after a Game Boy Player reset: nothing runs, the screen is dark, no sound.
+        core.player_reset = if left > 1 { Some(PlayerReset::Held(left - 1)) } else { None };
+        let rate = u64::from(core.settings.sample_rate);
+        let all = rate * 70_224 + core.held_frac;
+        core.held_frac = all % 4_194_304;
+        let silence = vec![0i16; (all / 4_194_304) as usize * 2];
+        let (w, h) = core.picture_size();
+        core.out.clear();
+        core.out.resize(w * h, 0);
+        if let Some(video) = video {
+            video(core.out.as_ptr() as *const c_void, w as u32, h as u32, w * 4);
+        }
+        if let Some(audio) = audio {
+            let mut off = 0;
+            while off < silence.len() / 2 {
+                let n = audio(silence[off * 2..].as_ptr(), silence.len() / 2 - off);
+                if n == 0 {
+                    break;
+                }
+                off += n;
+            }
+        }
+        return;
+    }
+    core.feed(&inputs);
+    if core.gba.is_none() && !core.rtc_synced {
+        core.rtc_synced = true;
+        if core.gb.bus.cart.has_rtc {
+            core.read_rtc_block();
+        }
+    }
+    let s = core.settings.clone();
+    let started = std::time::Instant::now();
+    let skip = (s.frameskip > 0 && core.frame_no % u64::from(s.frameskip + 1) != 0)
+        || (s.frameskip_auto && core.behind && core.skipped_run < s.frameskip_interval);
+    core.skipped_run = if skip { core.skipped_run + 1 } else { 0 };
+    core.frame_no += 1;
+    let vblanks = core.gb.bus.irq_taken[0];
+    let ahead = s.run_ahead;
+    // The real frame. With run-ahead it is never drawn: the picture comes from the frames ahead.
+    core.run_one(ahead == 0 && !skip);
+    if let (Some(g), Ok(mut c)) = (core.gba.as_mut(), ADVANCE_LINK.lock()) {
+        c.pump(&mut g.bus);
+    }
+    if core.gba.is_none() {
+        core.watch_lockup(vblanks);
+        // One frame's worth of cable: what the other phone sent goes into the machine, and what
+        // the machine put on the cable goes out. Before the log is drained, so the cable's own
+        // lines come out with the frame they happened in.
+        if core.second.is_none() {
+            if let Ok(mut c) = LINK.lock() {
+                c.pump(&mut core.gb.bus);
+            }
+        }
+        for line in std::mem::take(&mut core.gb.bus.events) {
+            log_line(&line);
+        }
+        if core.gb.bus.cart.has_rtc {
+            core.write_rtc_block();
+        }
+        if let Some(two) = core.second.as_mut() {
+            for line in std::mem::take(&mut two.gb.bus.events) {
+                log_line(&format!("second Game Boy: {line}"));
+            }
+            if two.gb.bus.cart.has_rtc {
+                rtc_to_block(&two.gb.bus.cart, &mut two.rtc_block);
+            }
+            two.frames += 1;
+            if two.frames % SECOND_SAVE_FRAMES == 0 {
+                two.write_save();
+            }
+        }
+    }
+    let mut samples = core.take_samples();
+    let motor = core.motor();
+    let mut ahead_size = None;
+    if ahead > 0 && !skip {
+        let saved = core.snapshot();
+        // The second Game Boy's sound held over is not part of a state, so it is put back too.
+        let held_over = core.second.as_ref().map(|t| t.leftover.clone());
+        for n in 0..ahead {
+            core.feed(&inputs);
+            core.run_one(n + 1 == ahead);
+            let junk = core.take_samples();
+            core.give_samples(junk);
+        }
+        ahead_size = Some(core.compose());
+        let shown = std::mem::take(&mut core.out);
+        core.restore(&saved);
+        core.out = shown;
+        if let (Some(two), Some(left)) = (core.second.as_mut(), held_over) {
+            two.leftover = left;
+        }
+    }
+    // Rumble on change only.
+    if core.last_motor != Some(motor) {
+        core.last_motor = Some(motor);
+        if let Some(r) = core.rumble {
+            let strength = if motor { (u32::from(s.rumble_strength) * 0xFFFF / 100) as u16 } else { 0 };
+            r(0, 0, strength);
+        }
+    }
+    if s.interference > 0 && core.gba.is_none() && core.gb.bus.ppu.lcdc & 0x80 != 0 {
+        // A faint buzz at the line rate (about 9.2 kHz) and its frame-rate hum.
+        let amp = i32::from(s.interference) * 6;
+        for pair in samples.chunks_mut(2) {
+            core.buzz_phase = core.buzz_phase.wrapping_add(1);
+            let line = (u64::from(core.buzz_phase) * 9198 * 2 / u64::from(s.sample_rate)) % 2 == 0;
+            let v = if line { amp } else { -amp };
+            for x in pair.iter_mut() {
+                *x = (i32::from(*x) + v).clamp(-32768, 32767) as i16;
+            }
+        }
+    }
+    core.post.audio(&mut samples, &s, s.sample_rate);
+    if let Some(video) = video {
+        if skip {
+            video(std::ptr::null(), 0, 0, 0);
+        } else {
+            let (w, h) = match ahead_size {
+                Some(size) => size,
+                None => core.compose(),
+            };
+            if let Some(PlayerReset::Fading(left)) = core.player_reset {
+                let a = player_fade(left);
+                for p in core.out.iter_mut() {
+                    let ch = |sh: u32| ((((*p >> sh) & 0xFF) as f32 * a) as u32) << sh;
+                    *p = ch(16) | ch(8) | ch(0);
+                }
+            }
+            video(core.out.as_ptr() as *const c_void, w as u32, h as u32, w * 4);
+        }
+    }
+    if let Some(audio) = audio {
+        let mut off = 0;
+        while off < samples.len() / 2 {
+            let n = audio(samples[off * 2..].as_ptr(), samples.len() / 2 - off);
+            if n == 0 {
+                break;
+            }
+            off += n;
+        }
+    }
+    core.give_samples(samples);
+    if let Some(PlayerReset::Fading(left)) = core.player_reset {
+        if left > 1 {
+            core.player_reset = Some(PlayerReset::Fading(left - 1));
+        } else {
+            core.restart();
+            core.player_reset = Some(PlayerReset::Held(PLAYER_HOLD_FRAMES));
+        }
+    }
+    // Auto frame skip: behind when emulating took most of a 60 Hz frame.
+    core.behind = started.elapsed() > std::time::Duration::from_micros(16_667 * u64::from(s.frameskip_threshold) / 100);
+}
+
+
+#[no_mangle]
+pub extern "C" fn retro_serialize_size() -> usize {
+    CORE.lock()
+        .ok()
+        .and_then(|s| s.as_ref().map(|c| c.snapshot().len() + 1024))
+        .unwrap_or(0)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn retro_serialize(data: *mut c_void, size: usize) -> bool {
+    let Ok(slot) = CORE.lock() else { return false };
+    let Some(core) = slot.as_ref() else { return false };
+    let state = core.snapshot();
+    if data.is_null() || state.len() > size {
+        return false;
+    }
+    let out = std::slice::from_raw_parts_mut(data as *mut u8, size);
+    out[..state.len()].copy_from_slice(&state);
+    out[state.len()..].fill(0);
+    true
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn retro_unserialize(data: *const c_void, size: usize) -> bool {
+    if data.is_null() {
+        return false;
+    }
+    let bytes = std::slice::from_raw_parts(data as *const u8, size);
+    let Ok(mut slot) = CORE.lock() else { return false };
+    let Some(core) = slot.as_mut() else { return false };
+    let ok = core.load(bytes).is_ok();
+    if ok {
+        // No ghost of the picture from before the load.
+        core.post.blend(&mut [], 0);
+        if let Some(two) = core.second.as_mut() {
+            two.post.blend(&mut [], 0);
+            two.leftover.clear();
+        }
+    }
+    ok
+}
+
+#[no_mangle]
+pub extern "C" fn retro_cheat_reset() {
+    if let Ok(mut codes) = CHEATS.lock() {
+        codes.clear();
+    }
+    if let Ok(mut slot) = CORE.lock() {
+        if let Some(core) = slot.as_mut() {
+            install_cheats(core);
+        }
+    }
+}
+
+/// A code switched on or off: Game Genie, GameShark, CodeBreaker and raw codes on the Game Boy
+/// (cheats.rs); GameShark, Action Replay, CodeBreaker and raw codes on the Advance
+/// (gba/cheats.rs). Anything else is kept and does nothing.
+///
+/// # Safety
+/// `code` is null or a NUL-terminated string, as the libretro API passes it.
+#[no_mangle]
+pub unsafe extern "C" fn retro_cheat_set(index: u32, enabled: bool, code: *const c_char) {
+    let text = if code.is_null() { String::new() } else { std::ffi::CStr::from_ptr(code).to_string_lossy().into_owned() };
+    if let Ok(mut codes) = CHEATS.lock() {
+        let i = index as usize;
+        if enabled {
+            if codes.len() <= i {
+                codes.resize(i + 1, String::new());
+            }
+            codes[i] = text;
+        } else if let Some(slot) = codes.get_mut(i) {
+            slot.clear();
+        }
+    }
+    if let Ok(mut slot) = CORE.lock() {
+        if let Some(core) = slot.as_mut() {
+            install_cheats(core);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn retro_get_memory_data(id: u32) -> *mut c_void {
+    let Ok(mut slot) = CORE.lock() else { return std::ptr::null_mut() };
+    let Some(core) = slot.as_mut() else { return std::ptr::null_mut() };
+    if let Some(g) = core.gba.as_mut() {
+        return match id {
+            MEMORY_SAVE_RAM if !g.bus.save.data.is_empty() => g.bus.save.data.as_mut_ptr() as *mut c_void,
+            MEMORY_SYSTEM_RAM => g.bus.ewram.as_mut_ptr() as *mut c_void,
+            MEMORY_VIDEO_RAM => g.bus.vram.as_mut_ptr() as *mut c_void,
+            _ => std::ptr::null_mut(),
+        };
+    }
+    match id {
+        MEMORY_SAVE_RAM if core.gb.bus.cart.has_battery && !core.gb.bus.cart.ram.is_empty() => {
+            core.gb.bus.cart.ram.as_mut_ptr() as *mut c_void
+        }
+        MEMORY_RTC if core.gb.bus.cart.has_rtc => core.rtc_block.as_mut_ptr() as *mut c_void,
+        MEMORY_SYSTEM_RAM => core.gb.bus.wram.as_mut_ptr() as *mut c_void,
+        MEMORY_VIDEO_RAM => core.gb.bus.ppu.vram.as_mut_ptr() as *mut c_void,
+        _ => std::ptr::null_mut(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn retro_get_memory_size(id: u32) -> usize {
+    let Ok(slot) = CORE.lock() else { return 0 };
+    let Some(core) = slot.as_ref() else { return 0 };
+    if let Some(g) = core.gba.as_ref() {
+        return match id {
+            MEMORY_SAVE_RAM => g.bus.save.data.len(),
+            MEMORY_SYSTEM_RAM => g.bus.ewram.len(),
+            MEMORY_VIDEO_RAM => g.bus.vram.len(),
+            _ => 0,
+        };
+    }
+    match id {
+        MEMORY_SAVE_RAM if core.gb.bus.cart.has_battery => core.gb.bus.cart.ram.len(),
+        MEMORY_RTC if core.gb.bus.cart.has_rtc => RTC_LEN,
+        MEMORY_SYSTEM_RAM => core.gb.bus.wram.len(),
+        MEMORY_VIDEO_RAM => core.gb.bus.ppu.vram.len(),
+        _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gb::Model;
+
+    /// A player who has put a Color's start-up file in place gets it for a black-and-white game
+    /// they want in a Color's colours, because that file is what picks them; with the setting
+    /// left alone each console keeps the file it always had.
+    #[test]
+    fn the_start_up_file_a_console_runs() {
+        assert_eq!(boot_file(Model::Cgb, true), "cgb_boot.bin");
+        assert_eq!(boot_file(Model::Agb, true), "cgb_boot.bin");
+        assert_eq!(boot_file(Model::Cgb, false), "dmg_boot.bin", "unchanged for the setting left alone");
+        for (model, name) in [(Model::Dmg, "dmg_boot.bin"), (Model::Dmg0, "dmg0_boot.bin"), (Model::Mgb, "mgb_boot.bin"),
+                              (Model::Sgb, "sgb_boot.bin"), (Model::Sgb2, "sgb2_boot.bin")] {
+            assert_eq!((boot_file(model, true), boot_file(model, false)), (name, name), "{model:?}");
+        }
+    }
+
+    /// The whole way through, with start-up files of our own in a system folder: a black-and-white
+    /// game the player wants in a Color's colours starts from the Color's file, in colour mode,
+    /// with the buttons for the scheme they picked held down for it; with the setting left alone
+    /// it starts from the Game Boy's file, as it always has.
+    #[test]
+    fn a_black_and_white_game_starts_from_the_colours_own_file() {
+        let dir = std::env::temp_dir().join(format!("cboy-boot-test-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("cboy")).unwrap();
+        // Hand over at once ($FF50), so each start is a real one.
+        let mut colour_file = vec![0u8; 0x900];
+        colour_file[..4].copy_from_slice(&[0x3E, 0x11, 0xE0, 0x50]);
+        let mut mono_file = vec![0u8; 0x100];
+        mono_file[..4].copy_from_slice(&[0x3E, 0x01, 0xE0, 0x50]);
+        std::fs::write(dir.join("cboy/cgb_boot.bin"), &colour_file).unwrap();
+        std::fs::write(dir.join("cboy/dmg_boot.bin"), &mono_file).unwrap();
+        let dir_text = dir.to_string_lossy().into_owned();
+        let mut rom = vec![0u8; 0x8000];
+        rom[0x134..0x13A].copy_from_slice(b"TETRIS");
+        rom[0x14B] = 0x01;
+        let start = |colorize| {
+            let s = crate::options::Settings { boot_rom: true, colorize, ..Default::default() };
+            build_machine(rom.clone(), &s, Some(&dir_text)).unwrap().0
+        };
+        let off = start(crate::options::Colorize::Off);
+        assert_eq!((off.bus.boot.len(), off.bus.cgb_hardware), (0x100, false), "the setting left alone: a Game Boy's start");
+        let auto = start(crate::options::Colorize::Gbc(None));
+        assert_eq!((auto.bus.boot.len(), auto.bus.boot_on, auto.bus.cgb, auto.bus.boot_buttons), (0x900, true, true, 0));
+        let picked = start(crate::options::Colorize::Gbc(Some(3)));
+        assert_eq!(picked.bus.boot_buttons, crate::compat::PICKS[3].buttons, "Left, held for the start-up code to read");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

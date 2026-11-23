@@ -229,7 +229,6 @@ impl Gba {
         next.bus.mp2k.restart();
         // A state from a session with the real BIOS, loaded without one: built-in calls take over.
         next.bus.real_bios = next.bus.real_bios && self.bus.real_bios;
-        next.bus.forget_cached_times();
         *self = next;
         Ok(())
     }

@@ -73,6 +73,15 @@ These come straight from the owner. They are not suggestions.
   the next. Never end a turn with a progress summary after a short stretch. Never stop to ask a
   small question (names, order): decide, note it, carry on.
 
+## The TV version has its own cores (owner, 22 November 2026, furious)
+- **The TV core is separate. It's for a TV, not the iPhone or Android.** The LG TV app
+  (`tv/webos/`) builds its own copy of cBoy from `tv/cores/cboy` (crate `cboy_tv`). Speed-ups,
+  TV defaults and any other TV work go only into that copy. Never change `cores/continuum-gb`
+  (the phone's cBoy) for the TV, not even with `[skip ci]`, and never assume a change for one
+  platform should reach another. On 22 November speed-ups made for the TV went into the shared
+  cBoy and the owner had to ask; they were moved to the TV copy and the phone's cBoy put back.
+  The same goes for any other own core that gets a TV copy later: it lives under `tv/cores/`.
+
 ## Git
 - NO branches. NO pull requests. Ever. Everything is committed and pushed straight to `master`.
 - Save constantly. The owner has limited credits and a session can stop at any time. Push each

@@ -12,8 +12,9 @@
 # TV_RUSTSYS   a Rust sysroot holding lib/rustlib/armv7-unknown-linux-gnueabi
 # TV_SDL       webosbrew's SDL2 for webOS (libSDL2-2.0.so.0), shipped in the app's lib/
 #
-# The cores are built from cores/ with their own Cargo files untouched; the build goes to a
-# separate target folder, so nothing here changes how the iPhone app builds.
+# The TV has its own copy of cBoy, tv/cores/cboy (crate cboy_tv), separate from the phone's
+# cores/continuum-gb (owner, 22 November 2026: "The tv core is separate. It's for a tv").
+# TV speed work goes only into the TV copy; nothing here changes the iPhone app.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -29,7 +30,7 @@ export CC_armv7_unknown_linux_gnueabi=${TV_LINKER:-$T/arm-cc}
 export AR_armv7_unknown_linux_gnueabi=llvm-ar
 
 echo "== cBoy for the TV"
-(cd "$ROOT/cores/continuum-gb" &&
+(cd "$HERE/../cores/cboy" &&
   CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_PANIC=abort \
   CARGO_TARGET_DIR=$T/target-cboy-tv cargo build --release --target $TARGET -q)
 echo "== the app"
@@ -39,8 +40,8 @@ STAGE=$(mktemp -d)
 A=$STAGE/data/usr/palm/applications/$APP_ID
 mkdir -p "$A/lib" "$A/cores" "$STAGE/control"
 cp "$T/target-tv/$TARGET/release/continuum-tv" "$A/continuum-tv"
-cp "$T/target-cboy-tv/$TARGET/release/libcontinuum_gb.so" "$A/cores/"
-llvm-strip "$A/cores/libcontinuum_gb.so" 2>/dev/null || true
+cp "$T/target-cboy-tv/$TARGET/release/libcboy_tv.so" "$A/cores/"
+llvm-strip "$A/cores/libcboy_tv.so" 2>/dev/null || true
 cp "${TV_SDL:-$T/tvlibs/libSDL2-2.0.so.0}" "$A/lib/libSDL2-2.0.so.0"
 cp "$ROOT/native/ios/Assets.xcassets/AppIcon.appiconset/icon-152.png" "$A/icon.png"
 cp "$ROOT/native/ios/Assets.xcassets/AppIcon.appiconset/icon-152.png" "$A/largeIcon.png"

@@ -72,7 +72,7 @@ Built in the second TV chat, in `tv/webos/` (its own Cargo workspace, nothing in
     the rest the per-access timing (advance, run_pending, prefetch, wait states, peek16, DMA
     check), about 300 TV cycles per Advance instruction. The m4a sound mixer loop in IWRAM
     (03001DBC-03001E0C) is a third of the instructions.
-  - **Next big step for cBoy:** stop running the whole machine (`run_pending` -> `advance`)
+  - **Next big step for the TV's cBoy (`tv/cores/cboy` only):** stop running the whole machine (`run_pending` -> `advance`)
     after every opcode fetch. Let cycles collect in `pending` until the next event (timer
     overflow, line edge, serial, FIFO refill, IE/IME write landing, DMA due) or until anything
     reads the time (IO registers, VRAM wait states use `line_cycle`). It must keep the picture
@@ -117,13 +117,18 @@ Game Boy Color 124 fps (twice full speed). Advance: Wigly Hunt 168, Skyland 33 (
 slowest second), Attack on Voxelburg 23.5. Pokémon not measured yet (no copy in the sandbox:
 measure with the owner's own games on the TV).
 
+**THE TV HAS ITS OWN cBoy: `tv/cores/cboy` (crate `cboy_tv`, built by `tv/webos/package.sh`).**
+Owner, 22 November 2026: "The tv core is separate. It's for a tv. Not a fucking iPhone or
+android." The day's speed-ups first went into the shared `cores/continuum-gb` (with `[skip ci]`);
+they were moved to the TV copy, and the phone's cBoy was put back exactly as it was before
+(`git diff 694e559 -- cores/continuum-gb` is empty). Never touch `cores/continuum-gb` for the TV.
+
 **Owner, 22 November 2026:** "I mainly just want to play Pokemon games for right now. As long as
 it can run the Pokemon games cBoy can play and it runs at a decent speed I'm fine with that for
 now. If you need to optimize something then obviously do that and just make it to where it
-don't do a new build." So cBoy may be sped up for the TV; push those changes with `[skip ci]`
-so no iPhone build starts. They reach the phone with its next build, so they must not change
-what cBoy does: compare picture and sound fingerprints before and after (identical), and run
-its full test suite.
+don't do a new build." So the TV's cBoy may be sped up, in `tv/cores/cboy` only. Keep its
+output the same as the phone's cBoy anyway (picture and sound fingerprints, full test suite), so
+the two stay in step and saves move between them.
 - Done (commit 37dadd1): Advance 17-30% faster on the host, identical picture and sound on six
   homebrew games, all tests pass (Alyosha pins unchanged). Timers' next overflow and the next
   due DMA are remembered instead of recomputed on every access; text backgrounds read one map
