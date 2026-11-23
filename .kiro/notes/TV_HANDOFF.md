@@ -29,6 +29,20 @@ with no crackle. Nothing else: no new features, no questions about other things.
 7. When done, hand over: what speed Emerald and FireRed reach, in plain words, and what the
    owner should try.
 
+**Progress, 22 November 2026, 10:25 PM Eastern (commit f5a8945):** the next big step below is
+done. `run_pending` now only moves the clock counters between events (line edge, timer overflow,
+sound sequencer step, output sample) and the sound chip catches up later in one go
+(`fast_until`, `lazy_sound`, `sync_sound` in `tv/cores/cboy/src/gba/bus.rs`; off while the
+sweep or another few-tick sound countdown is running, `Apu::settling`). Every fingerprint SAME
+(homebrew and both Pokémon games), the test suite passes. Build machine: Emerald 359 to 510
+fps. On the TV before it (bench on an A75, 1500 frames): 56.5 fps average, slowest second
+37.5. **Not yet measured or installed on the TV**: the tunnel ran out first. Next: build with
+`package.sh`, install, bench and play Emerald, then the next profile (PPU `render_line` and
+`text_bg` are now the top, then `peek16`, `code`, `Prefetch::tick`). `tv/tools/first-diff.sh`
+finds the first frame where picture or sound part ways. The TV-side profiler: build
+`tv/tools/cboy-bench` for `armv7-unknown-linux-gnueabi`, run it with `PROF=1` on the TV, read
+`/tmp/samples.txt` back and look the addresses up with `llvm-addr2line`.
+
 ## Queued after the cBoy speed-up: the Home screen as a native program
 
 The owner, 22 November 2026, 9 PM Eastern, on learning that the TV's Home screen (the Kiro
