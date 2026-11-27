@@ -47,6 +47,11 @@ jobs:
       - name: Build the mGBA suite
         run: ./scripts/mgba-suite-build/build.sh
 
+      # The runner follows these from the map instead of written-down addresses, so print them:
+      # a 0/0 line means the map and the ROM disagree, and this says which addresses were used.
+      - name: Where the suite put its counters
+        run: grep -E ' (suites|nSuites|timedOut)$' scripts/mgba-suite-build/build/suite.map || true
+
       - name: cargo test --release
         run: cargo test --release
 

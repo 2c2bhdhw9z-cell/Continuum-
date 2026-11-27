@@ -67,20 +67,6 @@ fetch https://raw.githubusercontent.com/destoer/armwrestler-gba-fixed/master/arm
 # internal Nintendo IP and is not fetched.
 mkdir -p ags-aging
 fetch https://github.com/zaydlang/AGBEEG-Aging-Cartridge/releases/download/v0.0.2/AGBEEG_AGING_CARTRIDGE.gba ags-aging/AGBEEG_AGING_CARTRIDGE.gba
-# mGBA test suite (mgba-emu/suite, MPL-2.0): BIOS math, DMA, IO, memory, SIO, timers, video.
-# The project publishes no releases, so the repo is cloned here and the ROM is built locally.
-# It does NOT need devkitARM: scripts/mgba-suite-build/build.sh builds suite.gba with a stock
-# arm-none-eabi-gcc, carrying its own replacements for libgba (12 scaffold headers, crt0.s,
-# gba.ld and the 3 libgba sources the suite uses), for grit (grit.py) and for gbafix
-# (gbafix.py). Build it once, then run the two runners:
-#   ./scripts/mgba-suite-build/build.sh
-#   cargo run --release --example p7mgba    # every sub-suite's score and FAIL lines
-#   cargo run --release --example p8video   # the 7 Video pictures, framebuffer-diffed
-# .github/workflows/cboy-test.yml does all of it on a runner for pushes to cboy-pass-a.
-# Do not claim a suite passed until it has been built and run.
-if [ ! -d mgba-suite ]; then
-  fetch_repo mgba-emu/suite e6942030d25ffe3ba76c72b73a86da073ec857cc mgba-suite || echo "mgba suite download failed (optional)"
-fi
 # A GitHub repository at one exact commit, into directory $3. git first; if git cannot reach
 # GitHub (some sandboxes only let plain HTTPS downloads through), the same commit as a tarball.
 fetch_repo() {
@@ -98,6 +84,23 @@ fetch_repo() {
   rm -rf "$dir"
   return 1
 }
+# mGBA test suite (mgba-emu/suite, MPL-2.0): BIOS math, DMA, IO, memory, SIO, timers, video.
+# The project publishes no releases, so the repo is cloned here and the ROM is built locally.
+# It does NOT need devkitARM: scripts/mgba-suite-build/build.sh builds suite.gba with a stock
+# arm-none-eabi-gcc, carrying its own replacements for libgba (12 scaffold headers, crt0.s,
+# gba.ld and the 3 libgba sources the suite uses), for grit (grit.py) and for gbafix
+# (gbafix.py). Build it once, then run the two runners:
+#   ./scripts/mgba-suite-build/build.sh
+#   cargo run --release --example p7mgba    # every sub-suite's score and FAIL lines
+#   cargo run --release --example p8video   # the 7 Video pictures, framebuffer-diffed
+# .github/workflows/cboy-test.yml does all of it on a runner for pushes to cboy-pass-a.
+# Do not claim a suite passed until it has been built and run.
+# This block sits BELOW fetch_repo on purpose: the file is read top to bottom, so the same
+# block higher up called a function that did not exist yet, the clone was skipped, and the
+# suite build then failed on a missing gfx/raw/font.bmp.
+if [ ! -d mgba-suite ]; then
+  fetch_repo mgba-emu/suite e6942030d25ffe3ba76c72b73a86da073ec857cc mgba-suite || echo "mgba suite download failed (optional)"
+fi
 # nba-emu/hw-test (MIT): hardware tests for the Advance, prebuilt ROMs. Pinned to
 # master 3932a0e5 — verified 2026-11-25: a fresh tarball of that commit diffs clean
 # against the local copy. Pinned: HW_TEST_PASSING in tests/gba.rs (4 of 25 pass).

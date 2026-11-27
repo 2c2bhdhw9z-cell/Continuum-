@@ -1,8 +1,14 @@
 //! Headless driver for the mGBA test suite (scripts/mgba-suite-build/build/suite.gba).
-//! Drives the suite menu with scripted key presses, polls each suite's
-//! `passes`/`totalResults` statics in EWRAM (addresses from suite.map), and
-//! dumps the new SRAM log lines (the suite's savprintf output) per suite.
-//! Temporary probe for P7; delete before finishing.
+//! Drives the suite menu with scripted key presses, reads each suite's own
+//! `passes`/`totalResults` counters, and dumps the SRAM log lines (the suite's
+//! savprintf output) per suite.
+//!
+//! The counters are found the way the suite itself finds them, not from addresses
+//! written down here: `suite.map` gives the address of the suite's `suites[]` table
+//! and of `nSuites`, and each entry of that table is a `struct TestSuite` (the
+//! suite's include/suite.h) holding a pointer to its own `passes` and
+//! `totalResults`. A relink moves the statics; following the pointers follows them.
+//! (The written-down addresses did not: the first Ubuntu build printed 0/0.)
 //!
 //! Usage: cargo run --release --example p7mgba
 //! Output: one SUITE line per suite, then the FAIL lines from SRAM.
@@ -10,14 +16,18 @@
 use continuum_gb::gba::Gba;
 
 const KEY_A: u16 = 0x0001;
-const KEY_B: u16 = 0x0002;
-const KEY_UP: u16 = 0x0040;
 const KEY_DOWN: u16 = 0x0080;
 
-// (menu name, totalResults addr, passes addr) — from suite.map, in menu order.
-// NOTE: these move when the build changes (removing --gc-sections shifted them
-// +8); re-check suite.map after any rebuild.
-const SUITES: [(&str, u32, u32); 13] = [
+/// `struct TestSuite` as it lies in ROM on the ARM: name, run, list and show
+/// pointers, then `nTests` (a size_t, four bytes here), `passes` and
+/// `totalResults`. The last two are pointers into EWRAM, which is what makes
+/// following them survive a relink.
+const SUITE_PASSES: u32 = 0x14;
+const SUITE_TOTAL: u32 = 0x18;
+
+/// The addresses written down for the old P7 build, used only when suite.map
+/// cannot be read. (menu name, totalResults, passes), in menu order.
+const FALLBACK: [(&str, u32, u32); 13] = [
     ("Memory", 0x020035b0, 0x020035b4),
     ("I/O read", 0x020031a0, 0x020031a4),
     ("Timing", 0x020035f8, 0x020035fc),
@@ -32,11 +42,60 @@ const SUITES: [(&str, u32, u32); 13] = [
     ("SIO timing", 0x020035dc, 0x020035e0),
     ("Misc edge cases", 0x020035b8, 0x020035bc),
 ];
-// Video (index 13) is interactive visual judgement; not driven headless.
 
-fn ewram_u32(gba: &Gba, addr: u32) -> u32 {
-    let o = (addr - 0x0200_0000) as usize;
-    u32::from_le_bytes(gba.bus.ewram[o..o + 4].try_into().unwrap())
+/// One suite's name and the two counters the suite keeps for it.
+struct Suite {
+    name: String,
+    passes: u32,
+    total: u32,
+}
+
+/// A symbol's address from a GNU ld map. A symbol is a line of its own — an
+/// address column, then the name — while section and object lines carry more
+/// fields, so two fields with the name second is the symbol.
+fn map_symbol(map: &str, name: &str) -> Option<u32> {
+    for line in map.lines() {
+        let f: Vec<&str> = line.split_whitespace().collect();
+        if f.len() == 2 && f[1] == name {
+            if let Ok(v) = u32::from_str_radix(f[0].trim_start_matches("0x"), 16) {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
+fn c_string(gba: &Gba, addr: u32) -> String {
+    let mut s = String::new();
+    for i in 0..64u32 {
+        let b = gba.bus.peek8(addr.wrapping_add(i)) as u8;
+        if b == 0 {
+            break;
+        }
+        s.push(char::from(b));
+    }
+    s
+}
+
+/// The suite's own list of suites, read out of the ROM through `suites[]`.
+fn suites_from_rom(gba: &Gba, map: &str) -> Option<Vec<Suite>> {
+    let table = map_symbol(map, "suites")?;
+    let n = map_symbol(map, "nSuites").map(|a| gba.bus.peek32(a)).unwrap_or(14).min(32);
+    let mut out = Vec::new();
+    for i in 0..n {
+        let suite = gba.bus.peek32(table + i * 4);
+        if !(0x0800_0000..0x0E00_0000).contains(&suite) {
+            continue;
+        }
+        let name = c_string(gba, gba.bus.peek32(suite));
+        let passes = gba.bus.peek32(suite + SUITE_PASSES);
+        let total = gba.bus.peek32(suite + SUITE_TOTAL);
+        if passes == 0 || total == 0 {
+            continue;
+        }
+        out.push(Suite { name, passes, total });
+    }
+    if out.is_empty() { None } else { Some(out) }
 }
 
 fn press(gba: &mut Gba, key: u16) {
@@ -78,13 +137,37 @@ fn sram_log_lines(gba: &Gba) -> Vec<String> {
 fn main() {
     let rom = std::fs::read("scripts/mgba-suite-build/build/suite.gba")
         .expect("build suite.gba first: ./scripts/mgba-suite-build/build.sh");
-    println!("save kind: {:?}", Gba::new(rom.clone()).bus.save.kind);
+    let map_path = "scripts/mgba-suite-build/build/suite.map";
+    let map = std::fs::read_to_string(map_path).unwrap_or_default();
+    let fresh = Gba::new(rom.clone());
+    println!("save kind: {:?}", fresh.bus.save.kind);
+    // The counters, followed from the map through the suite's own table.
+    let found = if map.is_empty() { None } else { suites_from_rom(&fresh, &map) };
+    let from_map = found.is_some();
+    let suites = match found {
+        Some(s) => s,
+        None => {
+            if map.is_empty() {
+                println!("MAP: {map_path} is missing; falling back to the written-down addresses, which a relink moves");
+            } else {
+                println!("MAP: no suites[] in {map_path}; falling back to the written-down addresses");
+            }
+            FALLBACK
+                .iter()
+                .map(|(n, t, p)| Suite { name: (*n).to_string(), passes: *p, total: *t })
+                .collect()
+        }
+    };
+    println!("SUITES: {} ({})", suites.len(), if from_map { "from suite.map" } else { "written down" });
+    // SIO timing's own `timedOut` flag, also from the map: a suite that gives up
+    // waiting for a transfer sets it, and its results are then not comparable.
+    let sio_timed_out = map_symbol(&map, "timedOut");
     // One fresh boot per suite, like gameboy-rust's scoreboard tool: after a
     // suite finishes, the suite leaves IE=0 (its runTest saves IE after
     // irqInit cleared it), so the results screen's VBlankIntrWait never
     // returns and B never registers — navigating back to the menu is not
     // possible, so reboot instead.
-    for (i, (name, total_addr, passes_addr)) in SUITES.iter().enumerate() {
+    for (i, suite) in suites.iter().enumerate() {
         let mut gba = Gba::new(rom.clone());
         // Let the menu come up.
         for _ in 0..60 {
@@ -104,7 +187,7 @@ fn main() {
                 gba.run_frame();
                 frames += 1;
             }
-            let cur = (ewram_u32(&gba, *total_addr), ewram_u32(&gba, *passes_addr));
+            let cur = (gba.bus.peek32(suite.total), gba.bus.peek32(suite.passes));
             if cur.0 > 0 && cur == last {
                 stable += 1;
                 if stable >= 3 {
@@ -122,14 +205,10 @@ fn main() {
         let (total, passes) = last;
         let lines = sram_log_lines(&gba);
         let fails: Vec<&String> = lines.iter().filter(|l| l.contains("FAIL")).collect();
-        let timed_out_flag = if *name == "SIO timing" {
-            ewram_u32(&gba, 0x020035d8) != 0
-        } else {
-            false
-        };
+        let timed_out_flag = sio_timed_out.map(|a| gba.bus.peek32(a) != 0).unwrap_or(false);
         println!(
             "SUITE {} {}/{} frames={} timeout={} sio_timed_out={} sram_lines={} fails={}",
-            name, passes, total, frames, timed_out, timed_out_flag, lines.len(), fails.len()
+            suite.name, passes, total, frames, timed_out, timed_out_flag, lines.len(), fails.len()
         );
         for f in fails.iter().take(40) {
             println!("  FAIL {}", f);
@@ -138,7 +217,7 @@ fn main() {
             println!("  ... and {} more FAIL lines", fails.len() - 40);
         }
         if timed_out {
-            println!("STOPPED: {} never settled", name);
+            println!("STOPPED: {} never settled", suite.name);
         }
     }
     println!("DONE");
