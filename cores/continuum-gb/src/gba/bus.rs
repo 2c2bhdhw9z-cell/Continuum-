@@ -363,10 +363,6 @@ pub struct Bus {
     fifo_due: [u64; 2],
     #[serde(skip)]
     in_dma: bool,
-    /// The value the last unit of a transfer carried: the data lines keep it, and a channel
-    /// that may not reach the cartridge reads it back as its own. Not saved.
-    #[serde(skip)]
-    dma_bus: u32,
     /// Channels that came due while a DMA was running and are waiting their turn in it.
     #[serde(skip)]
     dma_wait: u8,
@@ -515,7 +511,6 @@ impl Bus {
             line_abs: 0,
             fifo_due: [0; 2],
             in_dma: false,
-            dma_bus: 0,
             dma_wait: 0,
             dma_locked: false,
             dma_deferred: 0,
@@ -1785,14 +1780,7 @@ impl Bus {
             let seq = first_seq || left < if fifo { 4 } else { self.dma[ch].count };
             let v = if word {
                 self.data(s & !3, true, seq);
-                if ch == 0 && (0x08..=0x0F).contains(&(s >> 24)) {
-                    // DMA0's bus stops short of the cartridge, so a read there takes what the
-                    // data lines carry: the last unit a transfer moved, aligned down whatever
-                    // the address was. (The mGBA suite loads from a cartridge and expects the
-                    // word EWRAM held, and the same for all three unaligned addresses; its DMA
-                    // tests expect the IWRAM word the same way.)
-                    self.dma_bus
-                } else if self.eeprom_at(s) {
+                if self.eeprom_at(s) {
                     let lo = u32::from(self.save.eeprom_read());
                     lo | u32::from(self.save.eeprom_read()) << 16
                 } else {
@@ -1800,15 +1788,8 @@ impl Bus {
                 }
             } else {
                 self.data(s & !1, false, seq);
-                if ch == 0 && (0x08..=0x0F).contains(&(s >> 24)) {
-                    self.dma_bus & 0xFFFF
-                } else if self.eeprom_at(s) {
-                    u32::from(self.save.eeprom_read())
-                } else {
-                    self.peek16(s & !1)
-                }
+                if self.eeprom_at(s) { u32::from(self.save.eeprom_read()) } else { self.peek16(s & !1) }
             };
-            self.dma_bus = v;
             if word {
                 self.data(d & !3, true, seq);
                 self.poke16(d & !3, v as u16);
