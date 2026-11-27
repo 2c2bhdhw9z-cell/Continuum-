@@ -982,7 +982,8 @@ fn io_read_masks_are_the_consoles() {
     // it; the three between them read zero (the Game Boy's own chip raises them), which is how
     // a game tells the two apart.
     let status = read_back(&mut gba, 0x84, 0xFFFF);
-    assert_eq!(status & 0xFF70, 0x0080, "SOUNDCNT_X {status:#06X}");
+    assert_eq!(status & 0xFF80, 0x0080, "SOUNDCNT_X {status:#06X}");
+    assert_eq!(status & 0x0070, 0, "the three bits between read zero");
     let status = read_back(&mut gba, 0x84, 0);
     assert_eq!(status, 0, "SOUNDCNT_X with the switch off");
     gba.bus.write16(0x0400_0084, 0x0080);
