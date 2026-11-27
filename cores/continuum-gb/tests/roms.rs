@@ -1481,6 +1481,7 @@ fn screenshot_suites_report() {
     ];
     let mut pass = Vec::new();
     let mut fail = Vec::new();
+    let mut skipped = Vec::new();
     for c in &cases {
         match shot(c.rom, c.png, c.frames, c.mode, c.exact) {
             Some((0, h)) => {
@@ -1491,11 +1492,26 @@ fn screenshot_suites_report() {
                 eprintln!("  FAIL {}: {wrong} px differ, hash {h:#018x}", c.label);
                 fail.push(c.label);
             }
-            None => eprintln!("  SKIP {}", c.label),
+            None => {
+                eprintln!("  SKIP {}", c.label);
+                skipped.push(c.label);
+            }
         }
     }
-    eprintln!("SCREENSHOT: {} passed, {} failed, of {}", pass.len(), fail.len(), cases.len());
+    eprintln!(
+        "SCREENSHOT: {} passed, {} failed, {} skipped, of {}",
+        pass.len(), fail.len(), skipped.len(), cases.len()
+    );
+    // A case whose ROM or reference picture is not in test-roms/ cannot be judged, so it is not
+    // a regression: fetch-test-roms.sh fetches none of these suites (their pictures were
+    // photographed on real hardware), and ios.yml's own note says a missing ROM means those tests
+    // report SKIPPED and the unit tests still run. A pinned case that DID run and did not match
+    // is still an assert, and so is a pinned label that has left the list below.
     for must in SCREENSHOT_PASSING {
+        if skipped.iter().any(|s| s == must) {
+            eprintln!("  NOT JUDGED {must}: its ROM or reference picture is not in test-roms/");
+            continue;
+        }
         assert!(pass.iter().any(|p| p == must), "screenshot regressed: {must}");
     }
 }
