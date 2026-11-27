@@ -920,10 +920,11 @@ fn bios_math_edge_cases() {
         assert_eq!(v, k - 1, "sqrt({} - 1)", k * k);
     }
     // ArcTan of a tangent of 1 is an eighth of a turn (0x2000 of 0x10000), and its working is
-    // left in r1 and r3 for anything that reads them back.
+    // left in r1 and r3 for anything that reads them back. The registers are words, so the
+    // polynomial's own term is compared as the word it is, sign and all.
     let (v, a, b) = call(9, 1 << 14, 0);
     assert_eq!(v, 0x2000, "arctan(1)");
-    assert_eq!(a, -0x4000, "the polynomial's own term");
+    assert_eq!(a, (-0x4000i32) as u32, "the polynomial's own term");
     assert!(b > 0x2000, "and a coefficient it ended on");
     // On an axis ArcTan2 is exact: 0 along +x, a quarter turn along +y, and a half or three
     // quarters the other way.
