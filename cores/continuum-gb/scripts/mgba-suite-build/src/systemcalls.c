@@ -189,8 +189,11 @@ void SoundChannelClear(void) {
     __asm__ volatile("swi 30" ::: "r0", "r1", "r2", "r3", "memory");
 }
 
+// MidiKey2Freq hands the BIOS a WaveData pointer in r0 and gets a frequency
+// back in the same register, so r0 is a pointer on the way in and a number on
+// the way out: it is declared as the word it is and the pointer is cast into it.
 u32 MidiKey2Freq(void* waveData, u8 key, u8 fineAdjust) {
-    register void* r0 __asm__("r0") = waveData;
+    register u32 r0 __asm__("r0") = (u32) waveData;
     register u32 r1 __asm__("r1") = key;
     register u32 r2 __asm__("r2") = fineAdjust;
     __asm__ volatile("swi 31" : "+r"(r0), "+r"(r1), "+r"(r2) : : "r3", "memory");
