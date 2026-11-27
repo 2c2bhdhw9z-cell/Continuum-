@@ -1787,9 +1787,10 @@ impl Bus {
         };
         while left > 0 {
             let seq = first_seq || left < if fifo { 4 } else { self.dma[ch].count };
+            let cart_read = ch == 0 && (0x08..=0x0F).contains(&(s >> 24));
             let v = if word {
                 self.data(s & !3, true, seq);
-                if ch == 0 && (0x08..=0x0F).contains(&(s >> 24)) {
+                if cart_read {
                     // Channel 0's bus stops short of the cartridge, so a read there takes what
                     // the data lines carry: the last unit a transfer moved, aligned down
                     // whatever the address was. (The mGBA suite loads from a cartridge with
@@ -1804,7 +1805,7 @@ impl Bus {
                 }
             } else {
                 self.data(s & !1, false, seq);
-                if ch == 0 && (0x08..=0x0F).contains(&(s >> 24)) {
+                if cart_read {
                     self.dma_bus & 0xFFFF
                 } else if self.eeprom_at(s) {
                     u32::from(self.save.eeprom_read())
@@ -1812,7 +1813,11 @@ impl Bus {
                     self.peek16(s & !1)
                 }
             };
-            self.dma_bus = v;
+            // A halfword taken as a fallback leaves the rest of the lines as they were: the
+            // word a transfer put there is what the next four-byte read still finds.
+            if !cart_read {
+                self.dma_bus = v;
+            }
             if word {
                 self.data(d & !3, true, seq);
                 self.poke16(d & !3, v as u16);
