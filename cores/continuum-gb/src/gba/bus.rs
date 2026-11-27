@@ -363,6 +363,10 @@ pub struct Bus {
     fifo_due: [u64; 2],
     #[serde(skip)]
     in_dma: bool,
+    /// The value the last unit of a transfer carried: the data lines keep it, and channel 0,
+    /// whose bus stops short of the cartridge, reads it back instead. Not saved.
+    #[serde(skip)]
+    dma_bus: u32,
     /// Channels that came due while a DMA was running and are waiting their turn in it.
     #[serde(skip)]
     dma_wait: u8,
@@ -511,6 +515,7 @@ impl Bus {
             line_abs: 0,
             fifo_due: [0; 2],
             in_dma: false,
+            dma_bus: 0,
             dma_wait: 0,
             dma_locked: false,
             dma_deferred: 0,
@@ -1664,7 +1669,11 @@ impl Bus {
         let src = u32::from(self.io16(base)) | u32::from(self.io16(base + 2)) << 16;
         let dst = u32::from(self.io16(base + 4)) | u32::from(self.io16(base + 6)) << 16;
         let d = &mut self.dma[ch];
-        d.src = src & if ch == 0 { 0x07FF_FFFF } else { 0x0FFF_FFFF };
+        // The address a transfer starts at is kept whole, the cartridge's bits included:
+        // channel 0 cannot reach the cartridge, but that is its bus falling short (see the
+        // read in `dma_channel`), not the address being rewritten — masked there, the suite's
+        // cartridge loads read the BIOS area instead.
+        d.src = src & 0x0FFF_FFFF;
         d.dst = dst & if ch == 3 { 0x0FFF_FFFF } else { 0x07FF_FFFF };
         d.active = true;
         self.dma_reload_count(ch);
@@ -1780,7 +1789,14 @@ impl Bus {
             let seq = first_seq || left < if fifo { 4 } else { self.dma[ch].count };
             let v = if word {
                 self.data(s & !3, true, seq);
-                if self.eeprom_at(s) {
+                if ch == 0 && (0x08..=0x0F).contains(&(s >> 24)) {
+                    // Channel 0's bus stops short of the cartridge, so a read there takes what
+                    // the data lines carry: the last unit a transfer moved, aligned down
+                    // whatever the address was. (The mGBA suite loads from a cartridge with
+                    // channel 0 and expects the word EWRAM held, the same for all three
+                    // unaligned addresses; its DMA tests expect the IWRAM word the same way.)
+                    self.dma_bus
+                } else if self.eeprom_at(s) {
                     let lo = u32::from(self.save.eeprom_read());
                     lo | u32::from(self.save.eeprom_read()) << 16
                 } else {
@@ -1788,8 +1804,15 @@ impl Bus {
                 }
             } else {
                 self.data(s & !1, false, seq);
-                if self.eeprom_at(s) { u32::from(self.save.eeprom_read()) } else { self.peek16(s & !1) }
+                if ch == 0 && (0x08..=0x0F).contains(&(s >> 24)) {
+                    self.dma_bus & 0xFFFF
+                } else if self.eeprom_at(s) {
+                    u32::from(self.save.eeprom_read())
+                } else {
+                    self.peek16(s & !1)
+                }
             };
+            self.dma_bus = v;
             if word {
                 self.data(d & !3, true, seq);
                 self.poke16(d & !3, v as u16);
