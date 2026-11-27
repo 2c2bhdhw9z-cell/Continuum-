@@ -204,14 +204,28 @@ fn main() {
         }
         let (total, passes) = last;
         let lines = sram_log_lines(&gba);
-        let fails: Vec<&String> = lines.iter().filter(|l| l.contains("FAIL")).collect();
+        // A FAIL line carries only the register or the value it was for; the suite writes the
+        // test it belongs to in the line above, so the two are printed together.
+        let mut header = String::new();
+        let mut fails: Vec<(String, String)> = Vec::new();
+        for l in &lines {
+            if !l.contains("FAIL") {
+                if l.contains(" test: ") {
+                    header = l.clone();
+                }
+                continue;
+            }
+            fails.push((header.clone(), l.clone()));
+        }
         let timed_out_flag = sio_timed_out.map(|a| gba.bus.peek32(a) != 0).unwrap_or(false);
         println!(
             "SUITE {} {}/{} frames={} timeout={} sio_timed_out={} sram_lines={} fails={}",
             suite.name, passes, total, frames, timed_out, timed_out_flag, lines.len(), fails.len()
         );
-        for f in fails.iter().take(40) {
-            println!("  FAIL {}", f);
+        for (h, f) in fails.iter().take(40) {
+            // The register name stays first, where the histograms read it from, and the test
+            // it belongs to follows in brackets.
+            println!("  FAIL {f} [{h}]");
         }
         if fails.len() > 40 {
             println!("  ... and {} more FAIL lines", fails.len() - 40);
