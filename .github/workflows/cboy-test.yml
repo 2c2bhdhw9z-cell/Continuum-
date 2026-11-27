@@ -53,7 +53,16 @@ jobs:
         run: grep -E ' (suites|nSuites|timedOut)$' scripts/mgba-suite-build/build/suite.map || true
 
       - name: cargo test --release
-        run: cargo test --release
+        run: |
+          set -o pipefail
+          status=0
+          cargo test --release 2>&1 | tee cargo-test.log || status=$?
+          # A fresh checkout skips whole suites (their ROMs are not fetched), so the test that
+          # stops the run is often not the last thing printed. Repeating every binary's result
+          # line and the names under `failures:` at the end puts them beyond truncation.
+          echo '--- results ---'
+          grep -E '^test result:|^failures:$|^    [a-z_0-9]+$|^error' cargo-test.log || true
+          exit $status
 
       - name: mGBA suite scores and FAIL lines
         run: |
