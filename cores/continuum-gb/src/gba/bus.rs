@@ -1184,8 +1184,11 @@ impl Bus {
                 } else if a & 0xFFFC == 0x800 {
                     // Internal memory control, mirrored every 64 KiB.
                     (self.tm.memcnt >> ((a & 2) * 8)) & 0xFFFF
-                } else {
+                } else if a < 0x1000 {
                     0
+                } else {
+                    // Above the mirrors the region is unmapped, and the shared lines answer.
+                    self.open_bus & 0xFFFF
                 }
             }
             0x05 => r(&self.pal, (addr & 0x3FF) as usize),
@@ -1328,7 +1331,28 @@ impl Bus {
         })
     }
 
+    /// The switches a sound register of the Advance really has: the bits it lacks read zero,
+    /// whatever was written to them. (The Game Boy's chip raises the bits it lacks instead, so
+    /// the raw read is not what the console answers here.)
+    fn sound_mask(a: usize) -> u16 {
+        match a {
+            0x60 => 0x007F,
+            0x62 | 0x68 => 0xFFC0,
+            0x64 | 0x6C | 0x74 => 0x4000,
+            0x70 => 0x00E0,
+            0x72 => 0xE000,
+            0x78 => 0xFF00,
+            0x7C => 0x40FF,
+            _ => 0xFFFF,
+        }
+    }
+
     fn io_read8(&self, a: usize) -> u8 {
+        // The halves the Advance has no sound register behind read zero, byte by byte as well
+        // as by the halfword.
+        if matches!(a, 0x66 | 0x6A | 0x6E | 0x76 | 0x7A | 0x7E | 0x86 | 0x8A) {
+            return 0;
+        }
         if let Some(r) = Self::psg_reg(a) {
             return self.apu.read(r);
         }
@@ -1378,16 +1402,33 @@ impl Bus {
             }
             0x82 => self.io16(0x82) & 0x770F,
             0x84 => (self.io16(0x84) & 0x008F) | 0x0070,
-            0x60..=0x9F => u16::from(self.io_read8(a)) | u16::from(self.io_read8(a + 1)) << 8,
-            // A channel's control halfword reads back what was written (the count and the
-            // switch are readable; the address registers around it are not).
-            0xB8 | 0xC4 | 0xD0 | 0xDC | 0xBA | 0xC6 | 0xD2 | 0xDE => self.io16(a),
-            // A write-only register does not answer with zero: it does not answer at all, and the
-            // read finds what the shared address/data lines carry, which is the last halfword the
-            // processor fetched. (The suite plants a word after the load and reads it back, so a
-            // register that answered zero here would differ from the console by that word.)
+            // The sound registers are the Game Boy's chip's, but the halves around them are the
+            // Advance's own: a register answers with the switches it really has (the bits it
+            // lacks read zero, where the Game Boy's chip raises them), a halfword with no
+            // register behind it reads zero, and the two in the gap after SOUNDBIAS read the
+            // shared lines. The mGBA suite writes FFFF to each and reads the mask back.
+            0x60 | 0x62 | 0x64 | 0x68 | 0x6C | 0x70 | 0x72 | 0x74 | 0x78 | 0x7C => {
+                self.io16(a) & Self::sound_mask(a)
+            }
+            0x66 | 0x6A | 0x6E | 0x76 | 0x7A | 0x7E | 0x86 | 0x8A => 0,
+            0x8C | 0x8E => (self.open_bus & 0xFFFF) as u16,
+            0x90 | 0x92 | 0x94 | 0x96 | 0x98 | 0x9A | 0x9C | 0x9E => self.io16(a),
+            // A channel's count is written, not read back (the count and the switch are two
+            // halfwords, and only the switch's answers), and the switch leaves out the bits the
+            // Advance's channel does not have: the Game Pak's DRQ bit sits on the fourth
+            // channel, whose first three do not have it.
+            0xB8 | 0xC4 | 0xD0 | 0xDC => 0,
+            0xBA | 0xC6 | 0xD2 => self.io16(a) & 0xF7E0,
+            0xDE => self.io16(a) & 0xFFE0,
+            // A halfword the Advance has no register behind reads zero where the lines are
+            // driven; the ones a game may write but never read (the video and sound FIFO
+            // registers, the address registers, and the whole gap above them) read the shared
+            // lines instead.
+            0x136 | 0x142 | 0x15A | 0x206 | 0x20A | 0x302 => 0,
             0x10..=0x1F | 0x20..=0x3F | 0x40..=0x47 | 0x4C..=0x4F | 0x54..=0x5F
-            | 0xA0..=0xB7 | 0xBC..=0xC3 | 0xC8..=0xCF | 0xD4..=0xDB => (self.open_bus & 0xFFFF) as u16,
+            | 0xA0..=0xB7 | 0xBC..=0xC3 | 0xC8..=0xCF | 0xD4..=0xDB | 0xE0..=0xFF => {
+                (self.open_bus & 0xFFFF) as u16
+            }
             _ => self.io16(a),
         }
     }
