@@ -98,6 +98,22 @@ jobs:
           done
           grep -E '^(=== probe test|    (ACTUAL|EXPECTED) (distinct|bg-on))' probe.log || true
 
+      # The two suites Pass A works on next, by the shape of their failures: the register or test
+      # name out of each FAIL line, most common first. 118 and 171 failures are too many to read
+      # one by one, but a histogram of them says at once whether a whole family of registers is
+      # wrong (one name with a big count) or the damage is spread.
+      - name: FAIL lines by register (I/O read, Memory)
+        if: always()
+        run: |
+          for suite in 'I/O read' 'Memory'; do
+            echo "--- $suite: FAIL lines by name ---"
+            awk -v s="SUITE $suite" 'index($0, s) == 1 { f = 1; next } /^SUITE /{ f = 0 } f' p7mgba.log 2>/dev/null \
+              | sed 's/^  FAIL //; s/:.*//' | sort | uniq -c | sort -rn | head -30 || true
+            echo "--- $suite: first 12 FAIL lines ---"
+            awk -v s="SUITE $suite" 'index($0, s) == 1 { f = 1; next } /^SUITE /{ f = 0 } f' p7mgba.log 2>/dev/null \
+              | head -12 || true
+          done
+
       # Last, so this is what a log tail keeps: every number these runs exist to produce, in one
       # place, whether the steps above passed or not.
       - name: Scorecard
