@@ -226,15 +226,23 @@ fn main() {
                 }
                 println!("    {label} bg-on per line: {s}");
             }
-            // The lines where the two pictures differ, with both colours at x=0 and x=4.
+            // The lines where the two pictures differ, with both colours at x=0 and x=4. A few
+            // are enough to read the shape of it, and the log tail keeps a scorecard that this
+            // does not push out.
+            let mut differing = 0;
             for y in 0..160 {
                 if actual[y * 240..(y + 1) * 240] == expected[y * 240..(y + 1) * 240] {
+                    continue;
+                }
+                differing += 1;
+                if differing > 12 {
                     continue;
                 }
                 let (a0, e0) = (actual[y * 240] & 0xFFFFFF, expected[y * 240] & 0xFFFFFF);
                 let (a4, e4) = (actual[y * 240 + 4] & 0xFFFFFF, expected[y * 240 + 4] & 0xFFFFFF);
                 println!("    differ {y}: x0 {a0:06X} vs {e0:06X}, x4 {a4:06X} vs {e4:06X}");
             }
+            println!("    differing lines: {differing}");
             for (label, f) in [("ACTUAL", &actual), ("EXPECTED", &expected)] {
                 println!("    {label} 8x8 block at (0,0):");
                 for y in 0..8 {

@@ -1488,20 +1488,18 @@ impl Bus {
                         let bit = 0x100u16 << b;
                         if changed & bit != 0 {
                             let on = v & bit != 0;
-                            // A background switched during HDraw reaches the picture at that
-                            // very dot: the dots before the write were drawn above with the
-                            // state as it stood, and the rest of the line is drawn with the
-                            // new one. Switched during HBlank it waits for the lines the
-                            // console carries it over, three for on and one for off.
-                            // A game that waits for the HBlank flag to clear lands on the
-                            // first dots of the next line, and the mGBA suite's "Layer
-                            // toggle 2" shows its backgrounds arriving partway across that
-                            // line (its expected picture has the band starting two dots in),
-                            // not three lines on.
-                            let (from, delay) = if self.line_cycle >= HBLANK_AT {
-                                (self.line_abs, if on { 3 } else { 1 })
+                            let delay = if on { 3 } else { 1 };
+                            // The enable is latched once a line, at the first dot of HDraw, so a
+                            // write in the first dots of a line belongs to the latch that has just
+                            // been taken and is dated from the line before. A game that waits on
+                            // the HBlank flag lands exactly there (`while (DISPCNT & HBL);` and then
+                            // the write), and dating it from the line it arrives in puts its
+                            // enable one line late: the mGBA suite's "Layer toggle 2" differs on
+                            // precisely those lines (VCOUNT 0x40 + 3, 0x49 + 3, ... and no others).
+                            let from = if self.line_cycle < 4 {
+                                self.line_abs.saturating_sub(1)
                             } else {
-                                (self.line_abs, 0)
+                                self.line_abs
                             };
                             self.bg_queue.retain(|&(_, qb, _)| qb != b);
                             self.bg_queue.push((from + delay, b, on));
