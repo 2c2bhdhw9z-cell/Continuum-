@@ -1354,6 +1354,14 @@ impl Bus {
                 v
             }
             0x06 => self.line as u16,
+            // Bits the console does not implement read back as zero, whatever was written: BG0
+            // and BG1 have no affine wrap bit (13), a window register only holds six bits a
+            // byte (its top two read zero), BLDCNT's top two bits and BLDALPHA's bits 5-7 and
+            // 13-15 likewise. The mGBA suite writes FFFF to each and reads the mask back.
+            0x08 | 0x0A => self.io16(a) & 0xDFFF,
+            0x48 | 0x4A => self.io16(a) & 0x3F3F,
+            0x50 => self.io16(a) & 0x3FFF,
+            0x52 => self.io16(a) & 0x1F1F,
             0x100 | 0x104 | 0x108 | 0x10C => self.timer_count((a - 0x100) / 4, self.cycles),
             0x102 | 0x106 | 0x10A | 0x10E => self.timers[(a - 0x100) / 4].ctrl,
             0x128 => self.siocnt_read(),
@@ -1374,9 +1382,12 @@ impl Bus {
             // A channel's control halfword reads back what was written (the count and the
             // switch are readable; the address registers around it are not).
             0xB8 | 0xC4 | 0xD0 | 0xDC | 0xBA | 0xC6 | 0xD2 | 0xDE => self.io16(a),
-            // Write-only registers read as 0.
+            // A write-only register does not answer with zero: it does not answer at all, and the
+            // read finds what the shared address/data lines carry, which is the last halfword the
+            // processor fetched. (The suite plants a word after the load and reads it back, so a
+            // register that answered zero here would differ from the console by that word.)
             0x10..=0x1F | 0x20..=0x3F | 0x40..=0x47 | 0x4C..=0x4F | 0x54..=0x5F
-            | 0xA0..=0xB7 | 0xBC..=0xC3 | 0xC8..=0xCF | 0xD4..=0xDB => 0,
+            | 0xA0..=0xB7 | 0xBC..=0xC3 | 0xC8..=0xCF | 0xD4..=0xDB => self.open_bus & 0xFFFF,
             _ => self.io16(a),
         }
     }
