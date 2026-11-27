@@ -82,3 +82,34 @@ jobs:
           cargo run --release --example p8video 2>&1 | tee p8video.log
           echo '--- video ---'
           grep -E '^\[|^VIDEO' p8video.log || true
+
+
+      # The two Video pictures that do not match yet, with p8video's own probe: the colours it
+      # finds and a 0/1 string of which lines the background is on, for ACTUAL and EXPECTED.
+      # Those are the two things a fix has to reproduce, and they are printed here so they land
+      # in a log tail instead of being guessed at.
+      - name: Video probe for the failing pictures
+        if: always()
+        run: |
+          : > probe.log
+          for i in 2 4; do
+            echo "=== probe test $i ===" >> probe.log
+            P8VIDEO_PROBE=$i cargo run --release --example p8video >> probe.log 2>&1 || true
+          done
+          grep -E '^(=== probe test|    (ACTUAL|EXPECTED) (distinct|bg-on))' probe.log || true
+
+      # Last, so this is what a log tail keeps: every number these runs exist to produce, in one
+      # place, whether the steps above passed or not.
+      - name: Scorecard
+        if: always()
+        run: |
+          echo '========== SCORECARD =========='
+          echo '--- cargo test --release ---'
+          grep -E '^test result:' cargo-test.log 2>/dev/null || echo '(did not run)'
+          echo '--- mGBA suite ---'
+          grep '^SUITE' p7mgba.log 2>/dev/null || echo '(did not run)'
+          echo '--- Video ---'
+          grep -E '^\[|^VIDEO' p8video.log 2>/dev/null || echo '(did not run)'
+          echo '--- probe ---'
+          grep -E '^(=== probe test|    (ACTUAL|EXPECTED) (distinct|bg-on))' probe.log 2>/dev/null || true
+          echo '========== END =========='
