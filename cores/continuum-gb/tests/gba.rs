@@ -978,6 +978,14 @@ fn io_read_masks_are_the_consoles() {
     ] {
         assert_eq!(read_back(&mut gba, a, 0xFFFF), want, "sound register {a:#04X}");
     }
+    // SOUNDCNT_X is the master switch in bit 7 and the running channels in the four bits below
+    // it; the three between them read zero (the Game Boy's own chip raises them), which is how
+    // a game tells the two apart.
+    let status = read_back(&mut gba, 0x84, 0xFFFF);
+    assert_eq!(status & 0xFF70, 0x0080, "SOUNDCNT_X {status:#06X}");
+    let status = read_back(&mut gba, 0x84, 0);
+    assert_eq!(status, 0, "SOUNDCNT_X with the switch off");
+    gba.bus.write16(0x0400_0084, 0x0080);
     // The halves between the sound registers have nothing behind them.
     for a in [0x66u32, 0x6A, 0x6E, 0x76, 0x7A, 0x7E, 0x86, 0x8A] {
         assert_eq!(read_back(&mut gba, a, 0xFFFF), 0, "unused half {a:#04X}");

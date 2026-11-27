@@ -96,7 +96,7 @@ jobs:
             echo "=== probe test $i ===" >> probe.log
             P8VIDEO_PROBE=$i cargo run --release --example p8video >> probe.log 2>&1 || true
           done
-          grep -E '^(=== probe test|    (ACTUAL|EXPECTED) ([a-z0-9=]+ per line|distinct|bg-on))' probe.log || true
+          grep -E '^(=== probe test|    (ACTUAL|EXPECTED) ([a-z0-9=]+ per line|distinct|bg-on)|    differ )' probe.log || true
 
       # An ASCII picture of each of the two failing Video frames (every 4th pixel, one character
       # per colour), so the EXPECTED picture the suite draws for itself can be read off the log
@@ -140,5 +140,5 @@ jobs:
           echo '--- Video ---'
           grep -E '^\[|^VIDEO' p8video.log 2>/dev/null || echo '(did not run)'
           echo '--- probe ---'
-          grep -E '^(=== probe test|    (ACTUAL|EXPECTED) ([a-z0-9=]+ per line|distinct|bg-on))' probe.log 2>/dev/null || true
+          grep -E '^(=== probe test|    (ACTUAL|EXPECTED) ([a-z0-9=]+ per line|distinct|bg-on)|    differ )' probe.log 2>/dev/null || true
           echo '========== END =========='

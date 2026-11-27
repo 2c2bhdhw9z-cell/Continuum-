@@ -1353,6 +1353,10 @@ impl Bus {
         if matches!(a, 0x66 | 0x6A | 0x6E | 0x76 | 0x7A | 0x7E | 0x86 | 0x8A) {
             return 0;
         }
+        if a == 0x84 {
+            // A byte of SOUNDCNT_X answers as the halfword does.
+            return self.io_read16(0x84) as u8;
+        }
         if let Some(r) = Self::psg_reg(a) {
             return self.apu.read(r);
         }
@@ -1401,7 +1405,13 @@ impl Bus {
                 }
             }
             0x82 => self.io16(0x82) & 0x770F,
-            0x84 => (self.io16(0x84) & 0x008F) | 0x0070,
+            // SOUNDCNT_X: bit 7 is the master switch and the four bits below it say which
+            // channels the chip is running. The three bits between them read zero on the
+            // Advance, where the Game Boy's own chip raises them — the suite writes FFFF here
+            // and reads 0080 back once the channel registers it restored have stopped their
+            // channels. The write below already reaches the chip (the sound area's arm does it),
+            // so this is only the answer the register gives.
+            0x84 => u16::from(self.io[0x84] & 0x80) | u16::from(self.apu.read(0xFF26) & 0x0F),
             // The sound registers are the Game Boy's chip's, but the halves around them are the
             // Advance's own: a register answers with the switches it really has (the bits it
             // lacks read zero, where the Game Boy's chip raises them), a halfword with no
