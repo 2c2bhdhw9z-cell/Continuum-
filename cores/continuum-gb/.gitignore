@@ -1,3 +1,4 @@
 /target/
 /test-roms/
 __pycache__/
+scripts/*/build/

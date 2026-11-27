@@ -5,10 +5,10 @@
 //! Mode 3's length comes from `mode3_length` (172 dots plus the SCX, window and sprite delays),
 //! whichever drawer runs, so STAT and HBlank timing never depend on the drawer. The drawer is the
 //! core option "Picture drawing" (`exact`):
-//!   - Standard (the default): `render_line` draws the whole line as mode 3 begins. The proven
-//!     one; what every game here has been played on.
-//!   - Exact (experimental): the pixel FIFO in fifo.rs, dot by dot, so mid-line register writes
-//!     land on the right pixel. Unfinished and parked; see the owner rules before touching it.
+//!   - Exact (the default): the pixel FIFO in fifo.rs, dot by dot, so mid-line register writes
+//!     land on the right pixel.
+//!   - Standard: `render_line` draws the whole line as mode 3 begins. The proven one; what
+//!     every game here was played on before Exact graduated.
 
 use serde::{Deserialize, Serialize};
 
@@ -53,15 +53,15 @@ pub struct Ppu {
     pub wy: u8,
     pub wx: u8,
     pub dot: u16,
-    mode: u8,
+    pub mode: u8,
     stat_line: bool,
     /// The window's row counter. It advances every time the window starts, so it is one behind
     /// the row being drawn until the first start of the frame; 0xFF is "none yet".
     window_line: u8,
-    wy_hit: bool,
+    pub wy_hit: bool,
     /// The LY=LYC comparison, latched: it only updates while the LCD is on (Mooneye stat_lyc_onoff).
     #[serde(default)]
-    lyc_eq: bool,
+    pub lyc_eq: bool,
     /// The first line after the LCD is switched on: no OAM scan, and mode 3 starts 4 dots later.
     #[serde(default)]
     first_line: bool,
@@ -75,7 +75,9 @@ pub struct Ppu {
     skip_frame: bool,
     /// The dot mode 0 starts at on this line (mode 3 is 172 dots plus SCX and sprite delays).
     #[serde(default)]
-    hblank_at: u16,
+    /// The dot mode 3 ends and HBlank begins on this line (set at dot 80 from
+    /// `mode3_length`).
+    pub hblank_at: u16,
     /// Game Boy Color mode (from the cartridge header, or set by a Color's own start-up file
     /// through KEY0).
     pub cgb: bool,
@@ -105,7 +107,7 @@ pub struct Ppu {
     #[serde(skip)]
     pub no_sprite_limit: bool,
     /// Which drawer makes the picture: false the standard per-line one, true the exact
-    /// (experimental) pixel FIFO. A core option, not hardware state, so not saved.
+    /// pixel FIFO. A core option, not hardware state, so not saved.
     #[serde(skip)]
     pub exact: bool,
     /// For each pixel of `frame` on the DMG: the shade (0-3, after the palette registers) and
@@ -113,8 +115,11 @@ pub struct Ppu {
     /// The output stage uses them for palettes, colourising and the Super Game Boy.
     pub shade: Vec<u8>,
     pub source: Vec<u8>,
-    /// Mode 3's pixel pipeline (never mid-line at a frame boundary, where states are taken).
-    #[serde(skip)]
+    /// Mode 3's pixel pipeline, in the save state whole: its window and glitch state outlive
+    /// the line they were set on and are read at the next line's start, including across the
+    /// frame boundary where states are taken, and a loaded machine whose pipeline differs draws
+    /// the window differently (fuzz cases 217, 283, 42). The line buffers are saved at their
+    /// full width so the state keeps one length.
     fifo: fifo::Fifo,
     /// A register write the picture hardware has seen and the register does not hold yet, or
     /// the other way round (`land`).
@@ -181,19 +186,26 @@ impl Default for Ppu {
             stat_enable: 0,
             scy: 0,
             scx: 0,
-            ly: 0,
+            // The boot ROM hands over in VBlank, 64 dots before line 0: the DMG boot
+            // turns the LCD on during the logo and its start-up file ends with the PPU
+            // at line 153, dot 392. The dot is on the M-cycle grid (a multiple of 4):
+            // Mooneye hblank_ly_scx_timing-GS needs the picture and the CPU on the same
+            // grid, and a 2-dot offset puts the HBlank interrupt a whole M-cycle out.
+            // (gbmicrotest poweron_* would rather have 394; the two suites disagree by
+            // half an M-cycle on the handover phase, and Mooneye's pinned 87/87 wins.)
+            ly: 153,
             lyc: 0,
             bgp: 0xFC,
             obp0: 0xFF,
             obp1: 0xFF,
             wy: 0,
             wx: 0,
-            dot: 0,
-            mode: 2,
+            dot: 392,
+            mode: 1,
             stat_line: false,
             window_line: 0xFF,
             wy_hit: false,
-            lyc_eq: true,
+            lyc_eq: false,
             first_line: false,
             frame: blank(),
             frame_ready: false,
@@ -206,7 +218,7 @@ impl Default for Ppu {
             layers: 7,
             no_render: false,
             no_sprite_limit: false,
-            exact: false,
+            exact: true,
             fifo: Default::default(),
             landed: Landed::default(),
             shade: blank_bytes(),
@@ -229,10 +241,16 @@ impl Ppu {
     }
 
     /// LY as the CPU reads it: it shows the next line 4 dots before that line begins (lines
-    /// 0-152; Mooneye lcdon_timing).
+    /// 0-152; Mooneye lcdon_timing). On a Game Boy, line 153 reads as 0 in its last 4 dots:
+    /// the LY counter wraps early on the last VBlank line, so a read there sees the frame
+    /// that is about to start. The wrap is placed at the last 4 dots (not dot 430, which
+    /// gbmicrotest line_153_lyc*_stat_timing would rather have): a real ROM polling LY in
+    /// VBlank (mbc3-tester) breaks if LY reads 0 any earlier.
     pub fn ly_read(&self) -> u8 {
         if self.on() && self.dot >= 452 && self.ly < 153 {
             self.ly + 1
+        } else if self.on() && !self.cgb_hardware && self.ly == 153 && self.dot >= 452 {
+            0
         } else {
             self.ly
         }
@@ -261,9 +279,69 @@ impl Ppu {
         self.on() && self.ly < 144 && self.mode == 3
     }
 
+    /// One 16-bit word of an OAM row (OAM uses a 16-bit data bus, so the bug works in words).
+    fn oam_word(&self, row: usize, word: usize) -> u16 {
+        let i = row * 8 + word * 2;
+        u16::from(self.oam[i]) | u16::from(self.oam[i + 1]) << 8
+    }
+
+    fn set_oam_word(&mut self, row: usize, word: usize, v: u16) {
+        let i = row * 8 + word * 2;
+        self.oam[i] = v as u8;
+        self.oam[i + 1] = (v >> 8) as u8;
+    }
+
+    /// The DMG Mode-2 OAM corruption bug (Pan Docs, "OAM Corruption Bug"): a read, a write, or
+    /// both touching OAM while the PPU reads `row` (dot / 4) corrupts that row. The first row
+    /// (objects 0 and 1) is never affected. A read+write in one M-cycle is a more complex
+    /// pattern, but only for rows 4..=18; for the first four rows and the last row it falls
+    /// back to a plain read corruption.
+    pub fn corrupt_oam(&mut self, row: usize, read: bool, write: bool) {
+        if row == 0 || row >= 20 || !(read || write) {
+            return;
+        }
+        if read && write && (4..=18).contains(&row) {
+            // The preceding row's first word is corrupted, then the whole preceding row is
+            // copied both to the accessed row and to two rows before it.
+            let a = self.oam_word(row - 2, 0);
+            let b = self.oam_word(row - 1, 0);
+            let c = self.oam_word(row, 0);
+            let d = self.oam_word(row - 1, 2);
+            self.set_oam_word(row - 1, 0, (b & (a | c | d)) | (a & c & d));
+            let prev = self.oam[(row - 1) * 8..row * 8].to_vec();
+            self.oam[row * 8..(row + 1) * 8].copy_from_slice(&prev);
+            self.oam[(row - 2) * 8..(row - 1) * 8].copy_from_slice(&prev);
+        }
+        if read {
+            // `b | (a & c)`: the preceding row's first word, or the accessed row's own where
+            // the preceding row's third word has bits set; last three words copied down.
+            let a = self.oam_word(row, 0);
+            let b = self.oam_word(row - 1, 0);
+            let c = self.oam_word(row - 1, 2);
+            self.set_oam_word(row, 0, b | (a & c));
+            let prev = self.oam[(row - 1) * 8 + 2..row * 8].to_vec();
+            self.oam[row * 8 + 2..(row + 1) * 8].copy_from_slice(&prev);
+        } else if write {
+            // `((a ^ c) & (b ^ c)) ^ c`; last three words copied down, as for a read.
+            let a = self.oam_word(row, 0);
+            let b = self.oam_word(row - 1, 0);
+            let c = self.oam_word(row - 1, 2);
+            self.set_oam_word(row, 0, ((a ^ c) & (b ^ c)) ^ c);
+            let prev = self.oam[(row - 1) * 8 + 2..row * 8].to_vec();
+            self.oam[row * 8 + 2..(row + 1) * 8].copy_from_slice(&prev);
+        }
+    }
+
     pub fn read_stat(&self) -> u8 {
         let coinc = if self.lyc_eq { 4 } else { 0 };
-        let mode = if self.on() { self.mode } else { 0 };
+        // During line 153's last 4 dots the mode reads 0 (the frame is about to wrap to
+        // line 0, whose first dots read HBlank before the OAM scan starts; gbmicrotest
+        // poweron_stat_006).
+        let mode = if self.on() {
+            if self.ly == 153 && self.dot >= 452 { 0 } else { self.mode }
+        } else {
+            0
+        };
         0x80 | self.stat_enable | coinc | mode
     }
 
@@ -287,8 +365,24 @@ impl Ppu {
         rise
     }
 
-    pub fn write_stat(&mut self, v: u8) {
+    /// Writes STAT. Returns true when the write itself raises the LCD interrupt.
+    /// A nonzero write re-evaluates the enables: enabling a source whose condition is
+    /// already true raises the interrupt at once (the LYC case in Mooneye
+    /// stat_lyc_onoff). Writing $00 pulses the line whenever the picture is in OAM
+    /// scan, HBlank, VBlank, or LY=LYC (Pan Docs, "LCD STAT interrupt" glitch;
+    /// gbmicrotest stat_write_glitch_*).
+    pub fn write_stat(&mut self, v: u8) -> bool {
         self.stat_enable = v & 0x78;
+        if v == 0 {
+            let glitch = self.on() && (self.mode != 3 || self.lyc_eq);
+            if glitch {
+                self.stat_line = true;
+            } else {
+                self.stat_line = self.stat_condition();
+            }
+            return glitch;
+        }
+        self.restat()
     }
 
     pub fn write_lcdc(&mut self, v: u8) -> bool {
@@ -301,13 +395,25 @@ impl Ppu {
             self.mode = 0;
         } else if !was && self.on() {
             self.ly = 0;
+            let old_lyc_eq = self.lyc_eq;
             self.lyc_eq = self.lyc == 0;
             self.first_line = true;
-            self.dot = 0; // line 0 after switch-on: no OAM scan, LY ticks over 4 dots early
+            self.dot = 0;
             self.mode = 0; // and has no OAM scan
             self.window_line = 0xFF;
             self.wy_hit = false;
             self.skip_frame = true;
+            // The LCD comes on in mode 0, which would raise a HBlank STAT interrupt at
+            // once if the line were left low: take the line to its new level without a
+            // mode edge, so the first mode interrupt is the first real HBlank, a line
+            // later (gbmicrotest int_hblank_*). The LYC source is different: LY==LYC
+            // becomes true when the LCD comes on, so that interrupt fires here — but
+            // only on a false-to-true change, since a comparison that was already true
+            // (LY=$90 vs LYC=$90, then LY=0 vs LYC=0) is no edge (Mooneye
+            // stat_lyc_onoff round 2). The OAM tests still see mode 0 (unlocked).
+            let lyc_fire = self.stat_enable & 0x40 != 0 && self.lyc_eq && !old_lyc_eq;
+            self.stat_line = self.stat_condition();
+            return lyc_fire;
         }
         self.restat()
     }
@@ -353,12 +459,19 @@ impl Ppu {
     /// M-cycles for every sprite layout (`the_object_stalls_are_mode_3s_length`).
     fn mode3_length(&self) -> u16 {
         let base = 172 + u16::from(self.scx & 7);
+        // The window, when it is drawn on this line, restarts the fetcher for its first
+        // tile: 6 dots, which like the rest shows in STAT rounded down to whole M-cycles
+        // (gbmicrotest win*_a: without it mode 3 ends one M-cycle early with the window on).
+        let win = if self.lcdc & 0x20 != 0 && self.wy_hit && self.wx <= 166 { 6 } else { 0 };
         let mut len = 0u16;
         // A DMG skips the object fetch altogether while LCDC bit 1 is clear, so it costs nothing.
         // A Color runs the fetch anyway and only drops the pixel as it leaves the FIFO, so the
         // dots are still spent and mode 3 is still longer.
         if self.lcdc & 0x02 == 0 && !self.cgb {
-            return base;
+            // The base stays unrounded here (gbmicrotest hblank_int_scx*: the HBlank
+            // STAT interrupt lands one M-cycle late if the fine-scroll dots are rounded
+            // away); only the window restart is rounded, to whole M-cycles.
+            return base + (win & !3);
         }
         let height: i16 = if self.lcdc & 0x04 != 0 { 16 } else { 8 };
         let mut xs: Vec<u8> = Vec::with_capacity(10);
@@ -390,8 +503,11 @@ impl Ppu {
             len += 6;
         }
         // The object penalty shows in STAT in whole M-cycles (Mooneye intr_2_mode0_timing_sprites:
-        // every case fits 6 per object plus the BG-fetch wait, rounded down to 4 dots).
-        base + (len & !3)
+        // every case fits 6 per object plus the BG-fetch wait, rounded down to 4 dots). The
+        // fine-scroll penalty (SCX low bits) is the same: STAT only sees whole M-cycles, so the
+        // total is rounded down to 4 dots here too (gbmicrotest hblank_int_scx1-7: without the
+        // rounding the HBlank STAT interrupt lands one M-cycle late for every nonzero SCX).
+        (base + (len & !3) + win) & !3
     }
 
     /// One dot.
@@ -451,7 +567,10 @@ impl Ppu {
         self.landed.wx_fresh = false;
         self.landed.tile_sel_glitch = false;
         // While LY ticks over (the last 4 dots of a line) the comparison reads false.
-        self.lyc_eq = !(self.dot >= 452 && self.ly < 153) && self.ly == self.lyc;
+        // The comparison uses the LY the CPU would read, so on a Game Boy it is true
+        // through line 153's tail, where LY already reads 0 (see `ly_read`).
+        let eff_ly = self.ly_read();
+        self.lyc_eq = !(self.dot >= 452 && self.ly < 153) && eff_ly == self.lyc;
         let line = self.stat_condition();
         if line && !self.stat_line {
             irq.stat = true;
@@ -962,6 +1081,83 @@ mod tests {
         };
         assert_eq!(count(false), 1, "a Game Boy: one, at the start of line 144");
         assert_eq!(count(true), 1, "a Color: the same one, an M-cycle earlier");
+    }
+
+    /// A PPU with two rows written, for the OAM corruption formulas.
+    fn oam_two_rows() -> Ppu {
+        let mut p = Ppu::default();
+        // Row 4: word0 0x5678, word1 0x1111, word2 0x9ABC, word3 0x2222.
+        // Row 5: word0 0x1234, word1 0x3333, word2 0x4444, word3 0x5555.
+        for (row, words) in [(4, [0x5678u16, 0x1111, 0x9ABC, 0x2222]), (5, [0x1234, 0x3333, 0x4444, 0x5555])] {
+            for (w, v) in words.into_iter().enumerate() {
+                p.set_oam_word(row, w, v);
+            }
+        }
+        p
+    }
+
+    fn row_words(p: &Ppu, row: usize) -> [u16; 4] {
+        [p.oam_word(row, 0), p.oam_word(row, 1), p.oam_word(row, 2), p.oam_word(row, 3)]
+    }
+
+    /// The DMG Mode-2 OAM corruption bug's own formulas (Pan Docs, "OAM Corruption Bug").
+    #[test]
+    fn oam_corruption_write_and_read_follow_their_formulas() {
+        let mut p = oam_two_rows();
+        p.corrupt_oam(5, false, true);
+        // Write: ((a ^ c) & (b ^ c)) ^ c = 0x123C; the last three words copy down from row 4.
+        assert_eq!(row_words(&p, 5), [0x123C, 0x1111, 0x9ABC, 0x2222]);
+        assert_eq!(row_words(&p, 4), [0x5678, 0x1111, 0x9ABC, 0x2222], "the preceding row is untouched");
+
+        let mut p = oam_two_rows();
+        p.corrupt_oam(5, true, false);
+        // Read: b | (a & c) = 0x567C; the last three words copy down, as for a write.
+        assert_eq!(row_words(&p, 5), [0x567C, 0x1111, 0x9ABC, 0x2222]);
+    }
+
+    #[test]
+    fn oam_corruption_never_touches_the_first_row() {
+        let mut p = oam_two_rows();
+        p.corrupt_oam(0, true, true);
+        p.corrupt_oam(0, true, false);
+        p.corrupt_oam(0, false, true);
+        assert_eq!(row_words(&p, 4), [0x5678, 0x1111, 0x9ABC, 0x2222]);
+        assert_eq!(row_words(&p, 5), [0x1234, 0x3333, 0x4444, 0x5555]);
+    }
+
+    #[test]
+    fn oam_corruption_read_and_write_copies_the_preceding_row() {
+        let mut p = Ppu::default();
+        // Row 3 word0 0x0F0F, row 4 [0x3333, 0x1111, 0x5555, 0x2222], row 5 [0x00FF, ...].
+        p.set_oam_word(3, 0, 0x0F0F);
+        for (w, v) in [0x3333u16, 0x1111, 0x5555, 0x2222].into_iter().enumerate() {
+            p.set_oam_word(4, w, v);
+        }
+        for (w, v) in [0x00FFu16, 0x4444, 0x6666, 0x7777].into_iter().enumerate() {
+            p.set_oam_word(5, w, v);
+        }
+        p.corrupt_oam(5, true, true);
+        // The complex pattern: row 4's word0 becomes (b & (a | c | d)) | (a & c & d) = 0x1337,
+        // then row 4 is copied to rows 5 and 3, and the read corruption after it changes nothing.
+        let expect = [0x1337u16, 0x1111, 0x5555, 0x2222];
+        assert_eq!(row_words(&p, 4), expect);
+        assert_eq!(row_words(&p, 5), expect);
+        assert_eq!(row_words(&p, 3), expect);
+    }
+
+    #[test]
+    fn oam_corruption_read_and_write_falls_back_to_a_read_outside_rows_4_to_18() {
+        // Row 19: the complex pattern does not happen, but the read corruption still does.
+        let mut p = Ppu::default();
+        for (w, v) in [0x5678u16, 0x1111, 0x9ABC, 0x2222].into_iter().enumerate() {
+            p.set_oam_word(18, w, v);
+        }
+        for (w, v) in [0x1234u16, 0x3333, 0x4444, 0x5555].into_iter().enumerate() {
+            p.set_oam_word(19, w, v);
+        }
+        p.corrupt_oam(19, true, true);
+        assert_eq!(row_words(&p, 19), [0x567C, 0x1111, 0x9ABC, 0x2222], "a plain read corruption");
+        assert_eq!(row_words(&p, 17), [0, 0, 0, 0], "two rows before is untouched");
     }
 }
 

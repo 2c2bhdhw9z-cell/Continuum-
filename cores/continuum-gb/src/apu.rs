@@ -260,17 +260,67 @@ pub struct Apu {
     /// Output sample rate (core option). Not saved.
     #[serde(skip, default = "default_rate")]
     pub out_hz: u32,
-    /// High-quality output: each sample is the average over its span instead of one point.
+    /// High-quality output (core option): the sinc resampler is always on now, so this only
+    /// keeps the Advance's lazy sound path off, as it did (see `gba::Bus::work_out_fast_until`).
     #[serde(skip)]
     pub hq: bool,
+    /// The windowed-sinc resampler's state. It is in the save state, so a state load (run-ahead
+    /// does one every frame) does not lose the output samples still waiting for their window:
+    /// fixed-size storage, so the state keeps one length. `resamp_src` is a ring of the last
+    /// 128 mixer samples, slot `n % 128` holding source sample `n`; `resamp_pending` the output
+    /// times not yet emitted, oldest first, `resamp_pending_len` of them.
+    #[serde(serialize_with = "ser_ring", deserialize_with = "de_ring")]
+    resamp_src: [(f32, f32); 128],
+    resamp_src_count: u64,
+    resamp_pending: [f64; 8],
+    resamp_pending_len: u8,
+    /// The DC-blocking high-pass filter's state, per channel: (previous input, previous output).
+    resamp_hp: [(f32, f32); 2],
+    /// The DC blocker's `r` coefficient, cached: it depends only on `out_hz`, so it is
+    /// recomputed when `out_hz` changes instead of calling `.exp()` per sample. Not saved:
+    /// it is recomputed on first use after a load (when `dc_r_hz` does not match `out_hz`).
     #[serde(skip)]
-    acc: (i64, i64, i64),
+    dc_r: f32,
+    /// The `out_hz` the cached `dc_r` was computed for (0 = not computed yet).
+    #[serde(skip)]
+    dc_r_hz: u32,
     /// The chip itself: saved on its own after the rest of the machine.
     #[serde(skip)]
     pub chip: Chip,
     /// A Color's chip (set by the machine): only matters where the Game Boy's differs.
     #[serde(skip)]
     pub cgb: bool,
+    /// A Color revision B or earlier (set by the machine): on those, writing NRx4 clocks the
+    /// length counter whenever it was disabled before, whether or not the write enables it
+    /// (SameSuite's extra_length_clocking tests; fixed on revision C). Not saved: the machine
+    /// sets it from the revision at start-up, as it does `cgb`.
+    #[serde(skip)]
+    pub rev_b_length: bool,
+    /// DIV was written since the chip was last switched on (or since the last trigger):
+    /// switching the chip on then starts the square's first step one tick later
+    /// (`trig_lf = 0` instead of 1). A DIV write after the switch-on does not change
+    /// the trigger's own delay — the flag is consumed by the next switch-on or trigger.
+    /// SameSuite's stop_div / sweep / volume_div tests write DIV before switching the
+    /// chip on; channel_2_volume writes it right before the trigger and needs the
+    /// plain delay. Not saved: a load mid-sequence just loses the flag.
+    #[serde(skip)]
+    pub div_written: bool,
+    /// The 1 MHz phase the next square trigger uses in single speed: sampled at the
+    /// switch-on from `div_written` (1 normally, 0 if DIV was written since the last
+    /// switch-on). The sweep's reload uses the live phase instead (`lf_write`), which
+    /// a DIV write after the trigger still flips — the sweep test resets DIV right
+    /// after triggering and needs that flip. In double speed the trigger uses the
+    /// live phase too (it alternates every M-cycle; the align test probes both).
+    /// Not saved: a load restores the plain phase (1).
+    #[serde(skip, default = "default_trig_lf")]
+    pub trig_lf: u8,
+    /// A frame-sequencer step landed in this M-cycle's tick (set by `frame_step`
+    /// when it increments the divider, cleared by the bus at the next M-cycle's
+    /// tick): in double speed a register write in that M-cycle still predates the
+    /// step, so the length glitch reads the pre-step divider parity (see
+    /// `glitch_odd`). Not saved: a load just loses the marker.
+    #[serde(skip)]
+    pub step_this_cycle: bool,
     /// An Advance's: it mixes digitally, so there are no per-channel DACs.
     #[serde(skip)]
     pub agb: bool,
@@ -297,6 +347,42 @@ fn full_volume() -> [u8; 4] {
     [100; 4]
 }
 
+/// The trigger phase of a fresh chip (see `Apu::trig_lf`).
+fn default_trig_lf() -> u8 {
+    1
+}
+
+/// The resampler's 128-sample ring: serde's derive stops at 32-element arrays, so it is
+/// written and read as a 128-long tuple of stereo samples, in slot order (a tuple carries no
+/// length, so the two sides agree on exactly 128 entries).
+fn ser_ring<S: serde::Serializer>(v: &[(f32, f32); 128], s: S) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeTuple;
+    let mut seq = s.serialize_tuple(128)?;
+    for e in v.iter() {
+        seq.serialize_element(e)?;
+    }
+    seq.end()
+}
+
+fn de_ring<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[(f32, f32); 128], D::Error> {
+    use serde::de::{SeqAccess, Visitor};
+    struct RingVisitor;
+    impl<'de> Visitor<'de> for RingVisitor {
+        type Value = [(f32, f32); 128];
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(f, "128 stereo source samples")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            let mut a = [(0.0f32, 0.0f32); 128];
+            for e in a.iter_mut() {
+                *e = seq.next_element()?.ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
+            }
+            Ok(a)
+        }
+    }
+    d.deserialize_tuple(128, RingVisitor)
+}
+
 impl Default for Apu {
     fn default() -> Self {
         let mut apu = Apu {
@@ -312,9 +398,19 @@ impl Default for Apu {
             chan_vol: [100; 4],
             out_hz: OUT_HZ,
             hq: false,
-            acc: (0, 0, 0),
+            resamp_src: [(0.0, 0.0); 128],
+            resamp_src_count: 0,
+            resamp_pending: [0.0; 8],
+            resamp_pending_len: 0,
+            resamp_hp: [(0.0, 0.0); 2],
+            dc_r: 0.0,
+            dc_r_hz: 0,
             chip: Chip::default(),
             cgb: false,
+            rev_b_length: false,
+            div_written: false,
+            trig_lf: 1,
+            step_this_cycle: false,
             agb: false,
             double_speed: false,
             div_high: false,
@@ -342,9 +438,41 @@ impl Default for Apu {
 }
 
 impl Apu {
+    /// The 1 MHz phase (`lf`) as a register write sees it. `lf` is kept at M-cycle
+    /// boundaries: it flips every 2 MHz tick, so a single-speed M-cycle (2 ticks) leaves
+    /// it unchanged, while a double-speed one (1 tick) flips it. A write lands one tick
+    /// into a single-speed M-cycle, so it sees the flipped phase; a double-speed
+    /// M-cycle is one tick long, so the write (after the tick) sees `lf` as it stands.
+    /// Writing DIV resets the 16-bit system counter whose bit 1 is this phase, so it
+    /// flips the boundary phase (see `Bus::raw_write`). The sweep's reload and the
+    /// NR10 glitch use this live phase; the square trigger's delay uses `trig_lf`.
+    fn lf_write(&self) -> u8 {
+        if self.double_speed {
+            self.chip.lf
+        } else {
+            self.chip.lf ^ 1
+        }
+    }
+
+    /// The phase a square trigger's delay uses: the live phase in double speed, the
+    /// phase sampled at the last switch-on (`trig_lf`) in single speed.
+    fn trig_lf(&self) -> u8 {
+        if self.double_speed {
+            self.chip.lf
+        } else {
+            self.trig_lf
+        }
+    }
+
+    /// Writing DIV resets the system counter and flips the boundary 1 MHz phase; see
+    /// `lf_write`.
+    pub fn flip_lf_phase(&mut self) {
+        self.chip.lf ^= 1;
+    }
+
     /// The chip as switching it on leaves it.
     fn fresh_chip() -> Chip {
-        let mut c = Chip { lf: 1, ..Chip::default() };
+        let mut c = Chip { lf: 0, ..Chip::default() };
         c.wave.shift = 4;
         c.sq[0].countdown = 0xFFFF;
         c.sq[1].countdown = 0xFFFF;
@@ -542,6 +670,7 @@ impl Apu {
 
     fn sweep_trigger(&mut self) {
         let nr10 = self.regs[NR10];
+        let lw = self.lf_write();
         let s = &mut self.chip.sweep;
         if nr10 & 0x70 == 0 || s.countdown != 7 {
             return;
@@ -553,7 +682,7 @@ impl Apu {
             s.addend = self.chip.sq[0].period >> (nr10 & 7);
         }
         s.calc = nr10 & 7;
-        s.reload = 1 + self.chip.lf;
+        s.reload = 1 + lw;
         s.unshifted = nr10 & 7 == 0;
         s.countdown = ((nr10 >> 4) & 7) ^ 7;
         if s.calc == 0 {
@@ -563,7 +692,7 @@ impl Apu {
 
     fn nr10_glitch(&mut self, v: u8) {
         let nr10 = self.regs[NR10];
-        let lf = self.chip.lf;
+        let lf = self.lf_write();
         let s = &mut self.chip.sweep;
         let mut done = false;
         if self.cgb || self.agb {
@@ -592,6 +721,18 @@ impl Apu {
 
     // ------------------------------------------------------------ the frame sequencer
 
+    /// The divider parity a length glitch reads: in double speed, a write in the
+    /// M-cycle a frame step landed in still predates the step, so it reads the
+    /// pre-step divider (the rev-B extra_length_clocking tests).
+    fn glitch_odd(&self) -> bool {
+        let div = if self.double_speed && self.step_this_cycle {
+            self.chip.divider.wrapping_sub(1)
+        } else {
+            self.chip.divider
+        };
+        div & 1 == 1
+    }
+
     /// The DIV event: DIV's sequencer bit falling (bit 4 of DIV, bit 5 in double speed).
     pub fn frame_step(&mut self) {
         if !self.power {
@@ -603,7 +744,10 @@ impl Apu {
                 return;
             }
             1 => self.chip.skip = 0,
-            _ => self.chip.divider = self.chip.divider.wrapping_add(1),
+            _ => {
+                self.chip.divider = self.chip.divider.wrapping_add(1);
+                self.step_this_cycle = true;
+            }
         }
         let div = self.chip.divider;
         if div & 7 == 7 {
@@ -929,6 +1073,29 @@ impl Apu {
         if n == 0 {
             return;
         }
+        // A quiet chip (no channel running, nothing part way through): only the clocks below
+        // move, exactly as the full run would move them. Speed only; nothing else changes.
+        {
+            let c = &self.chip;
+            if c.wave.stray == 0
+                && c.noise.dmg_delay == 0
+                && !c.active[0]
+                && !c.active[1]
+                && !c.active[2]
+                && !c.noise.counting
+                && !c.noise.background
+                && c.sweep.reload == 0
+                && c.sweep.calc == 0
+                && c.sweep.hold == 0
+                && (self.agb || !(c.wave.dac && c.wave.pulsed))
+            {
+                self.chip.lf ^= (n & 1) as u8;
+                self.chip.noise.phase = self.chip.noise.phase.wrapping_add(n as u8);
+                self.chip.sweep.instant = false;
+                self.chip.wave.just_read = false;
+                return;
+            }
+        }
         if self.chip.wave.stray != 0 {
             for _ in 0..n {
                 self.chip.wave.stray -= 1;
@@ -1127,7 +1294,12 @@ impl Apu {
             0x16 => {
                 let lengths = [self.chip.sq[0].length, self.chip.sq[1].length, self.chip.wave.length, self.chip.noise.length];
                 if v & 0x80 != 0 && !self.power {
+                    // The switch-on samples the trigger phase from `div_written`
+                    // (see `trig_lf`) and resets the live phase to 1 (the value the
+                    // double-speed tests' phase alternation counts from).
+                    self.trig_lf = if std::mem::take(&mut self.div_written) { 0 } else { 1 };
                     self.chip = Self::fresh_chip();
+                    self.chip.lf = 1;
                     if self.div_high {
                         self.chip.skip = 2;
                         self.chip.divider = 1;
@@ -1286,7 +1458,8 @@ impl Apu {
             }
         }
         let old_period = self.chip.sq[ch].period;
-        let lf = self.chip.lf;
+        let mut lf = self.trig_lf();
+        let live_lf = self.lf_write();
         {
             let p = &mut self.chip.sq[ch];
             p.period = (p.period & 0xFF) | (u16::from(v & 7) << 8);
@@ -1295,6 +1468,11 @@ impl Apu {
             }
         }
         if v & 0x80 != 0 {
+            // The trigger consumes the DIV-write flag (see `div_written`): a DIV
+            // write after the switch-on must not leak into the next subtest. A
+            // restart keeps it: if DIV was written since the switch-on, the
+            // restart's delay follows the live phase (sweep_restart).
+            let div_since_toggle = std::mem::take(&mut self.div_written);
             let nrx2 = self.regs[sq_reg(ch, 2)];
             let mut unquiet = false;
             {
@@ -1311,6 +1489,12 @@ impl Apu {
                     p.delay = if up { 6 + lf } else { 6 - lf };
                     p.countdown = (p.period ^ 0x7FF) * 2 + u16::from(p.delay);
                 } else {
+                    // A restart after a DIV write since the switch-on follows the
+                    // live phase (sweep_restart writes DIV and waits $0ffe before
+                    // restarting); otherwise it keeps the sampled phase (restart).
+                    if div_since_toggle {
+                        lf = live_lf;
+                    }
                     let mut extra = 0;
                     if ce {
                         if !p.just_reloaded && v & 4 == 0 && ((i32::from(p.countdown) - 1 - i32::from(p.delay)) / 2) & 0x400 == 0 {
@@ -1367,11 +1551,13 @@ impl Apu {
         self.length_glitch_pulse(ch, v);
     }
 
-    /// Switching length counting on while the sequencer's step is odd counts once at once.
+    /// Switching length counting on while the sequencer's step is odd counts once at once. On a
+    /// Color revision B or earlier the write need not switch it on at all: the counter only has
+    /// to have been off before (`rev_b_length`).
     fn length_glitch_pulse(&mut self, ch: usize, v: u8) {
-        let odd = self.chip.divider & 1 == 1;
+        let odd = self.glitch_odd();
         let p = &mut self.chip.sq[ch];
-        if v & 0x40 != 0 && !p.length_on && odd && p.length != 0 {
+        if (v & 0x40 != 0 || self.rev_b_length) && !p.length_on && odd && p.length != 0 {
             p.length -= 1;
             if p.length == 0 {
                 if v & 0x80 != 0 {
@@ -1391,6 +1577,8 @@ impl Apu {
         let w = &mut self.chip.wave;
         w.period = (w.period & 0xFF) | (u16::from(v & 7) << 8);
         if v & 0x80 != 0 {
+            // The trigger consumes the DIV-write flag (see `div_written`).
+            self.div_written = false;
             w.pulsed = true;
             if dmg && self.chip.active[2] && w.countdown == 0 {
                 // Retriggered the tick before it reads wave memory: the Game Boy corrupts it.
@@ -1422,9 +1610,12 @@ impl Apu {
                 w.length_on = false;
             }
         }
+        // The wave channel reads the post-step divider: its NR34 write lands after
+        // the frame step in the boundary M-cycle (unlike the squares' and noise's
+        // NRx4 writes), so the pre-step parity in `glitch_odd` is wrong for it.
         let odd = self.chip.divider & 1 == 1;
         let w = &mut self.chip.wave;
-        if v & 0x40 != 0 && !w.length_on && odd && w.length != 0 {
+        if (v & 0x40 != 0 || self.rev_b_length) && !w.length_on && odd && w.length != 0 {
             w.length -= 1;
             if w.length == 0 {
                 if v & 0x80 != 0 {
@@ -1442,6 +1633,8 @@ impl Apu {
     fn noise_nr44(&mut self, v: u8) {
         let dmg = !self.cgb && !self.agb;
         if v & 0x80 != 0 {
+            // The trigger consumes the DIV-write flag (see `div_written`).
+            self.div_written = false;
             let n = &mut self.chip.noise;
             n.clock.locked = false;
             n.clock.high = false;
@@ -1467,9 +1660,9 @@ impl Apu {
                 }
             }
         }
-        let odd = self.chip.divider & 1 == 1;
+        let odd = self.glitch_odd();
         let n = &mut self.chip.noise;
-        if v & 0x40 != 0 && !n.length_on && odd && n.length != 0 {
+        if (v & 0x40 != 0 || self.rev_b_length) && !n.length_on && odd && n.length != 0 {
             n.length -= 1;
             if n.length == 0 {
                 if v & 0x80 != 0 {
@@ -1487,39 +1680,213 @@ impl Apu {
     // ------------------------------------------------------------ the clock and the mixer
 
     /// `t` T-cycles of sound (4 a CPU M-cycle, 2 at double speed): the chip runs a tick every 2.
+    /// How far the next output sample is along (`tick`), for the Advance's speed path, which
+    /// works out how long it can leave the chip behind without an output sample falling in it.
+    pub fn sample_acc(&self) -> u32 {
+        self.sample_acc
+    }
+
+    /// Something that lasts a few ticks is under way (just after a trigger or a sweep step):
+    /// `run` has to be given the ticks in the same pieces as always, because the sweep's hold
+    /// and its calculation are counted down in a fixed order inside one `run`. The Advance's
+    /// speed path stays off until it is over.
+    pub fn settling(&self) -> bool {
+        let c = &self.chip;
+        c.sweep.hold != 0
+            || c.sweep.reload != 0
+            || (c.sweep.calc != 0 && (self.regs[NR10] & 7 != 0 || c.sweep.unshifted))
+            || c.wave.stray != 0
+            || c.noise.dmg_delay != 0
+            || c.pending_env
+    }
+
+    /// The resampler's half-width in source samples (32 taps either side of the output).
+    /// At 1.05 MHz the sinc's first zero is at ~26 samples, so the main lobe fits inside
+    /// the window; the 128-sample ring still holds both sides of every window that is
+    /// emitted (a window is emitted once the newest sample is `SINC_HALF` past it, and
+    /// output times are ~22 source samples apart, so its oldest tap is at most
+    /// `2 * SINC_HALF + 22 = 86` samples back — inside the ring).
+    const SINC_HALF: usize = 32;
+    /// Fractional phases in the precomputed resampler table.
+    const SINC_PHASES: usize = 256;
+
+    /// The windowed-sinc resampler kernel, precomputed once per source rate (normal /
+    /// double speed): `SINC_PHASES` fractional phases × `2 * SINC_HALF + 1` taps, so
+    /// `sinc_at` is table lookups only — no `sin`/`cos` per output sample. The kernel
+    /// low-passes at 20 kHz: `sin(pi*d*2*fc) / (pi*d*2*fc)` with `fc = 20_000 / src_hz`
+    /// (the 2× is the ideal-lowpass factor the old runtime loop was missing, which put
+    /// its cutoff at 10 kHz instead of 20 kHz), Blackman-windowed.
+    fn sinc_table(double_speed: bool) -> &'static [f32] {
+        static NORMAL: std::sync::OnceLock<Vec<f32>> = std::sync::OnceLock::new();
+        static DOUBLE: std::sync::OnceLock<Vec<f32>> = std::sync::OnceLock::new();
+        let slot = if double_speed { &DOUBLE } else { &NORMAL };
+        slot.get_or_init(|| {
+            let src_hz = CPU_HZ as f64 / if double_speed { 2.0 } else { 4.0 };
+            let fc = 20_000.0 / src_hz;
+            let mut t = Vec::with_capacity(Self::SINC_PHASES * (2 * Self::SINC_HALF + 1));
+            for p in 0..Self::SINC_PHASES {
+                let frac = p as f64 / Self::SINC_PHASES as f64;
+                for k in -(Self::SINC_HALF as i64)..=(Self::SINC_HALF as i64) {
+                    let d = k as f64 - frac;
+                    let x = std::f64::consts::PI * d * 2.0 * fc;
+                    let sinc = if x == 0.0 { 1.0 } else { x.sin() / x };
+                    let u = (d + Self::SINC_HALF as f64) / (2.0 * Self::SINC_HALF as f64);
+                    let blackman = 0.42 - 0.5 * (2.0 * std::f64::consts::PI * u).cos()
+                        + 0.08 * (4.0 * std::f64::consts::PI * u).cos();
+                    t.push((sinc * blackman) as f32);
+                }
+            }
+            t
+        })
+    }
+
+    /// `t` T-cycles of sound (4 a CPU M-cycle, 2 at double speed): the chip runs a tick every 2.
+    /// One call, however long the span: the chip is run in bulk (`run` already steps each
+    /// channel from its own countdown, so a long span costs no more than the steps in it),
+    /// and the resampler is fed one source sample per M-cycle of the span (see
+    /// `push_source`). The old code sliced `t` into M-cycle chunks and ran the whole
+    /// tick — chip, mixer, resampler — per chunk, which threw away the Advance's
+    /// lazy-sound batching: a span the bus had already proved holds no output sample,
+    /// sequencer step or event was still paid for M-cycle by M-cycle.
     pub fn tick(&mut self, t: u32) {
+        self.tick_chunk(t);
+        if self.power && self.chip.pending_env {
+            self.chip.pending_env = false;
+            self.envelope_ticks();
+        }
+    }
+
+    /// `n` T-cycles of sound: the chip runs its ticks in bulk, then the mixer is sampled
+    /// for the span (one source sample per M-cycle).
+    fn tick_chunk(&mut self, n: u32) {
         if self.power {
-            let all = t + self.half;
+            let all = n + self.half;
             self.half = all & 1;
             let mut ticks = all / 2;
             while ticks > 0 {
-                let n = ticks.min(0x4000);
-                self.run(n as u16);
-                ticks -= n;
-            }
-            if self.chip.pending_env {
-                self.chip.pending_env = false;
-                self.envelope_ticks();
+                let m = ticks.min(0x4000);
+                self.run(m as u16);
+                ticks -= m;
             }
         }
-        if self.hq {
-            let (l, r) = self.mix();
-            self.acc.0 += i64::from(l) * i64::from(t);
-            self.acc.1 += i64::from(r) * i64::from(t);
-            self.acc.2 += i64::from(t);
+        self.push_source(n);
+    }
+
+    /// Sample the mixer for a span of `n` T-cycles: one source sample per M-cycle of it,
+    /// and note the output samples due in it. The mixer level is the one at the end of
+    /// the span, used for every source sample in it. That is exact for the Game Boy
+    /// path, which calls `tick` once per M-cycle, and for a silent or steady mixer; for
+    /// a batched Advance span (at most ~21 M-cycles, and the bus only batches a span
+    /// with no output sample, sequencer step or settling event in it) a channel step
+    /// inside the span lands at the span's end instead of its own M-cycle — the same
+    /// class of approximation the chip's own per-M-cycle sampling already made, one
+    /// span coarser. What it buys back is the batching: the chip runs once and the
+    /// mixer is read once, instead of once per M-cycle of the span.
+    fn push_source(&mut self, n: u32) {
+        let (l, r) = self.mix();
+        let step = if self.double_speed { 2 } else { 4 };
+        let mut remaining = n;
+        while remaining > 0 {
+            let chunk = remaining.min(step);
+            self.push_source_one(chunk, l, r);
+            remaining -= chunk;
         }
-        self.sample_acc += t * self.out_hz;
+    }
+
+    /// One M-cycle's source sample (`chunk` T-cycles of it, the tail of a span when it
+    /// is short of a whole M-cycle), and the output samples due in it. An output is due
+    /// each time `sample_acc` wraps; its time, in source samples, is where in this
+    /// M-cycle the wrap falls, so the resampler keeps the output rate exact.
+    fn push_source_one(&mut self, n: u32, l: i16, r: i16) {
+        self.resamp_src[(self.resamp_src_count % 128) as usize] = (f32::from(l), f32::from(r));
+        self.resamp_src_count += 1;
+        if self.out_hz == 0 {
+            return;
+        }
+        let acc0 = self.sample_acc;
+        self.sample_acc += n * self.out_hz;
+        let mut wraps = 0;
         while self.sample_acc >= CPU_HZ {
             self.sample_acc -= CPU_HZ;
-            let (l, r) = if self.hq && self.acc.2 > 0 {
-                let a = std::mem::take(&mut self.acc);
-                ((a.0 / a.2) as i16, (a.1 / a.2) as i16)
-            } else {
-                self.mix()
-            };
+            wraps += 1;
+            // The wrap's place in this M-cycle, in T-cycles from its start.
+            let at = (f64::from(wraps * CPU_HZ) - f64::from(acc0)) / f64::from(self.out_hz);
+            let when = self.resamp_src_count as f64 - 1.0 + (at / f64::from(n)).clamp(0.0, 1.0);
+            debug_assert!(self.resamp_pending_len < 8, "resampler pending overflow");
+            if self.resamp_pending_len < 8 {
+                self.resamp_pending[self.resamp_pending_len as usize] = when;
+                self.resamp_pending_len += 1;
+            }
+        }
+        self.drain_resampler();
+    }
+
+    /// Emit the queued output samples whose sinc window is complete: the newest source sample
+    /// has to be `SINC_HALF` past the output's time, so the window has its future side too.
+    fn drain_resampler(&mut self) {
+        loop {
+            if self.resamp_pending_len == 0 {
+                break;
+            }
+            let when = self.resamp_pending[0];
+            if (self.resamp_src_count - 1) as f64 <= when + Self::SINC_HALF as f64 {
+                break;
+            }
+            self.resamp_pending.copy_within(1..self.resamp_pending_len as usize, 0);
+            self.resamp_pending_len -= 1;
+            let (l, r) = self.sinc_at(when);
+            let (l, r) = (self.dc_block(0, l), self.dc_block(1, r));
             self.samples.push(l);
             self.samples.push(r);
         }
+    }
+
+    /// One output sample at source-sample time `when`: the precomputed windowed sinc
+    /// (Blackman, 32 taps a side, low-passing at ~20 kHz — see `sinc_table`) over the
+    /// source samples around it, normalised by the weights actually used so a steady
+    /// level comes out at the same level. Table lookups only; no trig at run time.
+    fn sinc_at(&self, when: f64) -> (f32, f32) {
+        let table = Self::sinc_table(self.double_speed);
+        let stride = 2 * Self::SINC_HALF + 1;
+        let base = when.floor() as i64;
+        let frac = when - base as f64;
+        let phase = ((frac * Self::SINC_PHASES as f64) as usize).min(Self::SINC_PHASES - 1);
+        let front = (self.resamp_src_count - self.resamp_src_count.min(128)) as i64;
+        let first = ((when - Self::SINC_HALF as f64).ceil() as i64).max(front);
+        let last = ((when + Self::SINC_HALF as f64).floor() as i64).min(self.resamp_src_count as i64 - 1);
+        let (mut sl, mut sr, mut sw) = (0.0f32, 0.0f32, 0.0f32);
+        for n in first..=last {
+            let w = table[phase * stride + (n - base + Self::SINC_HALF as i64) as usize];
+            let (l, r) = self.resamp_src[(n as u64 % 128) as usize];
+            sl += l * w;
+            sr += r * w;
+            sw += w;
+        }
+        if sw == 0.0 {
+            (0.0, 0.0)
+        } else {
+            (sl / sw, sr / sw)
+        }
+    }
+
+    /// The analog DC-blocking high-pass: `y[n] = x[n] - x[n-1] + R*y[n-1]`, with R set for
+    /// 28 Hz at the output rate (the same corner as the downstream filter in `options.rs`).
+    /// `R` depends only on `out_hz`, so it is cached and recomputed only when `out_hz`
+    /// changes, instead of calling `.exp()` per sample.
+    fn dc_block(&mut self, ch: usize, x: f32) -> i16 {
+        if self.dc_r_hz != self.out_hz {
+            self.dc_r = if self.out_hz == 0 {
+                0.0
+            } else {
+                (-2.0 * std::f64::consts::PI * 28.0 / f64::from(self.out_hz)).exp() as f32
+            };
+            self.dc_r_hz = self.out_hz;
+        }
+        let r = self.dc_r;
+        let (prev_in, prev_out) = self.resamp_hp[ch];
+        let y = x - prev_in + r * prev_out;
+        self.resamp_hp[ch] = (x, y);
+        y.clamp(-32768.0, 32767.0).round() as i16
     }
 
     /// What the four channels are putting out right now, 0-15 each: what the mixer adds up, and
@@ -1588,5 +1955,55 @@ mod tests {
         // And it plays on.
         a.tick(4000);
         assert!(a.read(0xFF26) & 0x0E != 0);
+    }
+
+    /// One second of sound at 48 kHz is 48,000 stereo samples, give or take the resampler's
+    /// one-sample lag.
+    #[test]
+    fn a_second_of_sound_is_48000_stereo_samples() {
+        let mut a = Apu::default();
+        a.tick(CPU_HZ);
+        assert!((95_900..=96_000).contains(&a.samples.len()), "got {}", a.samples.len());
+    }
+
+    /// With the chip off, the resampler's output is silence, not filter ringing.
+    #[test]
+    fn silence_stays_silent() {
+        let mut a = Apu::default();
+        a.write(0xFF26, 0x00); // power off
+        a.tick(CPU_HZ / 10);
+        assert!(!a.samples.is_empty());
+        assert!(a.samples.iter().all(|s| *s == 0));
+    }
+
+    /// The sinc filter preserves a steady level (its weights normalise), at whole and
+    /// fractional output times.
+    #[test]
+    fn a_steady_level_comes_out_at_the_same_level() {
+        let mut a = Apu::default();
+        for _ in 0..64 {
+            a.resamp_src[(a.resamp_src_count % 128) as usize] = (1000.0, -500.0);
+            a.resamp_src_count += 1;
+        }
+        let (l, r) = a.sinc_at(32.0);
+        assert!((l - 1000.0).abs() < 1.0, "{l}");
+        assert!((r + 500.0).abs() < 1.0, "{r}");
+        let (l, r) = a.sinc_at(32.5);
+        assert!((l - 1000.0).abs() < 1.0, "{l}");
+        assert!((r + 500.0).abs() < 1.0, "{r}");
+    }
+
+    /// The DC blocker passes a step through, then bleeds it away: after a second at 48 kHz
+    /// a constant offset is gone.
+    #[test]
+    fn a_constant_offset_is_blocked() {
+        let mut a = Apu::default();
+        let first = a.dc_block(0, 10_000.0);
+        assert_eq!(first, 10_000, "the first sample passes through");
+        let mut y = 0;
+        for _ in 0..48_000 {
+            y = a.dc_block(0, 10_000.0);
+        }
+        assert!(y.abs() < 100, "after a second the offset is under 1%: {y}");
     }
 }

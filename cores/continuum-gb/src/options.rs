@@ -179,8 +179,8 @@ const SPECS: &[Spec] = &[
      c"Needs a Super Game Boy console, except Always, which frames every Game Boy game; takes effect when the game restarts.",
      &[(c"on", c"Super Game Boy games"), (c"off", c"Off"), (c"always", c"Always")], c"on"),
     (c"video", c"cboy_renderer", c"Picture drawing",
-     c"Exact is for rare games that change the picture halfway along a line, but isn't finished yet and may look wrong.",
-     &[(c"standard", c"Standard"), (c"exact", c"Exact (experimental)")], c"standard"),
+     c"Exact draws dot by dot, so mid-line picture changes land on the right pixel.",
+     &[(c"standard", c"Standard"), (c"exact", c"Exact")], c"exact"),
     (c"video", c"cboy_color_temp", c"Colour temperature", c"",
      &[(c"neutral", c"Neutral"), (c"warm", c"Warm"), (c"cool", c"Cool")], c"neutral"),
     (c"video", c"cboy_contrast", c"Contrast", c"",
@@ -574,7 +574,7 @@ impl Default for Settings {
             contrast: 0, dark: 0, highpass_hz: 28.0, audio_hq: false, rumble_strength: 100, motion_scale: 1.0,
             opposing: false, stick_dpad: false, sprite_limit: true, sgb_pal: false, auto_sgb: false, cgb_rev0: false, cgb_rev: crate::ppu::CgbRev::E, stick_deadzone: 0.15, swap_stick: false,
             frameskip_threshold: 85, frameskip_interval: 1, gba_obj_limit: false, force_color: false, gbp: false, gbc_light: 0, frameskip_auto: false, interference: 0,
-            exact_renderer: false,
+            exact_renderer: true,
             gba_wireless: true,
             dual: false, dual_side_by_side: false, dual_show: Which::Both, dual_swap: false, dual_audio: Which::First,
             dual_controls_second: false, dual_second_rom: String::new(), dual_second_save: String::new(),
@@ -827,7 +827,7 @@ pub fn parse(get: impl Fn(&CStr) -> Option<String>, system_dir: Option<&str>) ->
     s.run_ahead = get(c"cboy_run_ahead").and_then(|v| v.parse().ok()).unwrap_or(0).min(2);
     s.idle_skip = on(c"cboy_idle_skip", false);
     s.gb_idle_skip = on(c"cboy_gb_idle_skip", false);
-    s.exact_renderer = get(c"cboy_renderer").is_some_and(|v| v == "exact");
+    s.exact_renderer = get(c"cboy_renderer").map_or(true, |v| v == "exact");
     s.gba_wireless = !get(c"cboy_gba_link_port").is_some_and(|v| v == "cable");
     s.dual = on(c"cboy_dual", false);
     s.dual_side_by_side = get(c"cboy_dual_layout").is_some_and(|v| v == "side");

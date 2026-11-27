@@ -74,7 +74,11 @@ pub enum Model {
     Agb,
 }
 
-const STATE_MAGIC: &[u8; 8] = b"CGBSTAT3";
+const STATE_MAGIC: &[u8; 8] = b"CGBSTAT4";
+/// The tag P2 replaced. A state under it has the layout before the resampler state, the
+/// MMM01/MBC6/TAMA5 registers and the pixel FIFO were added to the saved machine, so it is
+/// 2,508 bytes shorter than the same machine saved now.
+const LEGACY_STATE_MAGIC: &[u8; 8] = b"CGBSTAT3";
 
 impl GameBoy {
     pub fn new(rom: Vec<u8>) -> Result<GameBoy, String> {
@@ -195,10 +199,19 @@ impl GameBoy {
 
     /// CGB hardware revision 0 (the earliest): its boot ROM leaves DIV further on
     /// (Mooneye boot_div-cgb0). Revisions A-E behave alike as far as cBoy models them.
+    /// Revision 0 also has the sound chip's pre-C length quirk (see `Apu::rev_b_length`).
     pub fn set_cgb_revision_0(&mut self) {
         if self.bus.timer.counter == 0x2674 {
             self.bus.timer.counter = 0x2880;
         }
+        self.bus.apu.rev_b_length = true;
+    }
+
+    /// CGB hardware revision B: it draws as a C, but its sound chip has the pre-C length
+    /// quirk (writing NRx4 clocks the length counter whenever it was disabled before,
+    /// whether or not the write enables it).
+    pub fn set_cgb_revision_b(&mut self) {
+        self.bus.apu.rev_b_length = true;
     }
 
     /// Which Color revision draws the picture (`ppu::CgbRev`). An Advance is not a Color of
@@ -207,6 +220,19 @@ impl GameBoy {
         if self.console != Model::Agb {
             self.bus.ppu.cgb_rev = rev;
         }
+    }
+
+    /// Attach (or detach) a Game Boy Printer on the link port. Off by default, so
+    /// the serial port reads `$FF` as before until one is attached. The printer
+    /// survives a state load; detaching it clears its image.
+    pub fn set_printer_attached(&mut self, attached: bool) {
+        self.bus.printer.set_present(attached);
+    }
+
+    /// The printer on the link port, if one is attached: its image, status and
+    /// print parameters, for the app to show or save.
+    pub fn printer(&self) -> &crate::printer::Printer {
+        &self.bus.printer
     }
 
     pub fn model_is_sgb(&self) -> bool {
@@ -372,13 +398,35 @@ impl GameBoy {
         // Added after the layout above was fixed, so it comes after it and a state made before
         // it still loads: the sound chip, modelled tick by tick.
         out.extend(bincode::serialize(&self.bus.apu.chip).unwrap_or_default());
+        // A BESS footer, so another BESS-compliant emulator can read this state as a
+        // portable best-effort state (its CORE block points at the raw buffers above).
+        // The native decoder ignores trailing bytes, so an older cBoy loads it too.
+        crate::bess::append_bess(&mut out, self);
         out
     }
 
     pub fn load_state(&mut self, data: &[u8]) -> Result<(), String> {
-        if data.len() < 8 || &data[..8] != STATE_MAGIC {
+        if data.len() < 8 || (&data[..8] != STATE_MAGIC && &data[..8] != LEGACY_STATE_MAGIC) {
+            // Not a cBoy state: say whether it is a foreign BESS state, and whose,
+            // instead of just reporting a bad magic.
+            if let Some(info) = crate::bess::find_bess(data) {
+                let who = info.name.as_deref().unwrap_or("an unknown emulator");
+                let model = info.model.as_deref().unwrap_or("?");
+                return Err(format!(
+                    "BESS save state from {who} (model {model}), not a cBoy state; best-effort import is not implemented"
+                ));
+            }
             return Err("not a cBoy Game Boy state".into());
         }
+        // A CGBSTAT3 state is upgraded to the current layout first, so everything below is
+        // the one CGBSTAT4 path, unchanged: the current format keeps working exactly as before.
+        let upgraded;
+        let data = if &data[..8] == LEGACY_STATE_MAGIC {
+            upgraded = legacy::upgrade(data)?;
+            &upgraded
+        } else {
+            data
+        };
         let mut next: GameBoy = crate::state_decode(&data[8..])?;
         let used = 8 + bincode::serialized_size(&next).map_err(|e| e.to_string())? as usize;
         match data.get(used..).filter(|rest| !rest.is_empty()) {
@@ -391,11 +439,22 @@ impl GameBoy {
         next.bus.cheats = std::mem::take(&mut self.bus.cheats);
         next.bus.link_loopback = self.bus.link_loopback;
         next.bus.link_connected = self.bus.link_connected;
+        // The printer on the link port is a peripheral, not part of the Game Boy, so
+        // it is not in the state either; the one attached stays attached.
+        next.bus.printer = std::mem::take(&mut self.bus.printer);
         // Which console this is comes from the core option, not from the state, and so do the
         // buttons held for a Color's colour scheme.
         next.bus.cgb_hardware = self.bus.cgb_hardware;
         next.bus.ppu.cgb_hardware = self.bus.ppu.cgb_hardware;
         next.bus.ppu.cgb_rev = self.bus.ppu.cgb_rev;
+        // Which drawer makes the picture, and the layer/frame-skip switches, are core options,
+        // not hardware state, so they are not in the state - but a loaded machine must keep the
+        // ones the app picked, or it draws with the other drawer and its window line (and so its
+        // state) comes out different from the machine that saved it.
+        next.bus.ppu.exact = self.bus.ppu.exact;
+        next.bus.ppu.no_render = self.bus.ppu.no_render;
+        next.bus.ppu.no_sprite_limit = self.bus.ppu.no_sprite_limit;
+        next.bus.ppu.layers = self.bus.ppu.layers;
         next.bus.boot_buttons = self.bus.boot_buttons;
         next.compat = self.compat;
         next.console = self.console;
@@ -409,9 +468,227 @@ impl GameBoy {
             next.load_compat_palettes(&colours);
         }
         *self = next;
+        // The CPU's transient state rides in the footer's CBOY block, not in the
+        // native layout: a state saved while stopped, or mid speed-switch, comes
+        // back in that state, as do the Color's scratch bytes. A state without a
+        // footer (an older one, or a truncated native prefix) just resumes the CPU
+        // with the scratch cleared.
+        if let Some(info) = crate::bess::find_bess(data) {
+            if let Some((stopped, halt, scratch)) = info.cboy {
+                self.cpu.stopped = stopped;
+                self.cpu.speed_halt = halt;
+                self.bus.scratch = scratch;
+            }
+        }
         // A byte the game had half way down the cable is not in the state; start it again.
         self.bus.resume_serial();
         Ok(())
+    }
+}
+
+/// Loading a CGBSTAT3 state: the layout P2 replaced.
+///
+/// Why this way, and not moving the P2 additions into a trailing extension block: moving
+/// them would change what a CGBSTAT4 state is, so every CGBSTAT4 state already saved (and
+/// the pinned `GB_STATE_LEN` in the fuzz tests) would need a second decoder of its own.
+/// Keeping CGBSTAT4 byte-identical and upgrading CGBSTAT3 on load means there is exactly
+/// one current format and one upgrade path, and nothing already saved changes.
+///
+/// How it works: bincode writes a struct's fields in order with no framing, so the only
+/// differences between the two layouts are three blocks, each at the end of the struct
+/// that gained it — the MMM01/MBC6/TAMA5 registers at the end of the cartridge, the pixel
+/// FIFO at the end of the picture hardware (it was skipped before), and the resampler
+/// state at the end of the sound chip's saved half. A CGBSTAT3 body is decoded field by
+/// field up to those three points with mirrors of the old structs (only the changed
+/// structs need mirrors; everything after them is unchanged), the three blocks are
+/// spliced back in as their defaults, and the result is a CGBSTAT4 body, which the one
+/// load path below then reads. The defaults are the right values: those three pieces
+/// did not exist when the state was saved — the FIFO was skipped on load then too, the
+/// resampler refills from the next samples, and the three mappers were refused outright
+/// before P2, so no CGBSTAT3 state can be from one of their cartridges.
+///
+/// The upgrade is checked, not trusted: a short or corrupt body fails here, and the
+/// spliced body is decoded by the normal path, so a wrong splice fails there instead of
+/// loading a machine made of the wrong bytes.
+mod legacy {
+    use serde::{Deserialize, Serialize};
+
+    use crate::cart::{Camera, HuC3, Mbc6, Mbc7, MbcKind, Mmm01, Rtc, Tama5};
+    use crate::cpu::Cpu;
+
+    /// What P2 added, in bytes: the resampler state 1,113, the cartridge registers 306,
+    /// the pixel FIFO 1,089 — 2,508 in all, the CGBSTAT3-to-CGBSTAT4 growth.
+    pub(crate) const UPGRADE_BYTES: usize = 2508;
+    /// The resampler state: 128 stereo samples, a count, eight pending times, a length and
+    /// the DC-blocker state — all zero at power-up, so all zero bytes.
+    pub(crate) const RESAMP_BYTES: usize = 1113;
+    /// The pixel FIFO at its full line width: 160 pixels in each of three rows, ten objects,
+    /// and the fetcher state — all zero at power-up, so all zero bytes.
+    pub(crate) const FIFO_BYTES: usize = 1089;
+    /// The MMM01/MBC6/TAMA5 registers, serialised from their defaults (the MBC6 hidden
+    /// region defaults to $FF, so this block is not all zero).
+    const CART_EXT_BYTES: usize = 306;
+
+    /// A CGBSTAT3 state, tag included, upgraded to a CGBSTAT4 state.
+    pub(crate) fn upgrade(data: &[u8]) -> Result<Vec<u8>, String> {
+        let body = &data[8..];
+        // The machine is the CPU, then the bus, whose first three fields are the cartridge,
+        // the picture hardware and the sound chip. Each mirror below is decoded from where
+        // the one before it ended, which is where its serialised size says it ended.
+        let cpu: Cpu = crate::state_decode(body)?;
+        let cpu_len = size_of(&cpu)?;
+        let cart: LegacyCart = crate::state_decode(&body[cpu_len..])?;
+        let cart_len = size_of(&cart)?;
+        let ppu_off = cpu_len + cart_len;
+        let ppu: LegacyPpu = crate::state_decode(&body[ppu_off..])?;
+        let ppu_len = size_of(&ppu)?;
+        let apu_off = ppu_off + ppu_len;
+        let apu: LegacyApu = crate::state_decode(&body[apu_off..])?;
+        let apu_end = apu_off + size_of(&apu)?;
+        let cart_ext = bincode::serialize(&(Mmm01::default(), Mbc6::default(), Tama5::default()))
+            .map_err(|e| e.to_string())?;
+        if cart_ext.len() != CART_EXT_BYTES {
+            return Err(format!("the cartridge registers serialise to {} bytes, not {CART_EXT_BYTES}", cart_ext.len()));
+        }
+        let mut out = Vec::with_capacity(data.len() + UPGRADE_BYTES);
+        out.extend_from_slice(super::STATE_MAGIC);
+        out.extend_from_slice(&body[..cpu_len + cart_len]);
+        out.extend_from_slice(&cart_ext);
+        out.extend_from_slice(&body[cpu_len + cart_len..ppu_off + ppu_len]);
+        out.extend_from_slice(&vec![0u8; FIFO_BYTES]);
+        out.extend_from_slice(&body[ppu_off + ppu_len..apu_end]);
+        out.extend_from_slice(&vec![0u8; RESAMP_BYTES]);
+        out.extend_from_slice(&body[apu_end..]);
+        debug_assert_eq!(out.len(), data.len() + UPGRADE_BYTES);
+        Ok(out)
+    }
+
+    fn size_of<T: Serialize>(v: &T) -> Result<usize, String> {
+        bincode::serialized_size(v).map(|n| n as usize).map_err(|e| e.to_string())
+    }
+
+    /// The sound chip's saved half as CGBSTAT3 has it: the channel state, before the
+    /// resampler state was added after `sample_acc`. The channel types live in apu.rs's
+    /// private `legacy` module, so they are mirrored here field for field.
+    #[derive(Clone, Default, Serialize, Deserialize)]
+    struct LegacyEnvelope {
+        volume: u8,
+        period: u8,
+        timer: u8,
+        up: bool,
+    }
+
+    #[derive(Clone, Default, Serialize, Deserialize)]
+    struct LegacySquare {
+        on: bool,
+        duty: u8,
+        step: u8,
+        length: u16,
+        length_on: bool,
+        freq: u16,
+        timer: u32,
+        env: LegacyEnvelope,
+        sweep_period: u8,
+        sweep_down: bool,
+        sweep_shift: u8,
+        sweep_timer: u8,
+        sweep_on: bool,
+        shadow: u16,
+        swept_down: bool,
+    }
+
+    #[derive(Clone, Default, Serialize, Deserialize)]
+    struct LegacyWave {
+        on: bool,
+        length: u16,
+        length_on: bool,
+        freq: u16,
+        timer: u32,
+        pos: u8,
+        shift: u8,
+    }
+
+    #[derive(Clone, Default, Serialize, Deserialize)]
+    struct LegacyNoise {
+        on: bool,
+        length: u16,
+        length_on: bool,
+        env: LegacyEnvelope,
+        lfsr: u16,
+        timer: u32,
+    }
+
+    #[derive(Clone, Default, Serialize, Deserialize)]
+    struct LegacyApu {
+        regs: Vec<u8>,
+        power: bool,
+        sq1: LegacySquare,
+        sq2: LegacySquare,
+        wave: LegacyWave,
+        noise: LegacyNoise,
+        seq_step: u8,
+        sample_acc: u32,
+    }
+
+    /// The cartridge as CGBSTAT3 has it, before the MMM01/MBC6/TAMA5 registers were added
+    /// after `camera`. The ROM itself was never in a state.
+    #[derive(Clone, Serialize, Deserialize)]
+    struct LegacyCart {
+        ram: Vec<u8>,
+        kind: MbcKind,
+        has_battery: bool,
+        has_rtc: bool,
+        ram_enabled: bool,
+        rom_bank: u16,
+        ram_bank: u8,
+        bank2: u8,
+        mode: u8,
+        rtc: Rtc,
+        title: String,
+        cgb_flag: u8,
+        multicart: bool,
+        rumble_cart: bool,
+        motor: bool,
+        mbc7: Mbc7,
+        huc3: HuC3,
+        camera: Camera,
+    }
+
+    /// The picture hardware as CGBSTAT3 has it: the pixel FIFO was skipped then, so it is
+    /// not here, and the FIFO block is spliced in after `source`, where it sits now.
+    #[derive(Clone, Serialize, Deserialize)]
+    struct LegacyPpu {
+        vram: Vec<u8>,
+        oam: Vec<u8>,
+        lcdc: u8,
+        stat_enable: u8,
+        scy: u8,
+        scx: u8,
+        ly: u8,
+        lyc: u8,
+        bgp: u8,
+        obp0: u8,
+        obp1: u8,
+        wy: u8,
+        wx: u8,
+        dot: u16,
+        mode: u8,
+        stat_line: bool,
+        window_line: u8,
+        wy_hit: bool,
+        lyc_eq: bool,
+        first_line: bool,
+        frame: Vec<u32>,
+        skip_frame: bool,
+        hblank_at: u16,
+        cgb: bool,
+        bg_pal: Vec<u8>,
+        obj_pal: Vec<u8>,
+        bcps: u8,
+        ocps: u8,
+        opri: u8,
+        shade: Vec<u8>,
+        source: Vec<u8>,
     }
 }
 
@@ -642,6 +919,92 @@ mod tests {
         assert_eq!((b.raw_read(0xFF76), b.raw_read(0xFF77)), (0x00, 0x00));
     }
 
+    /// A CGBSTAT3 state — the layout before P2 added the resampler state, the MMM01/MBC6/
+    /// TAMA5 registers and the pixel FIFO — loads and the game runs on from it. There is no
+    /// pre-P2 state file in the repo, so the test makes one the way one was made: a current
+    /// state with those three blocks taken back out, under the old tag. The same machine in
+    /// colour mode, and a state with no sound chip after it, are covered too.
+    #[test]
+    fn a_cgbstat3_state_loads_and_runs_on() {
+        // LD HL,$C000 / LD [HL],$5A / JR -2: a marker in work RAM, then a loop.
+        let code = [0x21, 0x00, 0xC0, 0x36, 0x5A, 0x18, 0xFE];
+        let mut rom = vec![0u8; 0x8000];
+        rom[0x100..0x100 + code.len()].copy_from_slice(&code);
+        let mut gb = GameBoy::new(rom.clone()).unwrap();
+        for _ in 0..3 {
+            gb.cpu.step(&mut gb.bus);
+        }
+        assert_eq!(gb.bus.raw_read(0xC000), 0x5A);
+        let full = gb.save_state();
+        let old = strip_to_cgbstat3(&full);
+        assert_eq!(&old[..8], b"CGBSTAT3");
+        assert_eq!(old.len(), full.len() - super::legacy::UPGRADE_BYTES);
+        let mut loaded = GameBoy::new(rom.clone()).unwrap();
+        loaded.load_state(&old).unwrap();
+        assert_eq!(loaded.cpu.pc, gb.cpu.pc, "the program counter comes back");
+        assert_eq!(loaded.bus.cycles, gb.bus.cycles);
+        assert_eq!(loaded.bus.raw_read(0xC000), 0x5A, "work RAM comes back");
+        loaded.run_frame();
+        assert!(loaded.bus.cycles > gb.bus.cycles, "and the game runs on");
+        // Saving the loaded machine gives a current state again, which loads in turn.
+        let again = loaded.save_state();
+        let mut third = GameBoy::new(rom.clone()).unwrap();
+        third.load_state(&again).unwrap();
+        assert_eq!(third.bus.raw_read(0xC000), 0x5A);
+
+        // The same, in colour mode, and for a state from before the sound chip was saved
+        // after the machine (its channels carry over instead).
+        let mut colour = cgb_machine();
+        for _ in 0..3 {
+            colour.cpu.step(&mut colour.bus);
+        }
+        // The STOP armed the switch; the speed only toggles when the halt ends.
+        for _ in 0..2050 {
+            colour.cpu.step(&mut colour.bus);
+        }
+        assert!(colour.bus.double_speed);
+        let full = colour.save_state();
+        let old = strip_to_cgbstat3(&full);
+        let mut loaded = cgb_machine();
+        loaded.load_state(&old).unwrap();
+        assert!(loaded.bus.double_speed);
+        loaded.run_frame();
+        assert!(loaded.bus.cycles > colour.bus.cycles);
+        let chip_len = bincode::serialized_size(&crate::apu::Chip::default()).unwrap() as usize;
+        let mut bare = cgb_machine();
+        bare.load_state(&old[..old.len() - chip_len]).unwrap();
+        bare.run_frame();
+        assert!(bare.bus.cycles > 0);
+    }
+
+    /// Takes the three P2 blocks back out of a CGBSTAT4 state, leaving a CGBSTAT3 one: the
+    /// cartridge registers off the end of the cartridge, the pixel FIFO off the end of the
+    /// picture hardware, and the resampler state off the end of the sound chip's saved
+    /// half. The sound chip after the machine is kept.
+    fn strip_to_cgbstat3(full: &[u8]) -> Vec<u8> {
+        use crate::cart::{Mbc6, Mmm01, Tama5};
+        let body = &full[8..];
+        let cpu: Cpu = crate::state_decode(body).unwrap();
+        let cpu_len = bincode::serialized_size(&cpu).unwrap() as usize;
+        let cart: crate::cart::Cart = crate::state_decode(&body[cpu_len..]).unwrap();
+        let cart_len = bincode::serialized_size(&cart).unwrap() as usize;
+        let ppu: crate::ppu::Ppu = crate::state_decode(&body[cpu_len + cart_len..]).unwrap();
+        let ppu_len = bincode::serialized_size(&ppu).unwrap() as usize;
+        let apu: crate::apu::Apu = crate::state_decode(&body[cpu_len + cart_len + ppu_len..]).unwrap();
+        let apu_len = bincode::serialized_size(&apu).unwrap() as usize;
+        let cart_ext = bincode::serialize(&(Mmm01::default(), Mbc6::default(), Tama5::default())).unwrap();
+        assert_eq!(cart_ext.len(), 306, "the cartridge registers");
+        let (cart_end, ppu_end, apu_end) =
+            (cpu_len + cart_len, cpu_len + cart_len + ppu_len, cpu_len + cart_len + ppu_len + apu_len);
+        let mut out = b"CGBSTAT3".to_vec();
+        out.extend_from_slice(&body[..cart_end - cart_ext.len()]);
+        out.extend_from_slice(&body[cart_end..ppu_end - super::legacy::FIFO_BYTES]);
+        out.extend_from_slice(&body[ppu_end..apu_end - super::legacy::RESAMP_BYTES]);
+        out.extend_from_slice(&body[apu_end..]);
+        assert_eq!(out.len(), full.len() - super::legacy::UPGRADE_BYTES);
+        out
+    }
+
     /// Which console it is comes from the player's setting, not from the save, so loading a
     /// state must not turn a Color back into a Game Boy half way through a game.
     #[test]
@@ -789,10 +1152,18 @@ mod tests {
     #[test]
     fn key1_and_stop_switch_speed() {
         let mut gb = cgb_machine();
-        for _ in 0..4 {
+        for _ in 0..3 {
+            gb.cpu.step(&mut gb.bus);
+        }
+        // The STOP armed the switch, but the speed only toggles when the 2050
+        // M-cycle halt ends — the CPU is halted, not switched, until then.
+        assert!(!gb.bus.double_speed);
+        assert_eq!(gb.cpu.speed_halt, 2050);
+        for _ in 0..2050 {
             gb.cpu.step(&mut gb.bus);
         }
         assert!(gb.bus.double_speed);
+        assert_eq!(gb.cpu.speed_halt, 0);
         assert_eq!(gb.bus.raw_read(0xFF4D), 0xFE);
         // At double speed a frame takes twice the CPU M-cycles.
         let before = gb.bus.cycles;
@@ -972,10 +1343,60 @@ mod tests {
     #[test]
     fn speed_switch_is_logged() {
         let mut gb = cgb_machine();
-        for _ in 0..8 {
+        for _ in 0..3 {
+            gb.cpu.step(&mut gb.bus);
+        }
+        assert!(!gb.bus.double_speed);
+        for _ in 0..2050 {
             gb.cpu.step(&mut gb.bus);
         }
         assert!(gb.bus.double_speed);
         assert!(gb.bus.events.iter().any(|l| l.contains("speed switch: double")), "{:?}", gb.bus.events);
+    }
+
+    /// Low-power STOP: the CPU waits with the LCD off until a button press wakes it.
+    #[test]
+    fn stop_waits_for_a_button_press() {
+        let mut rom = vec![0u8; 0x8000];
+        // At $100: STOP / LD A,$42 / JR -2. No interrupt is pending and IME is
+        // clear, so STOP enters standby.
+        rom[0x100..0x106].copy_from_slice(&[0x10, 0x00, 0x3E, 0x42, 0x18, 0xFE]);
+        let mut gb = GameBoy::new(rom).unwrap();
+        assert!(gb.bus.ppu.on(), "the LCD is on at the start");
+        gb.cpu.step(&mut gb.bus);
+        assert!(gb.cpu.stopped);
+        assert!(!gb.bus.ppu.on(), "STOP turns the LCD off");
+        // A hundred steps with no button: still stopped, the bus still ticking.
+        let cycles = gb.bus.cycles;
+        for _ in 0..100 {
+            gb.cpu.step(&mut gb.bus);
+        }
+        assert!(gb.cpu.stopped);
+        assert!(gb.bus.cycles > cycles);
+        assert_eq!(gb.cpu.a, 0x01, "nothing ran while stopped");
+        // A button press wakes it; the next instruction runs.
+        gb.bus.set_buttons(0x01);
+        gb.cpu.step(&mut gb.bus);
+        assert!(!gb.cpu.stopped);
+        gb.cpu.step(&mut gb.bus);
+        assert_eq!(gb.cpu.a, 0x42);
+    }
+
+    /// STOP with an interrupt pending does not enter standby: with IME clear it
+    /// becomes HALT, which the pending interrupt wakes at once.
+    #[test]
+    fn stop_with_a_pending_interrupt_becomes_halt() {
+        let mut rom = vec![0u8; 0x8000];
+        rom[0x100..0x106].copy_from_slice(&[0x10, 0x00, 0x3E, 0x42, 0x18, 0xFE]);
+        let mut gb = GameBoy::new(rom).unwrap();
+        gb.bus.ie = 0x01;
+        gb.bus.iflag |= 0x01;
+        gb.cpu.step(&mut gb.bus);
+        assert!(!gb.cpu.stopped);
+        assert!(gb.cpu.halted);
+        gb.cpu.step(&mut gb.bus);
+        assert!(!gb.cpu.halted);
+        gb.cpu.step(&mut gb.bus);
+        assert_eq!(gb.cpu.a, 0x42);
     }
 }

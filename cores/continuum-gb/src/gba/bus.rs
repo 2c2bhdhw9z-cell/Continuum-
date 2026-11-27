@@ -10,6 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::ppu::Ppu;
+use super::ppu::W;
 use super::save::{Save, SaveKind};
 use crate::apu::Apu;
 
@@ -30,9 +31,10 @@ struct Dma {
     dst: u32,
     count: u32,
     active: bool,
-    /// Units still to move when a higher priority channel cut in, and whether the next one
+    /// Units still to move when a higher priority channel cut in, whether the next one
     /// follows on from the one before it (it does: the interrupted channel picks up where it
-    /// stopped, as on the console).
+    /// stopped, as on the console), and, when the cut came between a unit's read and its
+    /// write, the value already read and the address it still has to be written to.
     #[serde(skip)]
     pending_channel: Option<(u32, bool)>,
 }
@@ -105,11 +107,17 @@ const PREFETCH_HALVES: u32 = 8;
 impl Prefetch {
     /// `n` cycles in which the cartridge bus is free for it, each doing what the console's
     /// prefetch unit does in a cycle: start a read if there is room, or carry one on.
-    fn tick(&mut self, mut n: u32) {
+    #[inline(always)]
+    fn tick(&mut self, n: u32) {
         self.arrived = false;
         if !self.run || self.check == 0 || self.full {
             return;
         }
+        self.tick_run(n);
+    }
+
+    #[inline(never)]
+    fn tick_run(&mut self, mut n: u32) {
         while n > 0 {
             if self.done == 0 {
                 if self.held == PREFETCH_HALVES {
@@ -257,6 +265,12 @@ pub struct Bus {
     /// did, instead of spilling over it like a real console (core option). Output only.
     #[serde(skip, default = "yes")]
     pub vba_compat: bool,
+    /// Bytes written to the AGBEEG Aging Cartridge's CI register ($04999990), a single-byte
+    /// MMIO register the ROM uses to report test results headlessly (null-terminated test
+    /// name, null-terminated "PASS"/"FAIL", repeated, then null-terminated "DONE"). Not part
+    /// of a save state: it is only a log for the test harness.
+    #[serde(skip)]
+    pub ci_log: Vec<u8>,
     #[serde(skip)]
     gbp_i: u8,
     #[serde(skip)]
@@ -313,9 +327,37 @@ pub struct Bus {
     irq_pending: bool,
     #[serde(skip)]
     irq_at: u64,
+    /// A pending interrupt whose delay runs out inside the three cycles an IE, IF or IME
+    /// write takes to land: the write does not cancel it, and the processor still enters
+    /// the handler even though the switch is off by then. Cleared when it is taken.
+    #[serde(skip)]
+    pub irq_committed: bool,
     /// The cycle a write to IE or IME lands on (writes take effect three cycles later).
     #[serde(skip)]
     irq_write_at: u64,
+    /// Mid-scanline span state: the line a span belongs to (-1: none open) and the next dot
+    /// to render from on it. Not saved: a state made mid-line re-renders the line whole.
+    #[serde(skip)]
+    span_line: i32,
+    #[serde(skip)]
+    span_x: u32,
+    /// The OAM snapshot taken at the previous line's HBlank: sprite evaluation is one line
+    /// ahead, so a write to OAM during a line reaches the picture a line later. Empty until
+    /// the first HBlank, when the live OAM is used instead. Not saved.
+    #[serde(skip)]
+    oam_snap: Vec<u8>,
+    /// The background-enable bits (DISPCNT 8-11) as they stand for the line being drawn:
+    /// enabling a background takes three lines to reach the picture, disabling one takes
+    /// one. Not saved; re-synced from DISPCNT on load.
+    #[serde(skip)]
+    bg_bits: u16,
+    /// Pending enable changes: (absolute line they take effect on, background 0-3, on).
+    /// A later write to the same background replaces an earlier pending one. Not saved.
+    #[serde(skip)]
+    bg_queue: Vec<(u64, u8, bool)>,
+    /// Absolute line counter (never wraps), so queued effects survive the 228-line wrap.
+    #[serde(skip)]
+    line_abs: u64,
     /// When each sound queue's refill is due (0 = none asked for).
     #[serde(skip)]
     fifo_due: [u64; 2],
@@ -324,6 +366,15 @@ pub struct Bus {
     /// Channels that came due while a DMA was running and are waiting their turn in it.
     #[serde(skip)]
     dma_wait: u8,
+    /// A SWP is between its read and its write: the bus is locked, so a DMA that comes due
+    /// waits until the write has happened (the Aging Cartridge's "SWP LOCKS BUS"). Only ever
+    /// true while one instruction runs, so it is not saved.
+    #[serde(skip)]
+    pub dma_locked: bool,
+    /// HBlank/VBlank DMA channels whose trigger fell inside a SWP's lock: they run at the
+    /// next bus access after the lock clears, instead of between the SWP's read and write.
+    #[serde(skip)]
+    pub dma_deferred: u8,
     /// The clock is being run forward right now (`advance`).
     #[serde(skip)]
     in_advance: bool,
@@ -338,6 +389,19 @@ pub struct Bus {
     /// The link port's transfer, and whether a second phone is on the cable (`sio.rs`).
     #[serde(skip)]
     pub sio: super::sio::Sio,
+    /// The BIOS sound driver's work area (SWI 0x1A `SoundDriverInit`), or 0 when no game has
+    /// started it, and the mode it was last given (SWI 0x1B). Not saved: they live in the
+    /// game's own memory as the SoundArea itself, which is saved, but the driver's pointer
+    /// to it is the BIOS's own business; after a state is loaded the driver is quiet until
+    /// the game starts it again (it only ever does that once, at start-up).
+    #[serde(skip)]
+    pub sound_area: u32,
+    #[serde(skip)]
+    pub sound_mode: u32,
+    /// Whether the driver's V-Blank DMA is running (SWI 0x28/0x29). Not saved, with the
+    /// rest of the driver state above.
+    #[serde(skip)]
+    pub sound_vsync_on: bool,
     /// The Wireless Adapter on the link port (`rfu.rs`), and whether the setting lets a game
     /// that looks for one find it.
     #[serde(skip)]
@@ -351,6 +415,30 @@ pub struct Bus {
     /// byte), sorted. Not saved: the app sets the codes.
     #[serde(skip)]
     pub rom_patches: Vec<(u32, u8)>,
+    /// Speed only, never saved: the cycle the next counting timer overflows (`u64::MAX` when
+    /// none is counting), so the clock isn't worked out for all four timers on every access.
+    /// `None` means a timer changed and it has to be worked out again.
+    #[serde(skip)]
+    next_timer: Option<u64>,
+    /// Speed only, never saved: the earliest cycle a DMA switched on to start straight away is
+    /// due (`None`: worked out again on the next access).
+    #[serde(skip)]
+    next_dma: Option<u64>,
+    /// Speed only, never saved: the cycle before which running the machine on changes
+    /// nothing but the clock counters and the sound chip. Up to there `run_pending` moves the
+    /// counters and leaves the sound for later; 0 = worked out again on the next access.
+    #[serde(skip)]
+    fast_until: u64,
+    /// Speed only: cycles the sound chip has still to run through. No output sample, no
+    /// sequencer step and no event falls inside them, so running them later in one go comes out
+    /// exactly the same (`sync_sound`).
+    #[serde(skip)]
+    lazy_sound: u32,
+    /// Speed only, never saved: one cartridge halfword's cycles in each wait-state area,
+    /// [area][seq], worked out from WAITCNT when it is written (and after a state load)
+    /// instead of on every cartridge access.
+    #[serde(skip)]
+    rom_wait: [[u32; 2]; 3],
 }
 
 impl Bus {
@@ -360,7 +448,7 @@ impl Bus {
         apu.agb = true;
         apu.write(0xFF26, 0); // the GBA starts with sound off
         let mp2k = super::mp2k::Mp2k::new(&rom);
-        Bus {
+        let mut bus = Bus {
             fifo_vol: [100; 2],
             fifo_smooth: false,
             mp2k,
@@ -370,8 +458,12 @@ impl Bus {
             fifo_age: [0; 2],
             gbp: false,
             vba_compat: true,
+            ci_log: Vec::new(),
             gbp_i: 0,
             sio: Default::default(),
+            sound_area: 0,
+            sound_mode: super::bios::SOUND_DRIVER_DEFAULT_MODE,
+            sound_vsync_on: true,
             rfu: Default::default(),
             rfu_allowed: true,
             rfu_sd_high: false,
@@ -409,15 +501,49 @@ impl Bus {
             frame_ready: false,
             irq_pending: false,
             irq_at: 0,
+            irq_committed: false,
             irq_write_at: 0,
+            span_line: -1,
+            span_x: 0,
+            oam_snap: Vec::new(),
+            bg_bits: 0,
+            bg_queue: Vec::new(),
+            line_abs: 0,
             fifo_due: [0; 2],
             in_dma: false,
             dma_wait: 0,
+            dma_locked: false,
+            dma_deferred: 0,
             in_advance: false,
             halt_return: None,
             tm: BusTiming::default(),
             rom_patches: Vec::new(),
+            next_timer: None,
+            next_dma: None,
+            fast_until: 0,
+            lazy_sound: 0,
+            rom_wait: [[0; 2]; 3],
+        };
+        bus.work_out_rom_wait();
+        bus
+    }
+
+    /// The cartridge's wait states from WAITCNT (`rom16`'s table, worked out once).
+    fn work_out_rom_wait(&mut self) {
+        let wc = u32::from(self.io16(0x204));
+        for ws in 0..3usize {
+            let seq = if wc & [0x10, 0x80, 0x400][ws] != 0 { 2 } else { [3, 5, 9][ws] };
+            let non = [5, 4, 3, 9][((wc >> (2 + ws as u32 * 3)) & 3) as usize];
+            self.rom_wait[ws] = [non, seq];
         }
+    }
+
+    /// Forget the times worked out ahead (after a state load replaced the timers or the DMAs).
+    pub fn forget_cached_times(&mut self) {
+        self.next_timer = None;
+        self.next_dma = None;
+        self.fast_until = 0;
+        self.work_out_rom_wait();
     }
 
     /// A cheat code's read: memory as the program sees it, with no time passing (cheats.rs).
@@ -493,19 +619,20 @@ impl Bus {
     /// channel cut in — so a save state made in the middle of one carried on the same.
     pub fn cycle_state(
         &self,
-    ) -> (super::sio::Sio, (bool, u64), (u8, [Option<(u32, bool)>; 4]), Option<u32>) {
+    ) -> (super::sio::Sio, (bool, u64, bool), (u8, [Option<(u32, bool)>; 4]), Option<u32>) {
         let pend = self.dma.each_ref().map(|d| d.pending_channel);
-        (self.sio.clone(), (self.irq_pending, self.irq_at), (self.dma_wait, pend), self.halt_return)
+        (self.sio.clone(), (self.irq_pending, self.irq_at, self.irq_committed), (self.dma_wait, pend), self.halt_return)
     }
 
     pub fn set_cycle_state(
         &mut self,
-        c: (super::sio::Sio, (bool, u64), (u8, [Option<(u32, bool)>; 4]), Option<u32>),
+        c: (super::sio::Sio, (bool, u64, bool), (u8, [Option<(u32, bool)>; 4]), Option<u32>),
     ) {
-        let (sio, (pending, at), (wait, pend), halt_return) = c;
+        let (sio, (pending, at, committed), (wait, pend), halt_return) = c;
         self.sio = sio;
         self.irq_pending = pending;
         self.irq_at = at;
+        self.irq_committed = committed;
         self.dma_wait = wait;
         self.halt_return = halt_return;
         for (d, p) in self.dma.iter_mut().zip(pend) {
@@ -525,7 +652,7 @@ impl Bus {
     /// Starts the interrupt's delay running, if a flag is now set that IE allows and none is
     /// already on its way. A flag that is cleared again inside the seven cycles is never taken.
     pub fn irq_ready(&mut self) {
-        if !self.irq_requested() {
+        if !self.irq_requested() && !self.irq_committed {
             self.irq_pending = false;
         } else if !self.irq_pending {
             self.irq_pending = true;
@@ -536,16 +663,28 @@ impl Bus {
         }
     }
 
+    /// A write that would switch a pending interrupt off does not cancel it when its
+    /// delay runs out inside the three cycles the write takes to land: it is committed
+    /// and the processor still enters the handler.
+    fn irq_commit_check(&mut self) {
+        // Only an interrupt whose delay has only just run out: one taken long ago has
+        // already been serviced, and its stale time must not commit it again.
+        if self.irq_pending && !self.irq_requested() && self.irq_at <= self.cycles + 2 && self.irq_at + 4 >= self.cycles {
+            self.irq_committed = true;
+        }
+    }
+
     /// The seven cycles are gone: the processor enters the handler now, if the master switch
-    /// is on and its own interrupts are not masked.
+    /// is on and its own interrupts are not masked. A committed interrupt enters even
+    /// though the switch was turned off after it was committed.
     pub fn irq_line(&self) -> bool {
-        self.irq_elapsed() && self.io[0x208] & 1 != 0
+        self.irq_elapsed() && (self.io[0x208] & 1 != 0 || self.irq_committed)
     }
 
     /// An interrupt is requested and its seven cycles are gone (the master switch is not looked
     /// at: a halted console wakes for the flag either way, as the real one does).
     pub fn irq_elapsed(&self) -> bool {
-        self.irq_pending && self.irq_requested() && self.now() >= self.irq_at
+        self.irq_pending && (self.irq_requested() || self.irq_committed) && self.now() >= self.irq_at
     }
 
     pub fn irq_requested(&self) -> bool {
@@ -560,13 +699,9 @@ impl Bus {
     // ------------------------------------------------------------ timing
 
     /// Cycles of one 16-bit cartridge read in wait-state area `ws` (0 to 2), from WAITCNT.
+    #[inline(always)]
     fn rom16(&self, ws: u32, seq: bool) -> u32 {
-        let wc = u32::from(self.io16(0x204));
-        if seq {
-            if wc & [0x10, 0x80, 0x400][ws as usize] != 0 { 2 } else { [3, 5, 9][ws as usize] }
-        } else {
-            [5, 4, 3, 9][((wc >> (2 + ws * 3)) & 3) as usize]
-        }
+        self.rom_wait[ws as usize][seq as usize]
     }
 
     /// Cycles one access takes: 32 bits wide or not, sequential (following on from the one
@@ -643,8 +778,36 @@ impl Bus {
     /// Runs a DMA switched on to start straight away once its start-up time has passed: when
     /// the CPU next wants the bus. If it came due while the CPU was only busy inside itself,
     /// it ran alongside those cycles, so only what is left of it holds the CPU up.
+    #[inline(always)]
     fn dma_catch_up(&mut self) {
+        // A SWP holds the bus for its read and write: nothing starts until it is done.
+        if self.dma_locked {
+            return;
+        }
+        // The usual case, nothing due: decided here without a call.
+        if let Some(n) = self.next_dma {
+            if n > self.now() && self.dma_deferred == 0 {
+                return;
+            }
+        }
+        self.dma_catch_up_due();
+    }
+
+    #[inline(never)]
+    fn dma_catch_up_due(&mut self) {
         let now = self.now();
+        let next = match self.next_dma {
+            Some(v) => v,
+            None => {
+                let v = self.tm.dma_due.iter().copied().min().unwrap_or(u64::MAX);
+                self.next_dma = Some(v);
+                v
+            }
+        };
+        if next > now && self.dma_deferred == 0 {
+            return;
+        }
+        self.next_dma = None;
         for ch in 0..4 {
             let due = self.tm.dma_due[ch];
             if due > now {
@@ -655,11 +818,46 @@ impl Bus {
                 continue;
             }
             let start = due.max(self.tm.bus_end);
-            let before = self.pending;
+            // How long the transfer itself took, measured as the wall time it added: the
+            // old `pending - before` counted only what was left un-run, which is 1 minus
+            // the CPU's own pending cycles — 0 for a one-cycle idle, and a wrap to ~2^32
+            // for any more (the machine clock then jumped by billions of cycles, which
+            // only stayed hidden because 2^32 is a multiple of a 16-bit timer's period).
+            let total_before = self.cycles + u64::from(self.pending);
             self.run_dma(ch);
-            let took = self.pending - before;
-            let overlap = (now.saturating_sub(start)).min(u64::from(took)) as u32;
-            self.pending -= overlap;
+            let took = (self.cycles + u64::from(self.pending)).saturating_sub(total_before);
+            // The part of the transfer that already ran alongside the CPU's own cycles.
+            let overlap = total_before.saturating_sub(start).min(took) as u32;
+            // Take those cycles back out of the time charged: the trailing idle first,
+            // then the machine clock (and the scanline position with it, so the two stay
+            // in step), with the fast-forward horizon dropped so it is recomputed.
+            let mut rem = overlap;
+            let take = rem.min(self.pending);
+            self.pending -= take;
+            rem -= take;
+            if rem > 0 {
+                let lc = self.line_cycle;
+                // But not across a line edge the machine already crossed: its HBlank /
+                // new-line work already ran and would run twice. Then the handful of
+                // cycles stays in, and the timer reads a touch high for this one catch-up.
+                if lc >= rem && !(lc >= HBLANK_AT && lc - HBLANK_AT < rem) {
+                    self.cycles -= u64::from(rem);
+                    self.line_cycle -= rem;
+                    self.fast_until = 0;
+                }
+            }
+        }
+        // A HBlank/VBlank trigger that fell inside a SWP's lock runs now that it is clear.
+        if self.dma_deferred != 0 {
+            let deferred = std::mem::take(&mut self.dma_deferred);
+            for ch in 0..4 {
+                if deferred & (1 << ch) != 0
+                    && self.dma[ch].active
+                    && self.io16(0xBA + ch * 12) & 0x8000 != 0
+                {
+                    self.run_dma(ch);
+                }
+            }
         }
     }
 
@@ -768,10 +966,10 @@ impl Bus {
         self.tm.bus_end = self.now();
         self.run_pending();
         if thumb {
-            let v = self.peek16(addr);
+            let v = self.fetch16(addr);
             // What an unmapped read returns afterwards: the last opcode read, arranged by where
             // the code runs from (two halves of the same opcode for most of the memory map).
-            let other = |s: &Self, a: u32| s.peek16(a);
+            let other = |s: &Self, a: u32| s.fetch16(a);
             self.open_bus = match addr >> 24 {
                 0x00 | 0x07 if addr & 2 == 0 => v | other(self, addr + 2) << 16,
                 0x00 | 0x07 => other(self, addr.wrapping_sub(2)) | v << 16,
@@ -781,7 +979,7 @@ impl Bus {
             };
             v
         } else {
-            let v = self.peek32(addr);
+            let v = self.fetch32(addr);
             self.open_bus = v;
             if addr < 0x4000 {
                 // What a BIOS read from outside returns: the last opcode the BIOS read.
@@ -793,16 +991,43 @@ impl Bus {
 
     // ------------------------------------------------------------ CPU access
 
+    /// Before the processor reads a register: the sound chip is brought up to date (the
+    /// speed path leaves it behind between events).
+    #[inline(always)]
+    fn before_io_read(&mut self, addr: u32) {
+        if addr >> 24 == 0x04 {
+            self.sync_sound();
+        }
+    }
+
+    /// Before a register is written: the sound chip is brought up to date, and what lies ahead
+    /// is worked out again afterwards (the write can start a timer, a transfer or the sound).
+    fn before_io_write(&mut self) {
+        self.sync_sound();
+        self.fast_until = 0;
+    }
+
+    /// Start and end of a frame: everything owed is run, and what lies ahead worked out afresh.
+    pub fn sync_all(&mut self) {
+        self.sync_sound();
+        self.fast_until = 0;
+    }
+
     pub fn read8(&mut self, addr: u32) -> u32 {
         self.data(addr, false, false);
         self.run_pending();
+        self.before_io_read(addr);
         self.peek8(addr)
     }
 
     pub fn read16(&mut self, addr: u32) -> u32 {
         self.data(addr, false, false);
         self.run_pending();
-        self.peek16(addr)
+        self.before_io_read(addr);
+        if self.eeprom_at(addr) {
+            return u32::from(self.save.eeprom_read());
+        }
+        self.fetch16(addr)
     }
 
     pub fn read32(&mut self, addr: u32) -> u32 {
@@ -813,7 +1038,24 @@ impl Bus {
     pub fn read32_seq(&mut self, addr: u32, seq: bool) -> u32 {
         self.data(addr, true, seq);
         self.run_pending();
-        self.peek32(addr)
+        self.before_io_read(addr);
+        if self.eeprom_at(addr) {
+            // The cartridge bus is 16 bits wide: a word is two reads, two bits.
+            let lo = u32::from(self.save.eeprom_read());
+            return lo | u32::from(self.save.eeprom_read()) << 16;
+        }
+        self.fetch32(addr)
+    }
+
+    /// The EEPROM's own address range (cartridges up to 16 MiB put it all over $0D000000).
+    /// Reading it takes the chip's next bit: the answer to a read request, or 1 (ready).
+    /// Before this the phone core always answered 1 here, so a game read back nothing but
+    /// $FF and called its save broken (Super Mario Advance 2: "Your save data is corrupt").
+    /// `peek16` still answers 1: it does not consume a bit, so opcode fetches and cheat
+    /// reads through it leave the chip alone.
+    #[inline(always)]
+    fn eeprom_at(&self, addr: u32) -> bool {
+        addr >> 24 == 0x0D && self.save.kind == SaveKind::Eeprom && self.rom.len() <= 0x100_0000
     }
 
     pub fn write8(&mut self, addr: u32, v: u8) {
@@ -856,6 +1098,7 @@ impl Bus {
         let a = (addr & 0xFF_FFFF) as usize;
         let dma_cnt = (0xB8..0xE0).contains(&a) && (a - 0xB8) % 12 == 8;
         if addr >> 24 == 0x04 && dma_cnt {
+            self.before_io_write();
             self.io_write16(a, v as u16);
             self.io_write16(a + 2, (v >> 16) as u16);
             self.run_pending();
@@ -869,6 +1112,36 @@ impl Bus {
     fn vram_index(addr: u32) -> usize {
         let a = (addr & 0x1FFFF) as usize;
         if a >= 0x18000 { a - 0x8000 } else { a }
+    }
+
+    /// `peek16` with the work RAMs and the plain part of the cartridge read straight (the
+    /// speed path); everything else goes through `peek16` itself. Same values.
+    #[inline(always)]
+    fn fetch16(&self, addr: u32) -> u32 {
+        let r = |m: &[u8], i: usize| u32::from(m[i]) | u32::from(m[i + 1]) << 8;
+        match addr >> 24 {
+            0x03 => r(&self.iwram, (addr & 0x7FFE) as usize),
+            0x02 => r(&self.ewram, (addr & 0x3FFFE) as usize),
+            0x08..=0x0C => {
+                let a = (addr & 0x1FF_FFFE) as usize;
+                if a >= 0x100 && a + 1 < self.rom.len() && self.rom_patches.is_empty() {
+                    r(&self.rom, a)
+                } else {
+                    self.peek16(addr)
+                }
+            }
+            _ => self.peek16(addr),
+        }
+    }
+
+    /// `peek32` the same way.
+    #[inline(always)]
+    fn fetch32(&self, addr: u32) -> u32 {
+        let a = addr & !3;
+        match a >> 24 {
+            0x02 | 0x03 | 0x08..=0x0C => self.fetch16(a) | self.fetch16(a + 2) << 16,
+            _ => self.peek32(addr),
+        }
     }
 
     pub fn peek8(&self, addr: u32) -> u32 {
@@ -958,8 +1231,12 @@ impl Bus {
             0x02 => self.ewram[(addr & 0x3FFFF) as usize] = v,
             0x03 => self.iwram[(addr & 0x7FFF) as usize] = v,
             0x04 => {
+                self.before_io_write();
                 let a = (addr & 0xFF_FFFF) as usize;
-                if a < 0x400 {
+                if a == 0x999990 {
+                    // The AGBEEG Aging Cartridge's CI register: a byte of a test result.
+                    self.ci_log.push(v);
+                } else if a < 0x400 {
                     self.io_write8(a, v);
                 } else if a & 0xFFFC == 0x800 {
                     let sh = (a & 3) * 8;
@@ -969,11 +1246,13 @@ impl Bus {
             // Byte writes to palette and background VRAM write the byte to both halves;
             // to OBJ VRAM and OAM they are ignored.
             0x05 => {
+                self.flush_span();
                 let a = (addr & 0x3FE) as usize;
                 self.pal[a] = v;
                 self.pal[a + 1] = v;
             }
             0x06 => {
+                self.flush_span();
                 let a = Self::vram_index(addr) & !1;
                 let limit = if self.io[0] & 7 >= 3 { 0x14000 } else { 0x10000 };
                 if a < limit {
@@ -999,17 +1278,30 @@ impl Bus {
             0x02 => w(&mut self.ewram, (addr & 0x3FFFF) as usize),
             0x03 => w(&mut self.iwram, (addr & 0x7FFF) as usize),
             0x04 => {
+                self.before_io_write();
                 let a = (addr & 0xFF_FFFF) as usize;
-                if a < 0x400 {
+                if a == 0x999990 {
+                    // The AGBEEG Aging Cartridge's CI register: the low byte of a result.
+                    self.ci_log.push(v as u8);
+                } else if a < 0x400 {
                     self.io_write16(a, v);
                 } else if a & 0xFFFC == 0x800 {
                     let sh = (a & 2) * 8;
                     self.tm.memcnt = (self.tm.memcnt & !(0xFFFF << sh)) | u32::from(v) << sh;
                 }
             }
-            0x05 => w(&mut self.pal, (addr & 0x3FF) as usize),
-            0x06 => w(&mut self.vram, Self::vram_index(addr)),
-            0x07 => w(&mut self.oam, (addr & 0x3FF) as usize),
+            0x05 => {
+                self.flush_span();
+                w(&mut self.pal, (addr & 0x3FF) as usize)
+            }
+            0x06 => {
+                self.flush_span();
+                w(&mut self.vram, Self::vram_index(addr))
+            }
+            0x07 => {
+                self.flush_span();
+                w(&mut self.oam, (addr & 0x3FF) as usize)
+            }
             0x08 if (0x0800_00C4..=0x0800_00C9).contains(&addr) => {
                 // The clock reads the time on a write, so tell it how long the game has run.
                 self.gpio.run_secs = self.cycles / CPU_HZ;
@@ -1114,7 +1406,33 @@ impl Bus {
     }
 
     pub(super) fn io_write16(&mut self, a: usize, v: u16) {
+        // A write to a picture register during HDraw moves the picture from this dot on:
+        // draw up to here with the state as it stands first. (DISPSTAT and VCOUNT are not
+        // picture registers; the DMA control registers live above this range.)
+        if a <= 0x54 && a != 0x04 && a != 0x06 {
+            self.flush_span();
+        }
         match a {
+            0 => {
+                // Background enables reach the picture late: a background switched on takes
+                // three lines to appear, one switched off takes one line to go. The live
+                // register changes at once (mode, forced blank and the rest are immediate);
+                // only bits 8-11 are queued, per background, the latest write winning.
+                let old = self.io16(0);
+                self.set_io16(0, v);
+                let changed = (old ^ v) & 0xF00;
+                if changed != 0 {
+                    for b in 0..4u8 {
+                        let bit = 0x100u16 << b;
+                        if changed & bit != 0 {
+                            let on = v & bit != 0;
+                            let delay = if on { 3 } else { 1 };
+                            self.bg_queue.retain(|&(_, qb, _)| qb != b);
+                            self.bg_queue.push((self.line_abs + delay, b, on));
+                        }
+                    }
+                }
+            }
             0x04 => {
                 let cur = self.io16(4);
                 self.set_io16(4, (cur & 7) | (v & 0xFF38));
@@ -1122,7 +1440,7 @@ impl Bus {
             0x06 => {}
             0x28..=0x2F | 0x38..=0x3F => {
                 self.set_io16(a, v);
-                self.ppu.reload_affine(&self.io);
+                self.ppu.reload_affine(&self.io, false);
             }
             0x82 => {
                 self.set_io16(a, v);
@@ -1160,6 +1478,7 @@ impl Bus {
                 }
                 if !on {
                     self.tm.dma_due[ch] = u64::MAX;
+                    self.next_dma = None;
                 }
             }
             0x84 => {
@@ -1178,6 +1497,7 @@ impl Bus {
             0x204 => {
                 // Bit 13 is unused and bit 15 says it is an Advance (0), read-only.
                 self.set_io16(0x204, v & 0x5FFF);
+                self.work_out_rom_wait();
                 let thumb = self.tm.thumb;
                 let p = &mut self.tm.prefetch;
                 let on = v & 0x4000 != 0;
@@ -1229,8 +1549,9 @@ impl Bus {
             0x202 => {
                 let cur = self.io16(0x202);
                 self.set_io16(0x202, cur & !v);
+                self.irq_commit_check();
                 // Clearing a flag inside the interrupt's seven cycles cancels it.
-                if self.io16(0x202) & self.io16(0x200) == 0 {
+                if self.io16(0x202) & self.io16(0x200) == 0 && !self.irq_committed {
                     self.irq_pending = false;
                 }
             }
@@ -1249,7 +1570,14 @@ impl Bus {
                 // 3 cycles"). The delay before the handler is entered starts from there.
                 self.set_io16(a, v);
                 self.irq_write_at = self.cycles + 3;
+                self.irq_commit_check();
                 self.irq_ready();
+                // A flag that was raised while interrupts were masked has already run
+                // its delay out: turning the switch on starts the seven cycles again
+                // from this write, it does not enter the handler at once.
+                if self.irq_requested() && self.irq_pending && self.now() >= self.irq_at {
+                    self.irq_at = self.now().max(self.irq_write_at);
+                }
             }
             _ => self.set_io16(a, v),
         }
@@ -1268,7 +1596,9 @@ impl Bus {
         self.dma_reload_count(ch);
         if (self.io16(base + 10) >> 12) & 3 == 0 {
             // It starts two cycles after the write that switched it on has ended.
-            self.tm.dma_due[ch] = self.cycles + 2;
+            // P7 exp: channel 0 needs two more (see start-delay vs prefetcher_dma).
+            self.tm.dma_due[ch] = self.cycles + if ch == 0 { 4 } else { 2 };
+            self.next_dma = None;
         }
     }
 
@@ -1289,6 +1619,14 @@ impl Bus {
                 if timing == 3 && (ch == 1 || ch == 2) {
                     continue; // sound DMA is triggered by its FIFO
                 }
+                if self.dma_locked {
+                    // A SWP is holding the bus: this channel waits until the lock clears
+                    // (the next bus access runs it) instead of landing between the SWP's
+                    // read and write. Sound DMA is left alone: its destination is always
+                    // the sound FIFO, so it can never write the SWP's address.
+                    self.dma_deferred |= 1 << ch;
+                    continue;
+                }
                 self.run_dma(ch);
             }
         }
@@ -1304,6 +1642,9 @@ impl Bus {
             self.dma_wait |= 1 << ch;
             return;
         }
+        // A transfer can read and write the sound registers: the sound chip catches up first.
+        self.sync_sound();
+        self.fast_until = 0;
         self.in_dma = true;
         self.dma_wait = 1 << ch;
         while self.dma_wait != 0 {
@@ -1351,7 +1692,7 @@ impl Bus {
         let cart = |a: u32| (0x08..=0x0F).contains(&(a >> 24));
         let internal = if cart(s) && cart(d) { 2 } else { 1 };
         let (mut left, first_seq) = match resume {
-            Some((left, _)) => (left, true),
+            Some((left, seq)) => (left, seq),
             None => {
                 let count = if fifo { 4 } else { self.dma[ch].count };
                 if self.dma[ch].dst >> 24 == 0x0D {
@@ -1363,15 +1704,23 @@ impl Bus {
         };
         while left > 0 {
             let seq = first_seq || left < if fifo { 4 } else { self.dma[ch].count };
-            if word {
+            let v = if word {
                 self.data(s & !3, true, seq);
-                let v = self.peek32(s & !3);
+                if self.eeprom_at(s) {
+                    let lo = u32::from(self.save.eeprom_read());
+                    lo | u32::from(self.save.eeprom_read()) << 16
+                } else {
+                    self.peek32(s & !3)
+                }
+            } else {
+                self.data(s & !1, false, seq);
+                if self.eeprom_at(s) { u32::from(self.save.eeprom_read()) } else { self.peek16(s & !1) }
+            };
+            if word {
                 self.data(d & !3, true, seq);
                 self.poke16(d & !3, v as u16);
                 self.poke16((d & !3) + 2, (v >> 16) as u16);
             } else {
-                self.data(s & !1, false, seq);
-                let v = self.peek16(s & !1);
                 self.data(d & !1, false, seq);
                 self.poke16(d & !1, v as u16);
             }
@@ -1390,6 +1739,8 @@ impl Bus {
             }
         }
         if resume.is_none() {
+            // The second half of the transfer's internal cycles, charged only when the
+            // transfer started fresh, as the console charges them.
             self.idle(internal);
         }
         if cnt & 0x4000 != 0 {
@@ -1608,6 +1959,8 @@ impl Bus {
     /// step from the cycle after that (the prescaler is one free-running divider all four
     /// timers share, so a slow timer's first tick can come early).
     fn timer_control(&mut self, i: usize, v: u16) {
+        self.next_timer = None;
+        self.fast_until = 0;
         let now = self.cycles + 1;
         let was_on = self.timers[i].ctrl & 0x80 != 0;
         if self.timer_free(i) {
@@ -1651,7 +2004,23 @@ impl Bus {
         }
     }
 
+    /// The cycle the next counting timer overflows, `u64::MAX` when none is counting.
+    fn next_timer_at(&mut self) -> u64 {
+        if let Some(t) = self.next_timer {
+            return t;
+        }
+        let mut m = u64::MAX;
+        for i in 0..4 {
+            if self.timer_free(i) {
+                m = m.min(self.timer_overflow_at(i));
+            }
+        }
+        self.next_timer = Some(m);
+        m
+    }
+
     fn timer_overflow(&mut self, i: usize, at: u64) {
+        self.next_timer = None;
         self.timers[i].counter = self.timers[i].reload;
         self.tm.timer_at[i] = at;
         if self.timers[i].ctrl & 0x40 != 0 {
@@ -1677,10 +2046,69 @@ impl Bus {
             .min()
     }
 
+    /// Runs the rest of the machine through the cycles spent so far. The usual case (the
+    /// speed path): nothing happens before `fast_until`, so only the clock counters move and
+    /// the sound chip's share waits in `lazy_sound`. Everything else goes the full way.
+    #[inline(always)]
     pub fn run_pending(&mut self) {
         if self.in_dma {
             return;
         }
+        let end = self.cycles + u64::from(self.pending);
+        if end < self.fast_until {
+            let n = self.pending;
+            self.pending = 0;
+            self.cycles = end;
+            self.line_cycle += n;
+            self.lazy_sound += n;
+            return;
+        }
+        self.run_pending_full();
+    }
+
+    /// Runs the sound chip through the cycles it was left behind by. They hold no output
+    /// sample, no sequencer step and no event, so this is what running them one access at a
+    /// time would have done.
+    #[inline]
+    pub fn sync_sound(&mut self) {
+        if self.lazy_sound != 0 {
+            let n = self.lazy_sound;
+            self.lazy_sound = 0;
+            self.sound(n);
+        }
+    }
+
+    /// The cycle before which running on changes nothing but the counters and the sound chip:
+    /// the next line edge, timer overflow, sound sequencer step and output sample. 0 (always
+    /// the full way) while anything shorter-lived is under way.
+    fn work_out_fast_until(&mut self) -> u64 {
+        if self.in_dma
+            || self.fifo_due != [0; 2]
+            || self.irq_write_at != 0
+            || self.cycles_to_sio().is_some()
+            || self.apu.hq
+            || self.apu.out_hz == 0
+            || self.apu.settling()
+        {
+            return 0;
+        }
+        let boundary = if self.line_cycle < HBLANK_AT { HBLANK_AT } else { LINE };
+        let mut until = self.cycles + u64::from(boundary - self.line_cycle);
+        until = until.min(self.next_timer_at());
+        // `sound` with the cycles still owed to it counted in.
+        let seq = self.seq_acc + self.lazy_sound;
+        let to_seq = if seq < 16384 { 16384 - seq } else { 32768 - seq };
+        until = until.min(self.cycles + u64::from(to_seq));
+        let hz = self.apu.out_hz;
+        let left = crate::apu::CPU_HZ - self.apu.sample_acc();
+        let ticks = left.div_ceil(hz);
+        let to_sample = (4 * u64::from(ticks)).saturating_sub(u64::from(self.gb_acc + self.lazy_sound));
+        until.min(self.cycles + to_sample)
+    }
+
+    #[inline(never)]
+    fn run_pending_full(&mut self) {
+        self.sync_sound();
         // A write to IE or IME only takes effect three cycles after it was made, so the line is
         // looked at again once that has passed (the timing programs write IE around the moment a
         // flag comes up and measure which wins).
@@ -1699,22 +2127,35 @@ impl Bus {
             self.pending = 0;
             self.advance(n);
         }
+        self.fast_until = self.work_out_fast_until();
     }
 
     /// Runs the rest of the machine for `n` cycles. It stops at every point something happens
     /// at its own cycle — a timer overflow, the link port's transfer ending, a scanline's edge —
     /// so a register read taken at that moment sees the count the console would show.
-    fn advance(&mut self, mut n: u32) {
+    fn advance(&mut self, n: u32) {
+        self.sync_sound();
+        self.fast_until = 0;
         self.in_advance = true;
         let mut left = n;
         while left > 0 {
             let boundary = if self.line_cycle < HBLANK_AT { HBLANK_AT } else { LINE };
             let mut step = left.min(boundary - self.line_cycle);
-            if let Some(d) = self.cycles_to_event() {
+            // The same as cycles_to_event, with the timers' part remembered between accesses.
+            let timer_at = self.next_timer_at();
+            let timer = (timer_at != u64::MAX).then(|| timer_at.saturating_sub(self.cycles));
+            let event = match (timer, self.cycles_to_sio()) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+            if let Some(d) = event {
                 step = step.min(d.clamp(1, u64::from(u32::MAX)) as u32);
             }
             self.cycles += u64::from(step);
-            self.run_timers();
+            // Only an overflow that is due now has anything to run.
+            if timer_at <= self.cycles {
+                self.run_timers();
+            }
             self.line_cycle += step;
             left -= step;
             if self.line_cycle == HBLANK_AT {
@@ -1742,13 +2183,93 @@ impl Bus {
         }
     }
 
-    fn hblank(&mut self) {
-        if self.line < 160 {
-            let (io, vram, pal, oam) = (&self.io, &self.vram, &self.pal, &self.oam);
-            if !self.ppu.no_render {
-                self.ppu.render_line(io, vram, pal, oam, self.line as usize);
+    /// The background enables as they stand after a state load: the live DISPCNT, with no
+    /// change pending and no span open. (A state made mid-line re-renders the line whole.)
+    pub fn sync_bg_bits(&mut self) {
+        self.bg_bits = self.io16(0) & 0xF00;
+        self.bg_queue.clear();
+        self.span_line = -1;
+        self.span_x = 0;
+        self.oam_snap.clear();
+    }
+
+    /// Applies the background-enable changes whose line has come. This runs at render time
+    /// (a span flush, or HBlank), not at the line edge: a write made during the line itself
+    /// can still supersede a change queued for that line before the line is drawn.
+    fn apply_bg_queue(&mut self) {
+        let now = self.line_abs;
+        let mut i = 0;
+        while i < self.bg_queue.len() {
+            let (at, b, on) = self.bg_queue[i];
+            if at <= now {
+                self.bg_queue.remove(i);
+                if on {
+                    self.bg_bits |= 0x100 << b;
+                } else {
+                    self.bg_bits &= !(0x100 << b);
+                }
+            } else {
+                i += 1;
             }
         }
+    }
+
+    /// Renders the dots of the current line up to the dot the machine has reached, with the
+    /// state as it stands before the write that called this. Only during HDraw of a visible
+    /// line; a write in HBlank or VBlank finds the line already drawn (or not drawn at all).
+    /// The objects come from the snapshot taken at the previous line's HBlank, and the
+    /// background enables are the delayed ones — so the span shows the picture as it was,
+    /// not as the write is about to make it.
+    fn flush_span(&mut self) {
+        if self.line >= 160 || self.line_cycle >= HBLANK_AT || self.ppu.no_render {
+            return;
+        }
+        if self.span_line != self.line as i32 {
+            self.span_line = self.line as i32;
+            self.span_x = 0;
+        }
+        let x = (self.line_cycle / 4).min(240);
+        if x <= self.span_x {
+            return;
+        }
+        let y = self.line as usize;
+        let x0 = self.span_x as usize;
+        let x1 = x as usize;
+        self.apply_bg_queue();
+        let (io, vram, pal) = (&self.io, &self.vram, &self.pal);
+        let oam = if self.oam_snap.is_empty() { &self.oam } else { &self.oam_snap };
+        let bg = self.bg_bits;
+        self.ppu.render_span(io, vram, pal, oam, y, x0, x1, bg);
+        self.span_x = x;
+    }
+
+    fn hblank(&mut self) {
+        if self.line < 160 && !self.ppu.no_render {
+            // Finish the line: the spans already drawn stop where the last mid-line write
+            // left off, and the rest renders with the state as it stands at HBlank.
+            let y = self.line as usize;
+            let x0 = if self.span_line == self.line as i32 { self.span_x as usize } else { 0 };
+            if x0 < W {
+                self.apply_bg_queue();
+                let (io, vram, pal) = (&self.io, &self.vram, &self.pal);
+                let oam = if self.oam_snap.is_empty() { &self.oam } else { &self.oam_snap };
+                let bg = self.bg_bits;
+                self.ppu.render_span(io, vram, pal, oam, y, x0, W, bg);
+            }
+            self.span_line = -1;
+            self.span_x = 0;
+            // Sprite evaluation is one line ahead: the OAM as it stands at this HBlank is
+            // what the next line's sprites are drawn from. A write to OAM after this point
+            // (in HBlank, or during the next line) reaches the picture a line later still.
+            self.oam_snap = self.oam.clone();
+        }
+        // The HBlank IF flag is set at the start of HBlank only when DISPSTAT
+        // bit 4 is set (same gate as VBlank bit 3, VCount bit 5). An earlier
+        // P7 experiment ungated VBlank and HBlank because the suite's menu and
+        // DMA tests hung without the bits set — that was a scaffold bug, not an
+        // emulator bug: real libgba's irqEnable sets the DISPSTAT bits (see
+        // scripts/mgba-suite-build/src/interrupt.c), and ungating regressed
+        // Alyosha's Halt_DMA_IRQ_Read_OAM. The gates stay.
         if self.io16(4) & 0x10 != 0 {
             self.request_irq(IRQ_HBLANK);
         }
@@ -1760,6 +2281,7 @@ impl Bus {
     fn next_line(&mut self) {
         self.sio_line();
         self.line += 1;
+        self.line_abs += 1;
         if self.line == 228 {
             self.line = 0;
             // The start of a frame, by which time a game has done its once-a-frame sound work:
@@ -1771,7 +2293,7 @@ impl Bus {
         let stat = self.io16(4);
         if self.line == 160 {
             self.frame_ready = true;
-            self.ppu.reload_affine(&self.io);
+            self.ppu.reload_affine(&self.io, true);
             if stat & 0x08 != 0 {
                 self.request_irq(IRQ_VBLANK);
             }

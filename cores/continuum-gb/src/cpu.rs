@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::bus::Bus;
+use crate::bus::{Bus, INT_JOYPAD};
 
 const Z: u8 = 0x80;
 const N: u8 = 0x40;
@@ -32,6 +32,14 @@ pub struct Cpu {
     ei_now: bool,
     /// An illegal opcode locks the CPU, as on hardware.
     pub locked: bool,
+    /// Low-power STOP: the CPU waits for a button press (a joypad interrupt
+    /// request). Not saved: a loaded state resumes the CPU.
+    #[serde(skip)]
+    pub stopped: bool,
+    /// M-cycles left in a CGB speed-switch halt (0 when not switching). Not saved:
+    /// a loaded state resumes the CPU at its saved speed.
+    #[serde(skip)]
+    pub speed_halt: u16,
     /// Set when `LD B,B` runs (Mooneye's "test finished" breakpoint).
     #[serde(skip)]
     pub ld_b_b: bool,
@@ -73,6 +81,8 @@ impl Default for Cpu {
             halt_bug: false,
             ei_now: false,
             locked: false,
+            stopped: false,
+            speed_halt: 0,
             ld_b_b: false,
         }
     }
@@ -97,6 +107,10 @@ impl Cpu {
     }
 
     fn fetch(&mut self, bus: &mut Bus) -> u8 {
+        // Executing code from OAM corrupts it twice on a DMG: once for the read, once for PC
+        // increasing inside OAM (Pan Docs, "OAM Corruption Bug"). The read is noted by
+        // `Bus::read`; the PC increase is noted here, before the fetch's tick.
+        bus.note_oam(self.pc, true);
         let v = bus.read(self.pc);
         if self.halt_bug {
             self.halt_bug = false;
@@ -120,6 +134,11 @@ impl Cpu {
     }
 
     fn pop(&mut self, bus: &mut Bus) -> u16 {
+        // The first SP increase glitches a write if SP was in OAM range; the second does not
+        // (Pan Docs: pop corrupts 3 times — one read, one glitched write, another read).
+        // The glitch belongs to the same M-cycle as the low-byte read, so it is noted
+        // BEFORE that read ticks.
+        bus.note_oam(self.sp, true);
         let lo = bus.read(self.sp);
         self.sp = self.sp.wrapping_add(1);
         let hi = bus.read(self.sp);
@@ -233,6 +252,9 @@ impl Cpu {
             return false;
         }
         self.ime = false;
+        // Interrupt handling pushes like a call: the implied SP decrease glitches a write if
+        // SP was in OAM range (Pan Docs, "OAM Corruption Bug").
+        bus.note_oam(self.sp, true);
         bus.tick();
         bus.tick();
         let pc = self.pc;
@@ -260,6 +282,26 @@ impl Cpu {
             bus.tick();
             return;
         }
+        // A CGB speed-switch halt: the CPU does nothing, the picture keeps going
+        // but the timer is frozen, for 2050 M-cycles, then the speed toggles and
+        // the CPU resumes.
+        if self.speed_halt > 0 {
+            bus.tick_frozen();
+            self.speed_halt -= 1;
+            if self.speed_halt == 0 {
+                bus.finish_speed_switch();
+            }
+            return;
+        }
+        // Low-power STOP: the CPU does nothing, the bus keeps ticking, until a
+        // button press (a joypad interrupt request) wakes it.
+        if self.stopped {
+            if bus.iflag & INT_JOYPAD == 0 {
+                bus.tick();
+                return;
+            }
+            self.stopped = false;
+        }
         if self.halted {
             if bus.ie & bus.iflag & 0x1F == 0 {
                 bus.tick();
@@ -285,6 +327,32 @@ impl Cpu {
         }
     }
 
+    /// STOP. A CGB speed switch when KEY1 is armed: halted for 2050 M-cycles, then
+    /// the speed toggles. Otherwise low-power standby until a button press — unless
+    /// an interrupt is already pending, in which case STOP is skipped (IME set: the
+    /// interrupt is taken on the next step) or becomes HALT (IME clear), the
+    /// hardware's glitch (Pan Docs, "Reducing Power Consumption"). The DIV reset
+    /// happens for every STOP, speed switch or standby alike.
+    fn stop(&mut self, bus: &mut Bus) {
+        bus.stop();
+        if bus.cgb && bus.speed_prepare {
+            self.speed_halt = 2050;
+            return;
+        }
+        let pending = bus.ie & bus.iflag & 0x1F;
+        if pending != 0 {
+            if !self.ime {
+                // No interrupt is taken, but the CPU halts until one is requested.
+                self.halted = true;
+            }
+            return;
+        }
+        self.stopped = true;
+        if bus.ppu.on() {
+            bus.ppu.write_lcdc(bus.ppu.lcdc & 0x7F);
+        }
+    }
+
     fn execute(&mut self, bus: &mut Bus, op: u8) {
         let x = op >> 6;
         let y = (op >> 3) & 7;
@@ -297,8 +365,8 @@ impl Cpu {
                 bus.write(a.wrapping_add(1), (self.sp >> 8) as u8);
             }
             0x10 => {
-                self.fetch(bus); // STOP's second byte; low-power stop itself is not modelled
-                bus.stop();
+                self.fetch(bus); // STOP's second byte
+                self.stop(bus);
             }
             0x18 => {
                 let e = self.fetch(bus) as i8;
@@ -333,6 +401,11 @@ impl Cpu {
                     1 => self.de(),
                     _ => self.hl(),
                 };
+                if matches!(y >> 1, 2 | 3) {
+                    // The HL increase/decrease after the access corrupts OAM too, in the same
+                    // M-cycle as the access (Pan Docs: these corrupt twice).
+                    bus.note_oam(addr, true);
+                }
                 if y & 1 == 0 {
                     bus.write(addr, self.a);
                 } else {
@@ -347,6 +420,9 @@ impl Cpu {
             _ if x == 0 && z == 3 => {
                 let p = y >> 1;
                 let v = self.rp(p);
+                // Increasing or decreasing a 16-bit register in OAM range triggers a write
+                // corruption on a DMG (Pan Docs, "OAM Corruption Bug").
+                bus.note_oam(v, true);
                 self.set_rp(p, if y & 1 == 0 { v.wrapping_add(1) } else { v.wrapping_sub(1) });
                 bus.tick();
             }
@@ -473,6 +549,8 @@ impl Cpu {
                     2 => self.hl(),
                     _ => u16::from(self.a) << 8 | u16::from(self.f),
                 };
+                // The implied SP decrease glitches a write if SP was in OAM range.
+                bus.note_oam(self.sp, true);
                 bus.tick();
                 self.push(bus, v);
             }
@@ -492,6 +570,7 @@ impl Cpu {
             0xC4 | 0xCC | 0xD4 | 0xDC => {
                 let a = self.fetch16(bus);
                 if self.cond(y) {
+                    bus.note_oam(self.sp, true);
                     bus.tick();
                     let pc = self.pc;
                     self.push(bus, pc);
@@ -500,6 +579,7 @@ impl Cpu {
             }
             0xCD => {
                 let a = self.fetch16(bus);
+                bus.note_oam(self.sp, true);
                 bus.tick();
                 let pc = self.pc;
                 self.push(bus, pc);
@@ -510,6 +590,7 @@ impl Cpu {
                 self.alu(y, v);
             }
             _ if x == 3 && z == 7 => {
+                bus.note_oam(self.sp, true);
                 bus.tick();
                 let pc = self.pc;
                 self.push(bus, pc);
@@ -596,5 +677,123 @@ impl Cpu {
             2 => self.set_reg(bus, z, v & !(1 << y)),
             _ => self.set_reg(bus, z, v | (1 << y)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::gb::{GameBoy, Model};
+
+    /// A machine with the LCD on, run until the PPU is in mode 2 at `dot` (a multiple of 4
+    /// below 80), so the next instruction's triggers land on row `dot / 4 + 1`.
+    fn machine_in_mode2(model: Model, dot: u16) -> GameBoy {
+        let mut gb = GameBoy::with_model(vec![0u8; 0x8000], model, None).unwrap();
+        gb.bus.ppu.lcdc = 0x91;
+        let mut n = 0;
+        while !(gb.bus.ppu.mode() == 2 && gb.bus.ppu.dot == dot) {
+            gb.bus.tick();
+            n += 1;
+            assert!(n < 100_000, "PPU never reached mode 2 at dot {dot}");
+        }
+        gb
+    }
+
+    fn set_oam_word(gb: &mut GameBoy, row: usize, word: usize, v: u16) {
+        let i = row * 8 + word * 2;
+        gb.bus.ppu.oam[i] = v as u8;
+        gb.bus.ppu.oam[i + 1] = (v >> 8) as u8;
+    }
+
+    fn row_words(gb: &GameBoy, row: usize) -> [u16; 4] {
+        let o = &gb.bus.ppu.oam;
+        let w = |i: usize| u16::from(o[row * 8 + i]) | u16::from(o[row * 8 + i + 1]) << 8;
+        [w(0), w(2), w(4), w(6)]
+    }
+
+    /// Rows 4 and 5 as in the PPU formula tests: row 4 [0x5678, 0x1111, 0x9ABC, 0x2222],
+    /// row 5 [0x1234, 0x3333, 0x4444, 0x5555].
+    fn two_rows(gb: &mut GameBoy) {
+        for (w, v) in [0x5678u16, 0x1111, 0x9ABC, 0x2222].into_iter().enumerate() {
+            set_oam_word(gb, 4, w, v);
+        }
+        for (w, v) in [0x1234u16, 0x3333, 0x4444, 0x5555].into_iter().enumerate() {
+            set_oam_word(gb, 5, w, v);
+        }
+    }
+
+    #[test]
+    fn inc_hl_in_oam_range_corrupts_the_row_being_read_on_a_dmg() {
+        let mut gb = machine_in_mode2(Model::Dmg, 16);
+        two_rows(&mut gb);
+        gb.bus.cart.rom[0x100] = 0x23; // INC HL
+        gb.cpu.pc = 0x100;
+        gb.cpu.set_hl(0xFE08);
+        gb.cpu.step(&mut gb.bus);
+        assert_eq!(gb.cpu.hl(), 0xFE09, "the instruction itself still runs");
+        // The fetch took the dot to 20, so the internal cycle corrupted row 5, as a write.
+        assert_eq!(row_words(&gb, 5), [0x123C, 0x1111, 0x9ABC, 0x2222]);
+        assert_eq!(row_words(&gb, 4), [0x5678, 0x1111, 0x9ABC, 0x2222], "the preceding row is untouched");
+        assert_eq!(row_words(&gb, 6), [0, 0, 0, 0], "no other row is touched");
+    }
+
+    #[test]
+    fn ld_a_hl_plus_in_oam_range_corrupts_read_and_write_on_a_dmg() {
+        let mut gb = machine_in_mode2(Model::Dmg, 16);
+        set_oam_word(&mut gb, 3, 0, 0x0F0F);
+        for (w, v) in [0x3333u16, 0x1111, 0x5555, 0x2222].into_iter().enumerate() {
+            set_oam_word(&mut gb, 4, w, v);
+        }
+        for (w, v) in [0x00FFu16, 0x4444, 0x6666, 0x7777].into_iter().enumerate() {
+            set_oam_word(&mut gb, 5, w, v);
+        }
+        gb.bus.cart.rom[0x100] = 0x2A; // LD A,[HL+]
+        gb.cpu.pc = 0x100;
+        gb.cpu.set_hl(0xFE28); // OAM byte 40, in row 5's range (the row corrupted is the PPU's)
+        gb.cpu.step(&mut gb.bus);
+        assert_eq!(gb.cpu.a, 0xFF, "OAM reads are blocked in mode 2, but the access still corrupts");
+        assert_eq!(gb.cpu.hl(), 0xFE29);
+        // Row 5 is read+written in one M-cycle: the complex pattern copies row 4 (with its
+        // word0 corrupted to 0x1337) to rows 5 and 3.
+        let expect = [0x1337u16, 0x1111, 0x5555, 0x2222];
+        assert_eq!(row_words(&gb, 4), expect);
+        assert_eq!(row_words(&gb, 5), expect);
+        assert_eq!(row_words(&gb, 3), expect);
+    }
+
+    #[test]
+    fn oam_corruption_does_not_happen_on_a_colour_outside_mode_2_or_outside_oam() {
+        // A Color is not affected, even in mode 2 with HL in OAM range.
+        let mut gb = machine_in_mode2(Model::Cgb, 16);
+        two_rows(&mut gb);
+        gb.bus.cart.rom[0x100] = 0x23;
+        gb.cpu.pc = 0x100;
+        gb.cpu.set_hl(0xFE08);
+        gb.cpu.step(&mut gb.bus);
+        assert_eq!(row_words(&gb, 5), [0x1234, 0x3333, 0x4444, 0x5555]);
+
+        // A DMG with HL outside OAM range does not corrupt either.
+        let mut gb = machine_in_mode2(Model::Dmg, 16);
+        two_rows(&mut gb);
+        gb.bus.cart.rom[0x100] = 0x23;
+        gb.cpu.pc = 0x100;
+        gb.cpu.set_hl(0xC000);
+        gb.cpu.step(&mut gb.bus);
+        assert_eq!(row_words(&gb, 5), [0x1234, 0x3333, 0x4444, 0x5555]);
+
+        // And a DMG outside mode 2 does not corrupt, even with HL in OAM range.
+        let mut gb = GameBoy::with_model(vec![0u8; 0x8000], Model::Dmg, None).unwrap();
+        gb.bus.ppu.lcdc = 0x91;
+        let mut n = 0;
+        while !(gb.bus.ppu.mode() == 0 && gb.bus.ppu.dot == 300) {
+            gb.bus.tick();
+            n += 1;
+            assert!(n < 100_000, "PPU never reached mode 0 at dot 300");
+        }
+        two_rows(&mut gb);
+        gb.bus.cart.rom[0x100] = 0x23;
+        gb.cpu.pc = 0x100;
+        gb.cpu.set_hl(0xFE08);
+        gb.cpu.step(&mut gb.bus);
+        assert_eq!(row_words(&gb, 5), [0x1234, 0x3333, 0x4444, 0x5555]);
     }
 }

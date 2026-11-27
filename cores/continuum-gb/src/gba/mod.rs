@@ -65,7 +65,8 @@ struct IdleWatch {
     skipped: u64,
 }
 
-const STATE_MAGIC: &[u8; 8] = b"CGBASTA2";
+const STATE_MAGIC: &[u8; 8] = b"CGBASTA3";
+const LEGACY_STATE_MAGIC: &[u8; 8] = b"CGBASTA2";
 
 impl Gba {
     pub fn new(rom: Vec<u8>) -> Gba {
@@ -119,6 +120,7 @@ impl Gba {
             // first, which runs it later).
             let irq_first = self.bus.irq_line() && self.cpu.cpsr & 0x80 == 0;
             if self.cpu.pc == hook && !irq_first {
+                self.bus.sync_all();
                 self.cheats.run(&mut self.bus);
             }
         }
@@ -159,10 +161,13 @@ impl Gba {
 
     pub fn run_frame(&mut self) {
         self.bus.frame_ready = false;
+        self.bus.sync_all();
         let start = self.bus.cycles;
         while !self.bus.frame_ready && self.bus.cycles - start < FRAME_CYCLES * 2 {
             self.step();
         }
+        // The sound chip is brought up to date, so the frame's sound is all there.
+        self.bus.sync_all();
         // The blank has started: codes with no hook run now.
         if self.cheats.hook.is_none() && !self.cheats.ops.is_empty() {
             self.cheats.run(&mut self.bus);
@@ -188,9 +193,30 @@ impl Gba {
     }
 
     pub fn load_state(&mut self, data: &[u8]) -> Result<(), String> {
-        if data.len() < 8 || &data[..8] != STATE_MAGIC {
+        if data.len() < 8 || (&data[..8] != STATE_MAGIC && &data[..8] != LEGACY_STATE_MAGIC) {
             return Err("not a cBoy GBA state".into());
         }
+        // A CGBASTA2 state is upgraded to the current layout first, so everything below is
+        // the one CGBASTA3 path, unchanged: the current format keeps working exactly as before.
+        // But the tag alone does not say which CGBASTA2 layout a state is: P2 added the
+        // resampler to the sound chip without bumping this tag, so a state saved after P2
+        // already has the current layout under the old tag, while a pre-P2 one is 1,113
+        // bytes short of it. A post-P2 state decodes as the current layout with its
+        // trailing blocks consuming the rest exactly, so it is loaded as it is; only a
+        // state that does not is upgraded, and the upgrade is checked by the normal path.
+        if &data[..8] == LEGACY_STATE_MAGIC {
+            if looks_like_current_layout(data) {
+                return self.load_current(data);
+            }
+            let upgraded = legacy::upgrade(data)?;
+            return self.load_current(&upgraded);
+        }
+        self.load_current(data)
+    }
+
+    /// Loads a state in the current (CGBASTA3) layout. The tag itself is not checked here:
+    /// `load_state` has already decided whether this body is current or upgraded.
+    fn load_current(&mut self, data: &[u8]) -> Result<(), String> {
         let mut next: Gba = crate::state_decode(&data[8..])?;
         let used = 8 + bincode::serialized_size(&next).map_err(|e| e.to_string())? as usize;
         match data.get(used..).filter(|rest| !rest.is_empty()) {
@@ -229,7 +255,243 @@ impl Gba {
         next.bus.mp2k.restart();
         // A state from a session with the real BIOS, loaded without one: built-in calls take over.
         next.bus.real_bios = next.bus.real_bios && self.bus.real_bios;
+        next.bus.forget_cached_times();
         *self = next;
+        // The span, snapshot and enable-delay state is not in the state: the enables
+        // restart from the live DISPCNT, and the next line renders whole from live OAM.
+        self.bus.sync_bg_bits();
         Ok(())
+    }
+}
+
+/// Whether a state's body decodes as the current layout with its trailing blocks
+/// consuming the rest exactly. A pre-P2 body is 1,113 bytes short of the current layout,
+/// so decoding it as current either fails outright (a length field read out of the
+/// shifted stream is huge, or the stream runs out) or leaves trailing bytes that do not
+/// parse as the timing and cycle-state blocks. This is only a discriminator for the
+/// ambiguous CGBASTA2 tag; it never accepts a state on its own — `load_current` below
+/// still decodes the body it is given, and a wrong call there fails the same way.
+fn looks_like_current_layout(data: &[u8]) -> bool {
+    let Ok(next): Result<Gba, String> = crate::state_decode(&data[8..]) else { return false };
+    let Ok(used) = bincode::serialized_size(&next).map(|n| 8 + n as usize) else { return false };
+    let Some(rest) = data.get(used..) else { return false };
+    if rest.is_empty() {
+        return true;
+    }
+    let Ok((pipe, tm, chip)): Result<(cpu::CpuPipe, bus::BusTiming, crate::apu::Chip), String> =
+        crate::state_decode(rest)
+    else {
+        return false;
+    };
+    let Ok(used_here) =
+        bincode::serialized_size(&(pipe, &tm, &chip)).map(|n| n as usize)
+    else {
+        return false;
+    };
+    let Some(tail) = rest.get(used_here..) else { return false };
+    if tail.is_empty() {
+        return true;
+    }
+    let Ok(c): Result<(sio::Sio, (bool, u64, bool), (u8, [Option<(u32, bool)>; 4]), Option<u32>), String> =
+        crate::state_decode(tail)
+    else {
+        return false;
+    };
+    bincode::serialized_size(&c).map(|n| n as usize).unwrap_or(usize::MAX) == tail.len()
+}
+
+/// Loading a CGBASTA2 state: the layout before P2 added the resampler state to the sound
+/// chip (1,113 bytes, at the end of `Apu`, after `sample_acc`).
+///
+/// The pattern is the Game Boy side's CGBSTAT3 upgrade (gb.rs): the current format stays
+/// byte-identical and a legacy body is upgraded on load, so there is exactly one current
+/// format and one upgrade path. bincode writes a struct's fields in order with no framing,
+/// so the splice point is found by decoding the body field by field up to the end of the
+/// legacy sound chip — the CPU, then the bus's fields before the sound chip (the BIOS flag,
+/// the GPIO, the six memory blocks, the save chip and the picture hardware), then the
+/// legacy sound chip itself — and 1,113 zero bytes are spliced in there. The defaults are
+/// the right values: the resampler refills from the next samples, and a zero ring/count/
+/// pending list is exactly what power-up leaves. The upgrade is checked, not trusted: a
+/// short or corrupt body fails here, and the spliced body is decoded by the normal path,
+/// so a wrong splice fails there instead of loading a machine made of the wrong bytes.
+mod legacy {
+    use serde::{Deserialize, Serialize};
+
+    use super::cpu::Cpu;
+    use super::{gpio, ppu, save};
+
+    /// The resampler state P2 added to `Apu`: 128 stereo samples, a count, eight pending
+    /// times, a length and the DC-blocker state — all zero at power-up, so all zero bytes.
+    /// 128*2*4 + 8 + 8*8 + 1 + 2*2*4 = 1,113.
+    pub(crate) const RESAMP_BYTES: usize = 1113;
+
+    /// A CGBASTA2 state, tag included, upgraded to a CGBASTA3 state.
+    pub(crate) fn upgrade(data: &[u8]) -> Result<Vec<u8>, String> {
+        let body = &data[8..];
+        let at = resamp_offset(body)?;
+        let mut out = Vec::with_capacity(data.len() + RESAMP_BYTES);
+        out.extend_from_slice(super::STATE_MAGIC);
+        out.extend_from_slice(&body[..at]);
+        out.extend_from_slice(&vec![0u8; RESAMP_BYTES]);
+        out.extend_from_slice(&body[at..]);
+        debug_assert_eq!(out.len(), data.len() + RESAMP_BYTES);
+        Ok(out)
+    }
+
+    /// The offset, from the start of the body (after the tag), where the resampler state
+    /// sits in a current state — and where it is missing from a CGBASTA2 one: the end of
+    /// the sound chip as CGBASTA2 has it. Works on either layout, because the legacy
+    /// sound chip decodes from its own prefix and stops after `sample_acc`.
+    pub(crate) fn resamp_offset(body: &[u8]) -> Result<usize, String> {
+        let cpu: Cpu = crate::state_decode(body)?;
+        let mut at = size_of(&cpu)?;
+        // The bus, field by field up to the sound chip: the BIOS flag, the GPIO, the six
+        // memory blocks, the save chip and the picture hardware.
+        at += size_of(&crate::state_decode::<bool>(&body[at..])?)?;
+        at += size_of(&crate::state_decode::<gpio::Gpio>(&body[at..])?)?;
+        for _ in 0..6 {
+            at += size_of(&crate::state_decode::<Vec<u8>>(&body[at..])?)?;
+        }
+        at += size_of(&crate::state_decode::<save::Save>(&body[at..])?)?;
+        at += size_of(&crate::state_decode::<ppu::Ppu>(&body[at..])?)?;
+        at += size_of(&crate::state_decode::<LegacyApu>(&body[at..])?)?;
+        Ok(at)
+    }
+
+    fn size_of<T: Serialize>(v: &T) -> Result<usize, String> {
+        bincode::serialized_size(v).map(|n| n as usize).map_err(|e| e.to_string())
+    }
+
+    /// The sound chip as CGBASTA2 has it: the channel state, before the resampler state
+    /// was added after `sample_acc`. The channel types live in apu.rs's private `legacy`
+    /// module, so they are mirrored here field for field (as gb.rs does for CGBSTAT3).
+    #[derive(Clone, Default, Serialize, Deserialize)]
+    struct LegacyEnvelope {
+        volume: u8,
+        period: u8,
+        timer: u8,
+        up: bool,
+    }
+
+    #[derive(Clone, Default, Serialize, Deserialize)]
+    struct LegacySquare {
+        on: bool,
+        duty: u8,
+        step: u8,
+        length: u16,
+        length_on: bool,
+        freq: u16,
+        timer: u32,
+        env: LegacyEnvelope,
+        sweep_period: u8,
+        sweep_down: bool,
+        sweep_shift: u8,
+        sweep_timer: u8,
+        sweep_on: bool,
+        shadow: u16,
+        swept_down: bool,
+    }
+
+    #[derive(Clone, Default, Serialize, Deserialize)]
+    struct LegacyWave {
+        on: bool,
+        length: u16,
+        length_on: bool,
+        freq: u16,
+        timer: u32,
+        pos: u8,
+        shift: u8,
+    }
+
+    #[derive(Clone, Default, Serialize, Deserialize)]
+    struct LegacyNoise {
+        on: bool,
+        length: u16,
+        length_on: bool,
+        env: LegacyEnvelope,
+        lfsr: u16,
+        timer: u32,
+    }
+
+    #[derive(Clone, Default, Serialize, Deserialize)]
+    struct LegacyApu {
+        regs: Vec<u8>,
+        power: bool,
+        sq1: LegacySquare,
+        sq2: LegacySquare,
+        wave: LegacyWave,
+        noise: LegacyNoise,
+        seq_step: u8,
+        sample_acc: u32,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A CGBASTA2 state — the layout before P2 added the resampler state to the sound
+    /// chip — loads and the game runs on from it. There is no pre-P2 state file in the
+    /// repo, so the test makes one the way one was made: a current state with the
+    /// resampler block taken back out, under the old tag. The same machine with no
+    /// trailing timing/sound-chip blocks is covered too.
+    #[test]
+    fn a_cgbasta2_state_loads_and_runs_on() {
+        let mut rom = vec![0u8; 0x1000];
+        // B . at the cartridge start, so the machine has something to run.
+        rom[0..4].copy_from_slice(&0xEAFF_FFFEu32.to_le_bytes());
+        let mut gba = Gba::new(rom.clone());
+        for _ in 0..3 {
+            gba.run_frame();
+        }
+        let full = gba.save_state();
+        assert_eq!(&full[..8], b"CGBASTA3");
+        let old = strip_to_cgbasta2(&full);
+        assert_eq!(&old[..8], b"CGBASTA2");
+        assert_eq!(old.len(), full.len() - super::legacy::RESAMP_BYTES);
+        // The stripped state is not the current layout, so the discriminator must say so;
+        // a post-P2 state — the current layout under the old tag, made by retagging — must
+        // say it is, and load as it is (not upgraded, which would splice 1,113 bytes into
+        // a body that already has them).
+        assert!(!super::looks_like_current_layout(&old));
+        let mut retagged = full.clone();
+        retagged[..8].copy_from_slice(b"CGBASTA2");
+        assert!(super::looks_like_current_layout(&retagged));
+        let mut post_p2 = Gba::new(rom.clone());
+        post_p2.load_state(&retagged).unwrap();
+        assert_eq!(post_p2.cpu.pc, gba.cpu.pc);
+        assert_eq!(post_p2.bus.cycles, gba.bus.cycles);
+        let mut loaded = Gba::new(rom.clone());
+        loaded.load_state(&old).unwrap();
+        assert_eq!(loaded.cpu.pc, gba.cpu.pc, "the program counter comes back");
+        assert_eq!(loaded.bus.cycles, gba.bus.cycles);
+        loaded.run_frame();
+        assert!(loaded.bus.cycles > gba.bus.cycles, "and the game runs on");
+        // Saving the loaded machine gives a current state again, which loads in turn.
+        let again = loaded.save_state();
+        let mut third = Gba::new(rom.clone());
+        third.load_state(&again).unwrap();
+        assert_eq!(third.cpu.pc, loaded.cpu.pc);
+        // A legacy state with no trailing blocks after the machine (the layout fixed
+        // under CGBASTA2 and nothing after it) loads as well.
+        let main: usize = {
+            let g: Gba = crate::state_decode(&full[8..]).unwrap();
+            8 + bincode::serialized_size(&g).unwrap() as usize
+        };
+        let mut bare = Gba::new(rom.clone());
+        bare.load_state(&old[..main - super::legacy::RESAMP_BYTES]).unwrap();
+        bare.run_frame();
+        assert!(bare.bus.cycles > 0);
+    }
+
+    /// Takes the resampler block back out of a CGBASTA3 state, leaving a CGBASTA2 one.
+    fn strip_to_cgbasta2(full: &[u8]) -> Vec<u8> {
+        let body = &full[8..];
+        let at = super::legacy::resamp_offset(body).unwrap();
+        let mut out = b"CGBASTA2".to_vec();
+        out.extend_from_slice(&body[..at]);
+        out.extend_from_slice(&body[at + super::legacy::RESAMP_BYTES..]);
+        assert_eq!(out.len(), full.len() - super::legacy::RESAMP_BYTES);
+        out
     }
 }

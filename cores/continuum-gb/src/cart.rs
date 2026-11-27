@@ -1,5 +1,5 @@
 //! The cartridge: ROM, external RAM and the memory bank controller (none, MBC1, MBC3 with its
-//! real-time clock, MBC5). The ROM itself is never part of a save state.
+//! real-time clock, MBC5, MMM01, MBC6 with its flash, TAMA5 with its clock). The ROM itself is never part of a save state.
 
 use serde::{Deserialize, Serialize};
 
@@ -19,6 +19,17 @@ pub enum MbcKind {
     HuC3,
     /// Game Boy Camera: MBC3-style banks plus the camera registers.
     Camera,
+    /// MMM01: the multicart controller (Momotaro Collection, Taito Variety Pack). Starts
+    /// unmapped, showing the menu in the last 32 KiB; the menu enables mapping, after which
+    /// it behaves like an MBC1 for the chosen game (Pan Docs, MMM01.md).
+    Mmm01,
+    /// MBC6: Net de Get's controller, with two 8 KiB ROM/flash windows, two 4 KiB RAM windows
+    /// and a 1 MiB Macronix flash (Pan Docs, MBC6.md).
+    Mbc6,
+    /// TAMA5: Bandai's controller for the Tamagotchi games, with a real-time clock and 32
+    /// bytes of RAM driven through two 4-bit ports (mGBA's tama5.c model; Pan Docs does not
+    /// describe it).
+    Tama5,
 }
 
 /// MBC7's accelerometer latch and its 93LC56-style serial EEPROM (128 16-bit words, kept in
@@ -221,6 +232,166 @@ pub const CAM_H: usize = 112;
 /// game's own, so writing at the start of the bank trampled them.
 const CAM_IMAGE_AT: usize = 0x0100;
 
+/// MMM01's registers (Pan Docs, MMM01.md). All are 7 bits wide and 0 at power-up. The
+/// extended bits (ROM mid/high, the masks, multiplex) can only be written while unmapped;
+/// setting mapping enable locks them and the chip behaves like an MBC1 for the chosen game.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Mmm01 {
+    /// Mapping enabled (the menu has chosen a game).
+    pub mapped: bool,
+    /// ROM bank low 5 bits ($2000), mid 2 bits ($2000 bits 5-6), high 2 bits ($4000 bits 4-5).
+    pub rom_low: u8,
+    pub rom_mid: u8,
+    pub rom_high: u8,
+    /// RAM bank low 2 bits ($4000 bits 0-1) and high 2 bits ($4000 bits 2-3).
+    pub ram_low: u8,
+    pub ram_high: u8,
+    /// Write locks: ROM bank mask ($6000 bits 1-5) and RAM bank mask ($0000 bits 4-5).
+    pub rom_mask: u8,
+    pub ram_mask: u8,
+    /// Banking mode ($6000 bit 0) and multiplex ($6000 bit 6).
+    pub mode: u8,
+    pub multiplex: bool,
+    /// $4000 bit 6 locks the mode select.
+    pub mode_locked: bool,
+}
+
+impl Mmm01 {
+    /// The 16 KiB ROM bank at $0000-$3FFF in mapped mode (Pan Docs' addressing diagrams).
+    fn bank0(&self) -> usize {
+        let low = usize::from(self.rom_low) & usize::from(self.rom_mask);
+        if self.multiplex {
+            let mid = if self.mode == 1 {
+                usize::from(self.ram_low)
+            } else {
+                usize::from(self.ram_low) & usize::from(self.ram_mask)
+            };
+            (usize::from(self.rom_high) << 7) | (mid << 5) | low
+        } else {
+            (usize::from(self.rom_high) << 7) | (usize::from(self.rom_mid) << 5) | low
+        }
+    }
+
+    /// The 16 KiB ROM bank at $4000-$7FFF in mapped mode, with the 0 -> 1 correction on the
+    /// unmasked low bits (Pan Docs: if `ROM Bank Low & ~ROM Bank Mask` is 0, bank 1 is used).
+    fn bank1(&self) -> usize {
+        let mut low = usize::from(self.rom_low);
+        if low & !usize::from(self.rom_mask) == 0 {
+            low |= 1;
+        }
+        if self.multiplex {
+            (usize::from(self.rom_high) << 7) | (usize::from(self.ram_low) << 5) | low
+        } else {
+            (usize::from(self.rom_high) << 7) | (usize::from(self.rom_mid) << 5) | low
+        }
+    }
+
+    /// The 8 KiB RAM bank at $A000-$BFFF in mapped mode.
+    fn ram_bank(&self) -> usize {
+        let low = if self.multiplex {
+            usize::from(self.rom_mid)
+        } else if self.mode == 1 {
+            usize::from(self.ram_low)
+        } else {
+            usize::from(self.ram_low) & usize::from(self.ram_mask)
+        };
+        (usize::from(self.ram_high) << 2) | low
+    }
+}
+
+/// MBC6's registers and its 1 MiB flash (Pan Docs, MBC6.md). The flash is a Macronix
+/// MX29F008TC: 8 sectors of 128 KiB plus a 256-byte hidden region, JEDEC ID $C2/$81.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Mbc6 {
+    pub ram_bank_a: u8,
+    pub ram_bank_b: u8,
+    /// Flash chip enable ($0C00) and sector-0/hidden write enable ($1000, the /WP pin).
+    pub flash_en: bool,
+    pub flash_wp: bool,
+    pub rom_bank_a: u8,
+    pub rom_bank_b: u8,
+    /// Window A/B show the flash instead of the ROM ($2800/$3800 bit 3).
+    pub flash_a: bool,
+    pub flash_b: bool,
+    /// The flash command state machine: 0 idle, 1 after $AA to $5555, 2 after $55 to $2AAA,
+    /// 3 erase set-up, 4 hidden/protect set-up.
+    pub cmd_state: u8,
+    /// What a completed set-up is waiting to do: 0x80 erase, 0x60 hidden/protect command.
+    pub cmd_kind: u8,
+    /// ID mode ($90), hidden-region read mode ($77), program mode ($A0) / hidden program ($E0).
+    pub id_mode: bool,
+    pub hidden_mode: bool,
+    pub prog_mode: bool,
+    pub prog_hidden: bool,
+    /// Transient program-session state, not serialized (so CGBSTAT4 save states stay
+    /// byte-compatible): the flash offset of the last byte programmed in this program
+    /// session, and whether the commit repeat (a second write to that offset with a
+    /// non-$F0 value) has happened. Pan Docs MBC6 programs by streaming 128 bytes,
+    /// repeating the final address (any value except $F0) to commit, then $F0 to any
+    /// address to exit; the NP doc adds that a $F0 repeat to the last address aborts.
+    #[serde(skip)]
+    pub prog_last_off: Option<usize>,
+    #[serde(skip)]
+    pub prog_committed: bool,
+    /// Whether a flash read returns the status byte (bit 7 set, bit 1 sector-0 protection)
+    /// instead of flash contents, after a program/erase/protect command, until $F0.
+    pub status: bool,
+    /// Sector 0 protection, set by the Protect Sector 0 flash command (non-volatile).
+    pub sector0_protected: bool,
+    /// The 256-byte hidden region (a `Vec` because serde's derive stops at 32-byte arrays).
+    pub hidden: Vec<u8>,
+}
+
+impl Default for Mbc6 {
+    fn default() -> Self {
+        Self {
+            ram_bank_a: 0,
+            ram_bank_b: 0,
+            flash_en: false,
+            flash_wp: false,
+            rom_bank_a: 0,
+            rom_bank_b: 0,
+            flash_a: false,
+            flash_b: false,
+            cmd_state: 0,
+            cmd_kind: 0,
+            id_mode: false,
+            hidden_mode: false,
+            prog_mode: false,
+            prog_hidden: false,
+            prog_last_off: None,
+            prog_committed: false,
+            status: false,
+            sector0_protected: false,
+            hidden: vec![0xFF; 256],
+        }
+    }
+}
+
+/// TAMA5's runtime state (mGBA's tama5.c model). The 32 bytes of RAM and the four 16-nybble
+/// clock pages live in `Cart::ram` in mGBA's save layout (RAM, then the pages packed two
+/// nybbles to a byte, then 8 bytes of latched time), so a battery save carries them.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Tama5 {
+    /// The eight 4-bit registers (0/1 ROM bank, 4/5 data, 6 command, 7 address/trigger).
+    pub regs: [u8; 8],
+    /// The register number the odd port ($A001) last selected.
+    pub selected: u8,
+    /// What the $C/$D read ports return (low/high nybble of the last command's result).
+    pub result_lo: u8,
+    pub result_hi: u8,
+    /// T-cycles toward the next clock second.
+    pub sub: u32,
+}
+
+impl Tama5 {
+    /// The mask table for writes to the clock pages (mGBA's `_tama6RTCMask`).
+    const MASK: [[u8; 16]; 2] = [
+        [0xF, 0x7, 0xF, 0x7, 0xF, 0x3, 0x7, 0xF, 0x3, 0xF, 0x1, 0xF, 0xF, 0, 0, 0],
+        [0, 0, 0xF, 0x7, 0xF, 0x3, 0x7, 0xF, 0x3, 0, 0x1, 0x3, 0, 0, 0, 0],
+    ];
+}
+
 /// Game Boy Camera registers (A000-A035) and the newest picture from the phone's camera.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Camera {
@@ -297,6 +468,38 @@ pub struct Cart {
     /// Game Boy Camera registers and the last picture from the phone. Unused otherwise.
     #[serde(default)]
     pub camera: Camera,
+    /// MMM01's registers. Unused for every other cartridge.
+    #[serde(default)]
+    pub mmm01: Mmm01,
+    /// MBC6's registers and hidden flash region. Unused for every other cartridge.
+    #[serde(default)]
+    pub mbc6: Mbc6,
+    /// TAMA5's registers and clock state. Unused for every other cartridge.
+    #[serde(default)]
+    pub tama5: Tama5,
+}
+
+impl Cart {
+    /// MBC6's 1 MiB flash lives at the end of `ram`, after its 32 KiB of SRAM: the frontend's
+    /// battery save is just `ram`, so the flash has to be in it for Net de Get's progress to
+    /// survive a close. `ram.len()` for an MBC6 cartridge is therefore 0x108000.
+    const MBC6_SRAM_LEN: usize = 0x8000;
+    const MBC6_FLASH_LEN: usize = 0x10_0000;
+
+    fn flash_at(&self, off: usize) -> u8 {
+        self.ram[Self::MBC6_SRAM_LEN + (off % Self::MBC6_FLASH_LEN)]
+    }
+
+    /// Programming a flash byte only clears bits; `v` is ANDed in.
+    fn flash_and(&mut self, off: usize, v: u8) {
+        let i = Self::MBC6_SRAM_LEN + (off % Self::MBC6_FLASH_LEN);
+        self.ram[i] &= v;
+    }
+
+    fn flash_fill(&mut self, range: std::ops::Range<usize>, v: u8) {
+        let base = Self::MBC6_SRAM_LEN;
+        self.ram[base + range.start..base + range.end].fill(v);
+    }
 }
 
 pub fn declared_rom_bytes(code: u8) -> Option<usize> {
@@ -334,9 +537,6 @@ pub fn looks_like_gb_rom(rom: &[u8]) -> bool {
 /// not in here: this only names what it has to turn away.
 fn chip_name(kind: u8) -> &'static str {
     match kind {
-        0x0B..=0x0D => "MMM01, the one Momotaro Collection uses",
-        0x20 => "MBC6, the one Net de Get uses",
-        0xFD => "TAMA5, the Tamagotchi one",
         0x15..=0x17 => "MBC4",
         _ => "an unknown one",
     }
@@ -393,14 +593,17 @@ impl Cart {
         let (kind, battery, rtc) = match t {
             0x00 | 0x08 | 0x09 => (MbcKind::None, t == 0x09, false),
             0x01..=0x03 => (MbcKind::Mbc1, t == 0x03, false),
+            0x0B..=0x0D => (MbcKind::Mmm01, t == 0x0C || t == 0x0D, false),
             0x0F | 0x10 => (MbcKind::Mbc3, true, true),
             0x11..=0x13 => (MbcKind::Mbc3, t == 0x13, false),
             0x19..=0x1E => (MbcKind::Mbc5, t == 0x1B || t == 0x1E, false),
+            0x20 => (MbcKind::Mbc6, true, false),
             0x22 => (MbcKind::Mbc7, true, false),
             0x05 | 0x06 => (MbcKind::Mbc2, t == 0x06, false),
             0xFF => (MbcKind::HuC1, true, false),
             0xFE => (MbcKind::HuC3, true, true),
             0xFC => (MbcKind::Camera, true, false),
+            0xFD => (MbcKind::Tama5, true, false),
             other => {
                 return Err(format!(
                     "This cartridge has a chip cBoy cannot play yet ({}). Try this game on mGBA instead: open its settings and pick mGBA as the emulator.",
@@ -411,6 +614,12 @@ impl Cart {
         let mut ram_len = match kind {
             MbcKind::Mbc7 => 256,
             MbcKind::Mbc2 => 512,
+            // MBC6's 1 MiB flash rides at the end of `ram` (see `MBC6_SRAM_LEN`), so the
+            // frontend's battery save carries it.
+            MbcKind::Mbc6 => 0x8000 + 0x10_0000,
+            // TAMA5's save is mGBA's 72-byte layout: 32 bytes of RAM, the four clock pages
+            // packed two nybbles to a byte, then 8 bytes of latched time.
+            MbcKind::Tama5 => 72,
             MbcKind::HuC3 | MbcKind::Camera if ram_size(rom[0x149]) == 0 => 0x2000,
             _ => ram_size(rom[0x149]),
         };
@@ -434,8 +643,27 @@ impl Cart {
             && rom.len() == 0x10_0000
             && rom[0x40104] == 0xCE
             && rom[0x40104..0x40134] == rom[0x104..0x134];
-        Ok(Cart {
-            cgb_flag: rom[0x143],
+        // MMM01: the header the console boots from is the menu's, in the last 32 KiB, not the
+        // first game's at $0100 (Pan Docs, MMM01.md). The title and colour flag come from it
+        // when it carries the Nintendo logo.
+        let (title, cgb_flag) = if kind == MbcKind::Mmm01
+            && rom.len() >= 0x8000
+            && rom[rom.len() - 0x8000 + 0x104..rom.len() - 0x8000 + 0x134] == LOGO
+        {
+            let base = rom.len() - 0x8000;
+            (
+                rom[base + 0x134..base + 0x143]
+                    .iter()
+                    .take_while(|b| **b != 0)
+                    .map(|b| *b as char)
+                    .collect(),
+                rom[base + 0x143],
+            )
+        } else {
+            (title, rom[0x143])
+        };
+        let mut cart = Cart {
+            cgb_flag,
             rom,
             ram: vec![0xFF; ram_len],
             kind,
@@ -456,7 +684,22 @@ impl Cart {
             tilt: (0.0, 0.0),
             huc3: HuC3::default(),
             camera: Camera::default(),
-        })
+            mmm01: Mmm01::default(),
+            mbc6: Mbc6::default(),
+            tama5: Tama5 { regs: [1, 0, 0, 0, 0, 0, 0, 0], ..Tama5::default() },
+        };
+        if kind == MbcKind::Tama5 {
+            // The clock pages start empty, with each page's register (index $D) holding its
+            // own page number (mGBA's set-up). The 32 bytes of RAM stay $FF, as at reset.
+            for b in &mut cart.ram[32..64] {
+                *b = 0;
+            }
+            for (page, n) in [1u8, 2, 3].into_iter().enumerate() {
+                // Index $D is odd, so it is the high nybble of the page's byte 6.
+                cart.ram[32 + (page + 1) * 8 + 6] = n << 4;
+            }
+        }
+        Ok(cart)
     }
 
     fn rom_banks(&self) -> usize {
@@ -486,6 +729,26 @@ impl Cart {
                     }
                 }
             }
+            MbcKind::Mmm01 => {
+                if !self.mmm01.mapped {
+                    // Unmapped: the last 32 KiB of the ROM (the menu) at $0000-$7FFF.
+                    let banks = self.rom_banks();
+                    self.rom_at(if addr < 0x4000 { banks - 2 } else { banks - 1 }, addr)
+                } else if addr < 0x4000 {
+                    self.rom_at(self.mmm01.bank0(), addr)
+                } else {
+                    self.rom_at(self.mmm01.bank1(), addr)
+                }
+            }
+            MbcKind::Tama5 => {
+                if addr < 0x4000 {
+                    self.rom[addr as usize]
+                } else {
+                    let bank = (usize::from(self.tama5.regs[1]) << 4) | usize::from(self.tama5.regs[0]);
+                    self.rom_at(bank, addr)
+                }
+            }
+            MbcKind::Mbc6 => self.mbc6_read_rom(addr),
             MbcKind::Mbc3 | MbcKind::Mbc5 | MbcKind::Mbc7 | MbcKind::Mbc2 | MbcKind::HuC1
             | MbcKind::HuC3 | MbcKind::Camera => {
                 if addr < 0x4000 {
@@ -506,6 +769,9 @@ impl Cart {
                 0x4000..=0x5FFF => self.bank2 = v & 3,
                 _ => self.mode = v & 1,
             },
+            MbcKind::Mmm01 => self.mmm01_write(addr, v),
+            MbcKind::Mbc6 => self.mbc6_write_rom(addr, v),
+            MbcKind::Tama5 => {} // Writes to the ROM area are ignored (mGBA's model).
             MbcKind::Mbc3 => match addr {
                 0x0000..=0x1FFF => self.ram_enabled = v & 0x0F == 0x0A,
                 0x2000..=0x3FFF => {
@@ -579,6 +845,487 @@ impl Cart {
         }
     }
 
+    /// MMM01's register writes (Pan Docs, MMM01.md). The masks act as write locks on the
+    /// matching bits of the low bank registers, even in unmapped mode; the extended bits can
+    /// only be written while unmapped, and mapping enable locks them.
+    fn mmm01_write(&mut self, addr: u16, v: u8) {
+        match addr {
+            0x0000..=0x1FFF => {
+                self.ram_enabled = v & 0x0F == 0x0A;
+                if !self.mmm01.mapped {
+                    self.mmm01.ram_mask = (v >> 4) & 3;
+                    if v & 0x40 != 0 {
+                        self.mmm01.mapped = true;
+                    }
+                }
+            }
+            0x2000..=0x3FFF => {
+                let m = &mut self.mmm01;
+                if m.mapped {
+                    m.rom_low = (m.rom_low & m.rom_mask) | (v & !m.rom_mask & 0x1F);
+                } else {
+                    m.rom_low = v & 0x1F;
+                    m.rom_mid = (v >> 5) & 3;
+                }
+            }
+            0x4000..=0x5FFF => {
+                let m = &mut self.mmm01;
+                if m.mapped {
+                    m.ram_low = (m.ram_low & m.ram_mask) | (v & !m.ram_mask & 3);
+                    m.ram_high = (v >> 2) & 3;
+                } else {
+                    m.ram_low = v & 3;
+                    m.ram_high = (v >> 2) & 3;
+                    m.rom_high = (v >> 4) & 3;
+                }
+                if v & 0x40 != 0 {
+                    m.mode_locked = true;
+                }
+            }
+            _ => {
+                if !self.mmm01.mode_locked {
+                    self.mmm01.mode = v & 1;
+                }
+                if !self.mmm01.mapped {
+                    self.mmm01.rom_mask = (v >> 1) & 0x1F;
+                    self.mmm01.multiplex = v & 0x40 != 0;
+                }
+            }
+        }
+    }
+
+    /// MBC6's ROM/flash windows: $0000-$3FFF is the first 16 KiB of ROM, $4000-$5FFF window A
+    /// and $6000-$7FFF window B, each an 8 KiB bank of ROM or flash.
+    fn mbc6_read_rom(&self, addr: u16) -> u8 {
+        match addr {
+            0x0000..=0x3FFF => self.rom[addr as usize],
+            0x4000..=0x5FFF => {
+                let off = (usize::from(self.mbc6.rom_bank_a & 0x7F) * 0x2000) + usize::from(addr & 0x1FFF);
+                if self.mbc6.flash_a {
+                    self.flash_read(off)
+                } else {
+                    self.rom[off % self.rom.len()]
+                }
+            }
+            _ => {
+                let off = (usize::from(self.mbc6.rom_bank_b & 0x7F) * 0x2000) + usize::from(addr & 0x1FFF);
+                if self.mbc6.flash_b {
+                    self.flash_read(off)
+                } else {
+                    self.rom[off % self.rom.len()]
+                }
+            }
+        }
+    }
+
+    /// One byte out of the MBC6 flash, through the chip's current mode.
+    fn flash_read(&self, off: usize) -> u8 {
+        if !self.mbc6.flash_en {
+            return 0xFF;
+        }
+        let off = off % Self::MBC6_FLASH_LEN;
+        if self.mbc6.id_mode {
+            return if off & 1 == 0 { 0xC2 } else { 0x81 };
+        }
+        if self.mbc6.hidden_mode {
+            return self.mbc6.hidden[off & 0xFF];
+        }
+        if self.mbc6.status {
+            return 0x80 | u8::from(self.mbc6.sector0_protected) << 1;
+        }
+        self.flash_at(off)
+    }
+
+    /// MBC6's register writes ($0000-$3FFF, decoded by address bits 10-15 as mGBA does) and
+    /// flash command writes through the ROM/flash windows ($4000-$7FFF).
+    fn mbc6_write_rom(&mut self, addr: u16, v: u8) {
+        match addr >> 10 {
+            0 => self.ram_enabled = v & 0x0F == 0x0A,
+            1 => self.mbc6.ram_bank_a = v & 7,
+            2 => self.mbc6.ram_bank_b = v & 7,
+            3 => self.mbc6.flash_en = v & 1 != 0,
+            4 => self.mbc6.flash_wp = v & 1 != 0,
+            8 | 9 => self.mbc6.rom_bank_a = v,
+            10 | 11 => self.mbc6.flash_a = v & 8 != 0,
+            12 | 13 => self.mbc6.rom_bank_b = v,
+            14 | 15 => self.mbc6.flash_b = v & 8 != 0,
+            16..=31 => self.mbc6_flash_write(addr, v),
+            _ => {} // $1400-$1FFF: unused registers.
+        }
+    }
+
+    /// Whether the flash address is write-protected: sector 0 (the first 128 KiB) is protected
+    /// when the flash write-enable bit is clear or the Protect Sector 0 command set it; the
+    /// hidden region is protected when the write-enable bit is clear.
+    fn flash_protected(&self, off: usize, hidden: bool) -> bool {
+        if hidden {
+            !self.mbc6.flash_wp
+        } else if off < 0x20000 {
+            !self.mbc6.flash_wp || self.mbc6.sector0_protected
+        } else {
+            false
+        }
+    }
+
+    /// A write to the MBC6 flash, through the chip's command state machine (Pan Docs, MBC6.md).
+    /// Flash addresses are the banked offset: bank * 8 KiB + the window offset.
+    fn mbc6_flash_write(&mut self, addr: u16, v: u8) {
+        let (bank, is_flash) = if addr < 0x6000 {
+            (self.mbc6.rom_bank_a, self.mbc6.flash_a)
+        } else {
+            (self.mbc6.rom_bank_b, self.mbc6.flash_b)
+        };
+        if !is_flash || !self.mbc6.flash_en {
+            return;
+        }
+        let off = (usize::from(bank & 0x7F) * 0x2000) + usize::from(addr & 0x1FFF);
+        // Program mode: data writes come before the $F0 reset check, so $F0 itself can
+        // be programmed. Pan Docs MBC6 streams 128 bytes, repeats the final address
+        // with any value except $F0 to commit, then $F0 to any address exits; the NP
+        // doc adds that a $F0 repeat to the last address aborts the programming
+        // instead. So $F0 is data at a new offset, but exits after the commit repeat
+        // (any address) or as a repeat to the last programmed offset (abort).
+        if self.mbc6.prog_mode {
+            if v == 0xF0 {
+                if self.mbc6.prog_committed || self.mbc6.prog_last_off == Some(off) {
+                    self.mbc6.cmd_state = 0;
+                    self.mbc6.id_mode = false;
+                    self.mbc6.hidden_mode = false;
+                    self.mbc6.prog_mode = false;
+                    self.mbc6.prog_hidden = false;
+                    self.mbc6.status = false;
+                    self.mbc6.prog_last_off = None;
+                    self.mbc6.prog_committed = false;
+                    return;
+                }
+            } else if self.mbc6.prog_last_off == Some(off) {
+                // A repeat write to the last programmed offset (non-$F0) is the commit:
+                // it commits the byte already programmed and must not AND anything onto
+                // it, so it returns at once instead of falling through to flash_and
+                // (Pan Docs MBC6: committing with $00 must leave the byte intact).
+                self.mbc6.prog_committed = true;
+                return;
+            }
+            if self.mbc6.prog_hidden {
+                if !self.flash_protected(off, true) {
+                    self.mbc6.hidden[off & 0xFF] &= v;
+                }
+            } else if !self.flash_protected(off, false) {
+                self.flash_and(off, v);
+            }
+            self.mbc6.prog_last_off = Some(off);
+            return;
+        }
+        // $F0 exits any command, from any address.
+        if v == 0xF0 {
+            self.mbc6.cmd_state = 0;
+            self.mbc6.id_mode = false;
+            self.mbc6.hidden_mode = false;
+            self.mbc6.prog_mode = false;
+            self.mbc6.prog_hidden = false;
+            self.mbc6.status = false;
+            self.mbc6.prog_last_off = None;
+            self.mbc6.prog_committed = false;
+            return;
+        }
+        match self.mbc6.cmd_state {
+            0 => {
+                if off == 0x5555 && v == 0xAA {
+                    self.mbc6.cmd_state = 1;
+                }
+            }
+            1 => {
+                self.mbc6.cmd_state = if off == 0x2AAA && v == 0x55 { 2 } else { 0 };
+            }
+            2 => {
+                self.mbc6.cmd_state = 0;
+                if off != 0x5555 {
+                    return;
+                }
+                match v {
+                    0x80 | 0x60 | 0x77 => {
+                        self.mbc6.cmd_kind = v;
+                        self.mbc6.cmd_state = 3;
+                    }
+                    0x90 => self.mbc6.id_mode = true,
+                    0xA0 => {
+                        self.mbc6.prog_mode = true;
+                        self.mbc6.status = true;
+                        self.mbc6.prog_last_off = None;
+                        self.mbc6.prog_committed = false;
+                    }
+                    _ => {}
+                }
+            }
+            3 => {
+                self.mbc6.cmd_state = if off == 0x5555 && v == 0xAA { 4 } else { 0 };
+            }
+            4 => {
+                self.mbc6.cmd_state = if off == 0x2AAA && v == 0x55 { 5 } else { 0 };
+            }
+            _ => {
+                self.mbc6.cmd_state = 0;
+                match self.mbc6.cmd_kind {
+                    0x80 => {
+                        if v == 0x10 && off == 0x5555 {
+                            // Erase the whole chip except a protected sector 0 (never the hidden region).
+                            let start = if self.flash_protected(0, false) { 0x20000 } else { 0 };
+                            self.flash_fill(start..Self::MBC6_FLASH_LEN, 0xFF);
+                            self.mbc6.status = true;
+                        } else if v == 0x30 {
+                            let sector = off >> 17;
+                            let base = sector << 17;
+                            if !self.flash_protected(base, false) {
+                                let end = (base + 0x20000).min(Self::MBC6_FLASH_LEN);
+                                self.flash_fill(base..end, 0xFF);
+                            }
+                            self.mbc6.status = true;
+                        }
+                    }
+                    0x60 => {
+                        if off != 0x5555 {
+                            return;
+                        }
+                        match v {
+                            0x04 => {
+                                if self.mbc6.flash_wp {
+                                    self.mbc6.hidden.fill(0xFF);
+                                }
+                                self.mbc6.status = true;
+                            }
+                            0xE0 => {
+                                self.mbc6.prog_mode = true;
+                                self.mbc6.prog_hidden = true;
+                                self.mbc6.status = true;
+                                self.mbc6.prog_last_off = None;
+                                self.mbc6.prog_committed = false;
+                            }
+                            0x40 => {
+                                if self.mbc6.flash_wp {
+                                    self.mbc6.sector0_protected = false;
+                                }
+                                self.mbc6.status = true;
+                            }
+                            0x20 => {
+                                if self.mbc6.flash_wp {
+                                    self.mbc6.sector0_protected = true;
+                                }
+                                self.mbc6.status = true;
+                            }
+                            _ => {}
+                        }
+                    }
+                    0x77 => {
+                        if v == 0x77 && off == 0x5555 {
+                            self.mbc6.hidden_mode = true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// MBC6's RAM windows: $A000-$AFFF is RAM bank A, $B000-$BFFF RAM bank B, 4 KiB each.
+    fn mbc6_read(&self, addr: u16) -> u8 {
+        if !self.ram_enabled || self.ram.is_empty() {
+            return 0xFF;
+        }
+        let bank = if addr < 0xB000 { self.mbc6.ram_bank_a } else { self.mbc6.ram_bank_b };
+        self.ram[(usize::from(bank & 7) * 0x1000 + usize::from(addr & 0x0FFF)) % Self::MBC6_SRAM_LEN]
+    }
+
+    fn mbc6_write(&mut self, addr: u16, v: u8) {
+        if !self.ram_enabled || self.ram.is_empty() {
+            return;
+        }
+        let bank = if addr < 0xB000 { self.mbc6.ram_bank_a } else { self.mbc6.ram_bank_b };
+        let i = (usize::from(bank & 7) * 0x1000 + usize::from(addr & 0x0FFF)) % Self::MBC6_SRAM_LEN;
+        self.ram[i] = v;
+    }
+
+    /// One nybble of a TAMA5 clock page (pages are packed two nybbles to a byte in `ram`).
+    fn tama_page(&self, page: usize, index: usize) -> u8 {
+        let b = self.ram[32 + page * 8 + index / 2];
+        if index & 1 == 0 { b & 0xF } else { b >> 4 }
+    }
+
+    fn tama_set_page(&mut self, page: usize, index: usize, v: u8) {
+        let i = 32 + page * 8 + index / 2;
+        self.ram[i] = if index & 1 == 0 {
+            (self.ram[i] & 0xF0) | (v & 0xF)
+        } else {
+            (self.ram[i] & 0x0F) | ((v & 0xF) << 4)
+        };
+    }
+
+    /// Whether the TAMA5 clock is running (bit 3 of the timer page's register, index $D).
+    fn tama_timer_enabled(&self) -> bool {
+        self.tama_page(0, 0xD) & 8 != 0
+    }
+
+    /// TAMA5's data port ($A000): the result of the last command, or the ready status.
+    fn tama_read(&self, addr: u16) -> u8 {
+        if addr & 1 != 0 {
+            return 0xFF;
+        }
+        match self.tama5.selected {
+            0x0A => 0xF1,
+            0x0C => 0xF0 | self.tama5.result_lo,
+            0x0D => 0xF0 | self.tama5.result_hi,
+            _ => 0xF1,
+        }
+    }
+
+    /// TAMA5's ports: the odd address selects a register, the even one writes its low nybble;
+    /// writing register 7 executes the command register 6 chose (mGBA's tama5.c model).
+    fn tama_write(&mut self, addr: u16, v: u8) {
+        if addr & 1 != 0 {
+            self.tama5.selected = v;
+            return;
+        }
+        let sel = self.tama5.selected;
+        if sel >= 8 {
+            return;
+        }
+        self.tama5.regs[usize::from(sel)] = v & 0xF;
+        if sel == 7 {
+            self.tama_execute();
+        }
+    }
+
+    fn tama_execute(&mut self) {
+        let regs = self.tama5.regs;
+        let class = regs[6] >> 1;
+        let address = ((regs[6] & 1) << 4) | regs[7];
+        let data = (regs[5] << 4) | regs[4];
+        match class {
+            0 => self.ram[usize::from(address) & 0x1F] = data,
+            1 => {
+                let b = self.ram[usize::from(address) & 0x1F];
+                self.tama5.result_lo = b & 0xF;
+                self.tama5.result_hi = b >> 4;
+            }
+            2 => self.tama_clock_cmd(address, data),
+            4 => self.tama_page_cmd(regs[7]),
+            _ => {}
+        }
+    }
+
+    /// TAMA5's clock commands (class 2), by address.
+    fn tama_clock_cmd(&mut self, address: u8, data: u8) {
+        match address {
+            0x00 => {
+                for page in 0..4 {
+                    let r = self.tama_page(page, 0xD);
+                    self.tama_set_page(page, 0xD, r & !8);
+                }
+            }
+            0x01 => {
+                self.tama_set_page(0, 0, 0);
+                self.tama_set_page(0, 1, 0);
+                for page in 0..4 {
+                    let r = self.tama_page(page, 0xD);
+                    self.tama_set_page(page, 0xD, r | 8);
+                }
+                self.tama5.sub = 0;
+            }
+            0x04 => {
+                self.tama_set_page(0, 2, data & 0xF);
+                self.tama_set_page(0, 3, (data >> 4) & 7);
+            }
+            0x05 => {
+                self.tama_set_page(0, 4, data & 0xF);
+                self.tama_set_page(0, 5, (data >> 4) & 3);
+            }
+            0x06 => {
+                self.tama5.result_lo = self.tama_page(0, 2);
+                self.tama5.result_hi = self.tama_page(0, 3);
+            }
+            0x07 => {
+                self.tama5.result_lo = self.tama_page(0, 4);
+                self.tama5.result_hi = self.tama_page(0, 5);
+            }
+            0x10 => {
+                for page in 0..4 {
+                    let r = self.tama_page(page, 0xD);
+                    self.tama_set_page(page, 0xD, r & !4);
+                }
+            }
+            0x11 => {
+                for page in 0..4 {
+                    let r = self.tama_page(page, 0xD);
+                    self.tama_set_page(page, 0xD, r | 4);
+                }
+            }
+            _ => {
+                self.tama5.result_lo = address & 0xF;
+                self.tama5.result_hi = address >> 4;
+            }
+        }
+    }
+
+    /// TAMA5's clock-page access (class 4): register 7 even writes a page, odd reads the timer
+    /// page back through the $C port ($D reads $FF there, as in mGBA).
+    fn tama_page_cmd(&mut self, reg7: u8) {
+        let index = usize::from(self.tama5.regs[4]);
+        match reg7 {
+            0 | 2 | 4 | 6 => {
+                if index >= 0xD {
+                    return;
+                }
+                let page = usize::from(reg7 / 2);
+                let mask = if page < 2 { Tama5::MASK[page][index] } else { 0xF };
+                let v = self.tama5.regs[5] & mask;
+                self.tama_set_page(page, index, v);
+            }
+            1 | 3 | 5 | 7 => {
+                let v = if index > 0xD { 0 } else { self.tama_page(0, index) };
+                self.tama5.result_lo = v;
+                self.tama5.result_hi = 0xF;
+            }
+            _ => {}
+        }
+    }
+
+    /// One second of the TAMA5 clock, in BCD, when the timer is enabled.
+    fn tama_tick_second(&mut self) {
+        if !self.tama_timer_enabled() {
+            return;
+        }
+        let bcd = |c: &Cart, o: usize, t: usize| u32::from(c.tama_page(0, o)) + 10 * u32::from(c.tama_page(0, t));
+        let mut total = bcd(self, 4, 5) * 3600 + bcd(self, 2, 3) * 60 + bcd(self, 0, 1) + 1;
+        let mut day = bcd(self, 7, 8);
+        let mut month = bcd(self, 9, 0xA);
+        let mut year = bcd(self, 0xB, 0xC);
+        if total >= 86_400 {
+            total -= 86_400;
+            let dim = [31u32, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][(month.max(1).min(12) - 1) as usize]
+                + u32::from(month == 2 && year % 4 == 0);
+            day += 1;
+            if day > dim {
+                day = 1;
+                month += 1;
+                if month > 12 {
+                    month = 1;
+                    year = (year + 1) % 100;
+                }
+            }
+            let wd = self.tama_page(0, 6);
+            self.tama_set_page(0, 6, (wd + 1) % 7);
+        }
+        let set = |c: &mut Cart, o: usize, t: usize, v: u32| {
+            c.tama_set_page(0, o, (v % 10) as u8);
+            c.tama_set_page(0, t, ((v / 10) % 10) as u8);
+        };
+        set(self, 0, 1, total % 60);
+        set(self, 2, 3, (total / 60) % 60);
+        set(self, 4, 5, total / 3600);
+        set(self, 7, 8, day);
+        set(self, 9, 0xA, month);
+        set(self, 0xB, 0xC, year);
+    }
+
     fn ram_index(&self, addr: u16) -> Option<usize> {
         if self.ram.is_empty() {
             return None;
@@ -592,6 +1339,9 @@ impl Cart {
             MbcKind::Mbc2 => return Some(addr as usize & 0x1FF),
             MbcKind::Mbc5 => self.ram_bank as usize,
             MbcKind::Mbc7 => return None,
+            MbcKind::Mbc6 => return None, // Two 4 KiB windows, handled by `mbc6_read`/`mbc6_write`.
+            MbcKind::Mmm01 => self.mmm01.ram_bank(),
+            MbcKind::Tama5 => return None, // Ports, handled by `tama_read`/`tama_write`.
             MbcKind::HuC3 => (self.ram_bank & 3) as usize,
             MbcKind::Camera => {
                 if self.cam_regs() {
@@ -627,10 +1377,17 @@ impl Cart {
     pub fn read_ram(&self, addr: u16) -> u8 {
         if self.kind != MbcKind::None
             && self.kind != MbcKind::HuC3
+            && self.kind != MbcKind::Tama5
             && !self.cam_regs()
             && !self.ram_enabled
         {
             return 0xFF;
+        }
+        if self.kind == MbcKind::Mbc6 {
+            return self.mbc6_read(addr);
+        }
+        if self.kind == MbcKind::Tama5 {
+            return self.tama_read(addr);
         }
         if self.kind == MbcKind::Mbc7 {
             return self.mbc7_read(addr);
@@ -666,9 +1423,18 @@ impl Cart {
     pub fn write_ram(&mut self, addr: u16, v: u8) {
         if self.kind != MbcKind::None
             && self.kind != MbcKind::HuC3
+            && self.kind != MbcKind::Tama5
             && !self.cam_regs()
             && !self.ram_enabled
         {
+            return;
+        }
+        if self.kind == MbcKind::Mbc6 {
+            self.mbc6_write(addr, v);
+            return;
+        }
+        if self.kind == MbcKind::Tama5 {
+            self.tama_write(addr, v);
             return;
         }
         if self.kind == MbcKind::Mbc7 {
@@ -1019,6 +1785,16 @@ impl Cart {
                 self.camera.regs[0] &= !1;
             }
         }
+        // TAMA5's clock is not an MBC3 clock: it ticks while the game is running, from its own
+        // accumulator, and its state lives in `ram` (mGBA's 72-byte layout), not the MBC3 block.
+        if self.kind == MbcKind::Tama5 {
+            self.tama5.sub += t;
+            while self.tama5.sub >= 4_194_304 {
+                self.tama5.sub -= 4_194_304;
+                self.tama_tick_second();
+            }
+            return;
+        }
         if !self.has_rtc || self.kind == MbcKind::HuC3 {
             return;
         }
@@ -1355,19 +2131,205 @@ mod tests {
     /// app shows the core's own last line when a game is refused, so this is what a tester sees.
     #[test]
     fn an_unsupported_cartridge_is_refused_in_plain_words() {
-        for (kind, name) in [(0x0Bu8, "MMM01"), (0x0D, "MMM01"), (0x20, "MBC6"), (0xFD, "TAMA5"), (0x15, "MBC4"), (0x77, "an unknown one")] {
+        for (kind, name) in [(0x15u8, "MBC4"), (0x77, "an unknown one")] {
             let why = Cart::new(rom(kind, 2)).unwrap_err();
             assert!(why.starts_with("This cartridge has a chip cBoy cannot play yet ("), "{why}");
             assert!(why.contains(name), "${kind:02X} should be named as {name}: {why}");
             assert!(why.contains("mGBA"), "say where the game can be played: {why}");
             assert!(!why.contains('$') && !why.contains("0x"), "no codes in a refusal: {why}");
         }
-        // Every cartridge cBoy does play is still accepted.
-        for kind in [0x00u8, 0x03, 0x06, 0x10, 0x13, 0x1B, 0x22, 0xFC, 0xFE, 0xFF] {
+        // MMM01, MBC6 and TAMA5 are now played, not refused.
+        for kind in [0x00u8, 0x03, 0x06, 0x0B, 0x0C, 0x0D, 0x10, 0x13, 0x1B, 0x20, 0x22, 0xFC, 0xFD, 0xFE, 0xFF] {
             assert!(Cart::new(rom(kind, 2)).is_ok(), "${kind:02X}");
         }
         let why = Cart::new(vec![0u8; 0x100]).unwrap_err();
         assert!(why.starts_with("This file is too small to be a Game Boy game"), "{why}");
+    }
+
+    #[test]
+    fn mmm01_menu_then_mapped_banks() {
+        // 16 banks (256 KiB): unmapped, the menu is the last 32 KiB.
+        let mut c = Cart::new(rom(0x0C, 16)).unwrap();
+        assert_eq!(c.read_rom(0x0010), 14, "unmapped $0000 is the second-last bank");
+        assert_eq!(c.read_rom(0x4010), 15, "unmapped $4000 is the last bank");
+        assert!(!c.mmm01.mapped);
+        // The menu selects a game (ROM bank $21, RAM bank 1, mask $10) and enables mapping.
+        c.write_rom(0x2000, 0x01);
+        c.write_rom(0x4000, 0x21);
+        c.write_rom(0x6000, 0x20);
+        c.write_rom(0x0000, 0x4A); // RAM enable $A, RAM mask 0, mapping enable bit 6
+        assert!(c.mmm01.mapped);
+        // $0000 is the game's base bank (fixed bits only): high 2, mid 0, low & mask = 0, so
+        // bank 256 of a 16-bank ROM, which wraps to bank 0.
+        assert_eq!(c.read_rom(0x0010), 0);
+        // $4000 is the game's bank 1 (low 1; the 0 -> 1 correction fires when the unmasked
+        // bits are 0, so writing 0 still gives bank 1).
+        c.write_rom(0x2000, 0x00);
+        assert_eq!(c.read_rom(0x4010), 1);
+        // The mask is a write lock: the game cannot change the locked bit 4 of the low bank.
+        c.write_rom(0x2000, 0x1F);
+        assert_eq!(c.read_rom(0x4010), 0x0F, "locked bit 4 stays 0");
+        // RAM banking needs mode 1 (in mode 0 the RAM bank is the fixed, masked base bank).
+        c.write_rom(0x6000, 0x01);
+        c.write_rom(0x0000, 0x0A);
+        c.write_rom(0x4000, 0x01);
+        c.write_ram(0xA123, 0x5A);
+        assert_eq!(c.read_ram(0xA123), 0x5A);
+        c.write_rom(0x4000, 0x00);
+        assert_eq!(c.read_ram(0xA123), 0xFF, "RAM bank 0 is a different bank");
+    }
+
+    #[test]
+    fn mbc6_flash_id_program_and_erase() {
+        let mut c = Cart::new(rom(0x20, 2)).unwrap();
+        // Flash is off until the chip is enabled.
+        assert_eq!(c.read_rom(0x4010), 0, "window A is ROM bank 0 while flash is off");
+        c.write_rom(0x0C00, 0x01); // flash enable
+        c.write_rom(0x1000, 0x01); // flash write enable (/WP)
+        c.write_rom(0x2800, 0x08); // window A shows the flash
+        c.write_rom(0x3800, 0x08); // window B shows the flash
+        // The unlock addresses are flash addresses: bank A 2 puts flash $5555 at CPU $5555,
+        // bank B 1 puts flash $2AAA at CPU $6AAA.
+        c.write_rom(0x2000, 0x02);
+        c.write_rom(0x3000, 0x01);
+        assert_eq!(c.read_rom(0x4010), 0xFF, "erased flash reads $FF");
+        // JEDEC ID: $C2/$81.
+        c.write_rom(0x5555, 0xAA);
+        c.write_rom(0x6AAA, 0x55);
+        c.write_rom(0x5555, 0x90);
+        assert_eq!(c.read_rom(0x4000), 0xC2);
+        assert_eq!(c.read_rom(0x4001), 0x81);
+        c.write_rom(0x4000, 0xF0); // exit ID mode
+        // Program a byte at flash $10: $AA/$55/$A0, then the byte (bits only clear).
+        c.write_rom(0x5555, 0xAA);
+        c.write_rom(0x6AAA, 0x55);
+        c.write_rom(0x5555, 0xA0);
+        c.write_rom(0x2000, 0x00); // bank A 0, so CPU $4010 is flash $10
+        c.write_rom(0x4010, 0x5A);
+        c.write_rom(0x4010, 0xF0); // exit program mode
+        assert_eq!(c.read_rom(0x4010), 0x5A);
+        c.write_rom(0x2000, 0x02);
+        c.write_rom(0x5555, 0xAA);
+        c.write_rom(0x6AAA, 0x55);
+        c.write_rom(0x5555, 0xA0);
+        c.write_rom(0x2000, 0x00);
+        c.write_rom(0x4010, 0xFF); // programming $FF clears nothing
+        c.write_rom(0x4010, 0xF0);
+        assert_eq!(c.read_rom(0x4010), 0x5A, "flash programming only clears bits");
+        // Sector erase: $AA/$55/$80, $AA/$55, then $30 to an address in the sector.
+        c.write_rom(0x2000, 0x02);
+        c.write_rom(0x5555, 0xAA);
+        c.write_rom(0x6AAA, 0x55);
+        c.write_rom(0x5555, 0x80);
+        c.write_rom(0x5555, 0xAA);
+        c.write_rom(0x6AAA, 0x55);
+        c.write_rom(0x2000, 0x00);
+        c.write_rom(0x4000, 0x30);
+        c.write_rom(0x4000, 0xF0);
+        assert_eq!(c.read_rom(0x4010), 0xFF, "the sector is erased back to $FF");
+        // RAM windows: bank A at $A000, bank B at $B000; both at bank 0 show the same cell.
+        c.write_rom(0x0000, 0x0A);
+        c.write_ram(0xA000, 0x11);
+        c.write_rom(0x0800, 0x01); // RAM bank B 1
+        c.write_ram(0xB000, 0x22);
+        assert_eq!(c.read_ram(0xA000), 0x11);
+        assert_eq!(c.read_ram(0xB000), 0x22);
+        c.write_rom(0x0400, 0x01); // RAM bank A 1: the same cell bank B 1 wrote
+        assert_eq!(c.read_ram(0xA000), 0x22);
+        c.write_rom(0x0400, 0x02);
+        assert_eq!(c.read_ram(0xA000), 0xFF, "RAM bank 2 is a different bank");
+        // The flash is in the battery save, after the 32 KiB of SRAM.
+        assert_eq!(c.ram.len(), 0x8000 + 0x10_0000);
+    }
+
+    #[test]
+    fn mbc6_flash_program_f0() {
+        // Programming $F0 itself works: $F0 is only special as the commit-repeat
+        // abort and the post-commit exit, not as streamed program data (Pan Docs
+        // MBC6; the NP doc's trigger rule). Bank A 0 puts flash $10/$20/$30/$40 at
+        // CPU $4010/$4020/$4030/$4040.
+        let mut c = Cart::new(rom(0x20, 2)).unwrap();
+        c.write_rom(0x0C00, 0x01); // flash enable
+        c.write_rom(0x1000, 0x01); // flash write enable (/WP)
+        c.write_rom(0x2800, 0x08); // window A shows the flash
+        c.write_rom(0x3800, 0x08); // window B shows the flash
+        c.write_rom(0x2000, 0x02);
+        c.write_rom(0x3000, 0x01);
+        // Program $5A at flash $10, then $F0 at flash $20 (a new offset, so it is
+        // data), then exit with a $F0 repeat to $20 (abort/exit) and read both back.
+        c.write_rom(0x5555, 0xAA);
+        c.write_rom(0x6AAA, 0x55);
+        c.write_rom(0x5555, 0xA0);
+        c.write_rom(0x2000, 0x00);
+        c.write_rom(0x4010, 0x5A);
+        c.write_rom(0x4020, 0xF0);
+        c.write_rom(0x4020, 0xF0); // repeat to the last offset: abort/exit
+        assert_eq!(c.read_rom(0x4010), 0x5A, "earlier byte is untouched");
+        assert_eq!(c.read_rom(0x4020), 0xF0, "programming $F0 to a new offset stores $F0");
+        // Commit, then exit: program $A5 at flash $40, repeat it (commit), then $F0
+        // to a different offset ($30) exits instead of programming (post-commit,
+        // $F0 to any address exits).
+        c.write_rom(0x2000, 0x02);
+        c.write_rom(0x5555, 0xAA);
+        c.write_rom(0x6AAA, 0x55);
+        c.write_rom(0x5555, 0xA0);
+        c.write_rom(0x2000, 0x00);
+        c.write_rom(0x4040, 0xA5);
+        c.write_rom(0x4040, 0xA5); // commit repeat (non-$F0)
+        c.write_rom(0x4030, 0xF0); // post-commit $F0 to a new offset exits
+        assert_eq!(c.read_rom(0x4040), 0xA5, "committed byte reads back");
+        assert_eq!(c.read_rom(0x4030), 0xFF, "post-commit $F0 exits instead of programming");
+        // Committing with $00 must not AND $00 onto the byte: program $3C at flash
+        // $50, commit it with a $00 repeat, exit, and read the byte back intact.
+        c.write_rom(0x2000, 0x02);
+        c.write_rom(0x5555, 0xAA);
+        c.write_rom(0x6AAA, 0x55);
+        c.write_rom(0x5555, 0xA0);
+        c.write_rom(0x2000, 0x00);
+        c.write_rom(0x4050, 0x3C);
+        c.write_rom(0x4050, 0x00); // commit repeat with $00
+        c.write_rom(0x4030, 0xF0); // exit
+        assert_eq!(c.read_rom(0x4050), 0x3C, "committing with $00 leaves the byte intact");
+    }
+
+    #[test]
+    fn tama5_ports_bank_and_clock() {
+        let mut c = Cart::new(rom(0xFD, 32)).unwrap();
+        assert_eq!(c.ram.len(), 72);
+        assert_eq!(c.read_rom(0x4010), 1, "TAMA5 starts on ROM bank 1");
+        // Select register 0, write bank low $5; register 1, write bank high $1: bank $15.
+        c.write_ram(0xA001, 0x00);
+        c.write_ram(0xA000, 0x05);
+        c.write_ram(0xA001, 0x01);
+        c.write_ram(0xA000, 0x01);
+        assert_eq!(c.read_rom(0x4010), 21, "bank $15 of a 32-bank ROM reads its bank number");
+        // Write a byte to the 32-byte RAM (class 0, address 3) and read it back (class 1).
+        c.write_ram(0xA001, 0x04);
+        c.write_ram(0xA000, 0x0A);
+        c.write_ram(0xA001, 0x05);
+        c.write_ram(0xA000, 0x00);
+        c.write_ram(0xA001, 0x06);
+        c.write_ram(0xA000, 0x00);
+        c.write_ram(0xA001, 0x07);
+        c.write_ram(0xA000, 0x03); // executes: write data $0A to RAM[3]
+        c.write_ram(0xA001, 0x06);
+        c.write_ram(0xA000, 0x02); // class 1
+        c.write_ram(0xA001, 0x07);
+        c.write_ram(0xA000, 0x03); // executes: select RAM[3] for reading
+        c.write_ram(0xA001, 0x0C);
+        assert_eq!(c.read_ram(0xA000), 0xFA, "low nybble of $0A");
+        c.write_ram(0xA001, 0x0D);
+        assert_eq!(c.read_ram(0xA000), 0xF0, "high nybble of $0A");
+        // Enable the clock (class 2, address $01), then run two seconds.
+        c.write_ram(0xA001, 0x06);
+        c.write_ram(0xA000, 0x04);
+        c.write_ram(0xA001, 0x07);
+        c.write_ram(0xA000, 0x01);
+        assert!(c.tama_timer_enabled());
+        c.tick(4_194_304 * 2);
+        // Read the minutes back (class 2, address $06): still 0, seconds are 2.
+        assert_eq!(c.tama_page(0, 0), 2, "two seconds have passed");
+        assert_eq!(c.tama_page(0, 1), 0);
     }
 
     /// Telling a Game Boy cartridge from an Advance one: the logo the console checks, or a header

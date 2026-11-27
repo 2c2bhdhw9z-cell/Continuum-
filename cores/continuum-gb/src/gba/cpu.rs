@@ -88,6 +88,61 @@ fn ror(v: u32, n: u32) -> u32 {
     v.rotate_right(n & 31)
 }
 
+/// What `arm_op` does for one ARM opcode, decided by a table instead of a chain of
+/// bitmask checks: indexed by ((op >> 16) & 0xFF0) | ((op >> 4) & 0xF), the opcode's
+/// bits 27..20 and 7..4. Those twelve bits settle every class except two, whose cells
+/// check the rest at run time: BX (bits 19..8 must be 0xFFF) and SWP (bits 11..8 must
+/// be 0), each falling back to the data-processing/PSR choice the old chain reached.
+/// `ARM_DP` covers both data processing and PSR moves; `ARM_SINGLE` covers the
+/// single-transfer class minus its one undefined shape (bit 25 and bit 4 both set).
+const ARM_UNDEF: u8 = 0;
+const ARM_BX: u8 = 1;
+const ARM_MUL: u8 = 2;
+const ARM_MULL: u8 = 3;
+const ARM_SWAP: u8 = 4;
+const ARM_HALF: u8 = 5;
+const ARM_DP: u8 = 6;
+const ARM_SINGLE: u8 = 7;
+const ARM_BLOCK: u8 = 8;
+const ARM_BRANCH: u8 = 9;
+const ARM_SWI: u8 = 10;
+const ARM_DISPATCH: [u8; 4096] = {
+    const fn build() -> [u8; 4096] {
+        let mut t = [ARM_UNDEF; 4096];
+        let mut i = 0;
+        while i < 4096 {
+            let hi = (i >> 4) as u32;
+            let lo = (i & 0xF) as u32;
+            t[i] = if hi == 0x12 && lo == 0x1 {
+                ARM_BX
+            } else if lo == 0x9 && hi & 0xFC == 0 {
+                ARM_MUL
+            } else if lo == 0x9 && hi & 0xF8 == 0x08 {
+                ARM_MULL
+            } else if lo == 0x9 && (hi == 0x10 || hi == 0x14) {
+                ARM_SWAP
+            } else if (lo == 0xB || lo == 0xD || lo == 0xF) && hi & 0xE0 == 0 {
+                ARM_HALF
+            } else if hi & 0xC0 == 0 {
+                ARM_DP
+            } else if hi & 0xC0 == 0x40 {
+                if hi & 0x20 != 0 && lo & 1 != 0 { ARM_UNDEF } else { ARM_SINGLE }
+            } else if hi & 0xE0 == 0x80 {
+                ARM_BLOCK
+            } else if hi & 0xE0 == 0xA0 {
+                ARM_BRANCH
+            } else if hi & 0xF0 == 0xF0 {
+                ARM_SWI
+            } else {
+                ARM_UNDEF
+            };
+            i += 1;
+        }
+        t
+    }
+    build()
+};
+
 impl Cpu {
     /// Power-on state, for running a real BIOS from address 0 (supervisor mode, IRQ/FIQ off).
     pub fn power_on() -> Cpu {
@@ -311,6 +366,7 @@ impl Cpu {
     /// IRQ entry: the opcode read that was due still happens, then the pipeline is refilled at
     /// the vector.
     fn irq(&mut self, bus: &mut Bus) {
+        bus.irq_committed = false;
         bus.bios_latch = 0xE25E_F004;
         let thumb = self.thumb();
         let len = if thumb { 2 } else { 4 };
@@ -348,52 +404,61 @@ impl Cpu {
     }
 
     // ---------------------------------------------------------------- ARM
+    // The ARM dispatch table lives at module level, above `impl Cpu`.
 
     fn arm_op(&mut self, bus: &mut Bus, op: u32, addr: u32) {
-        if op & 0x0FFF_FFF0 == 0x012F_FF10 {
-            // BX
-            let v = self.r[(op & 15) as usize];
-            self.set_flag(T, v & 1 != 0);
-            self.set_reg(15, v);
-        } else if op & 0x0FC0_00F0 == 0x0000_0090 {
-            self.arm_mul(bus, op);
-        } else if op & 0x0F80_00F0 == 0x0080_0090 {
-            self.arm_mull(bus, op);
-        } else if op & 0x0FB0_0FF0 == 0x0100_0090 {
-            self.arm_swap(bus, op);
-        } else if op & 0x0E00_0090 == 0x0000_0090 && op & 0x60 != 0 {
-            self.arm_half(bus, op);
-        } else if op & 0x0C00_0000 == 0 {
-            let opc = (op >> 21) & 15;
-            if (8..=11).contains(&opc) && op & (1 << 20) == 0 {
-                self.arm_psr(op);
-            } else {
-                self.arm_dp(bus, op);
+        let idx = (((op >> 16) & 0xFF0) | ((op >> 4) & 0xF)) as usize;
+        match ARM_DISPATCH[idx] {
+            ARM_BX => {
+                if (op >> 8) & 0xFFF == 0xFFF {
+                    let v = self.r[(op & 15) as usize];
+                    self.set_flag(T, v & 1 != 0);
+                    self.set_reg(15, v);
+                } else {
+                    self.arm_dp_or_psr(bus, op);
+                }
             }
-        } else if op & 0x0C00_0000 == 0x0400_0000 {
-            if op & 0x0200_0010 == 0x0200_0010 {
-                self.undefined(addr);
-            } else {
-                self.arm_single(bus, op);
+            ARM_MUL => self.arm_mul(bus, op),
+            ARM_MULL => self.arm_mull(bus, op),
+            ARM_SWAP => {
+                if (op >> 8) & 0xF == 0 {
+                    self.arm_swap(bus, op);
+                } else {
+                    self.arm_dp_or_psr(bus, op);
+                }
             }
-        } else if op & 0x0E00_0000 == 0x0800_0000 {
-            self.arm_block(bus, op);
-        } else if op & 0x0E00_0000 == 0x0A00_0000 {
-            let off = ((op << 8) as i32 >> 6) as u32;
-            if op & (1 << 24) != 0 {
-                self.r[14] = addr.wrapping_add(4);
+            ARM_HALF => self.arm_half(bus, op),
+            ARM_DP => self.arm_dp_or_psr(bus, op),
+            ARM_SINGLE => self.arm_single(bus, op),
+            ARM_BLOCK => self.arm_block(bus, op),
+            ARM_BRANCH => {
+                let off = ((op << 8) as i32 >> 6) as u32;
+                if op & (1 << 24) != 0 {
+                    self.r[14] = addr.wrapping_add(4);
+                }
+                self.set_reg(15, self.r[15].wrapping_add(off));
             }
-            self.set_reg(15, self.r[15].wrapping_add(off));
-        } else if op & 0x0F00_0000 == 0x0F00_0000 {
-            if bus.real_bios {
-                self.exception(MODE_SVC, 0x08, addr.wrapping_add(4));
-            } else {
-                bios::swi(self, bus, (op >> 16) & 0xFF);
-                // Coming back from the BIOS is a jump.
-                self.branched = true;
+            ARM_SWI => {
+                if bus.real_bios {
+                    self.exception(MODE_SVC, 0x08, addr.wrapping_add(4));
+                } else {
+                    bios::swi(self, bus, (op >> 16) & 0xFF);
+                    // Coming back from the BIOS is a jump.
+                    self.branched = true;
+                }
             }
+            _ => self.undefined(addr),
+        }
+    }
+
+    /// Data processing, or a PSR move when the opcode is one (opcode 8..=11 with bit 20
+    /// clear): the choice the old if/else chain made for its last data-processing branch.
+    fn arm_dp_or_psr(&mut self, bus: &mut Bus, op: u32) {
+        let opc = (op >> 21) & 15;
+        if (8..=11).contains(&opc) && op & (1 << 20) == 0 {
+            self.arm_psr(op);
         } else {
-            self.undefined(addr);
+            self.arm_dp(bus, op);
         }
     }
 
@@ -457,7 +522,12 @@ impl Cpu {
             14 => (logical(self, rn & !op2), true),
             _ => (logical(self, !op2), true),
         };
-        if rd == 15 && s {
+        // Only an instruction that writes its result to the program counter moves the
+        // saved status into the current one — except that CMP and CMN, which are built on
+        // the adder, still move it when their destination field names the PC, while the
+        // logical test instructions (TST, TEQ) do not. A TEQ with its destination field
+        // set to the PC must not change mode or the interrupt mask, however it is encoded.
+        if (write || opc == 10 || opc == 11) && rd == 15 && s {
             let spsr = self.spsr();
             self.set_cpsr(spsr);
         }
@@ -548,6 +618,10 @@ impl Cpu {
         let rn = self.r[((op >> 16) & 15) as usize];
         let rd = ((op >> 12) & 15) as usize;
         let rm = self.r[(op & 15) as usize];
+        // SWP locks the bus for its read and write: a DMA that comes due in between waits
+        // until the write has happened, as on the console (the Aging Cartridge's "SWP LOCKS
+        // BUS": the DMA's write must land after the SWP's, not between its read and write).
+        bus.dma_locked = true;
         if op & (1 << 22) != 0 {
             let v = bus.read8(rn);
             bus.write8(rn, rm as u8);
@@ -557,6 +631,7 @@ impl Cpu {
             bus.write32(rn & !3, rm);
             self.set_reg(rd, v);
         }
+        bus.dma_locked = false;
         bus.idle(1);
     }
 
@@ -653,13 +728,11 @@ impl Cpu {
         let rn_i = ((op >> 16) & 15) as usize;
         let list = op & 0xFFFF;
         let base = self.r[rn_i];
-        let (regs, bytes): (Vec<usize>, u32) = if list == 0 {
-            (vec![15], 0x40)
-        } else {
-            let v: Vec<usize> = (0..16).filter(|i| list & (1 << i) != 0).collect();
-            let n = v.len() as u32 * 4;
-            (v, n)
-        };
+        // An empty list transfers r15 and moves the base by 0x40, exactly as a block
+        // transfer with no registers does; the mask below is that list, so no heap
+        // allocation is needed to walk it (`list.count_ones()` for its size).
+        let regs = if list == 0 { 0x8000 } else { list };
+        let bytes = if list == 0 { 0x40 } else { regs.count_ones() * 4 };
         let (mut addr, new_base) = if u {
             (if p { base + 4 } else { base }, base.wrapping_add(bytes))
         } else {
@@ -671,7 +744,11 @@ impl Cpu {
             if w {
                 self.set_reg(rn_i, new_base);
             }
-            for (k, &r) in regs.iter().enumerate() {
+            let mut k = 0;
+            for r in 0..16 {
+                if regs & (1 << r) == 0 {
+                    continue;
+                }
                 let v = bus.read32_seq(addr & !3, k > 0);
                 if user {
                     self.set_user_reg(r, v);
@@ -679,6 +756,7 @@ impl Cpu {
                     self.set_reg(r, v);
                 }
                 addr = addr.wrapping_add(4);
+                k += 1;
             }
             bus.idle(1);
             if s && list & 0x8000 != 0 {
@@ -687,7 +765,11 @@ impl Cpu {
                 self.pc &= if self.thumb() { !1 } else { !3 };
             }
         } else {
-            for (k, &r) in regs.iter().enumerate() {
+            let mut k = 0;
+            for r in 0..16 {
+                if regs & (1 << r) == 0 {
+                    continue;
+                }
                 let mut v = if user { self.user_reg(r) } else { self.r[r] };
                 if r == 15 {
                     v = v.wrapping_add(4);
@@ -697,6 +779,7 @@ impl Cpu {
                 }
                 bus.write32_seq(addr & !3, v, k > 0);
                 addr = addr.wrapping_add(4);
+                k += 1;
             }
             if w {
                 self.set_reg(rn_i, new_base);
@@ -1043,6 +1126,69 @@ impl Cpu {
                 }
             }
             self.r[rb] = end;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The old if/else chain's choice, as a table code (data processing and PSR moves
+    /// both land on `ARM_DP`, as they do in the table).
+    fn old_class(op: u32) -> u8 {
+        if op & 0x0FFF_FFF0 == 0x012F_FF10 {
+            ARM_BX
+        } else if op & 0x0FC0_00F0 == 0x0000_0090 {
+            ARM_MUL
+        } else if op & 0x0F80_00F0 == 0x0080_0090 {
+            ARM_MULL
+        } else if op & 0x0FB0_0FF0 == 0x0100_0090 {
+            ARM_SWAP
+        } else if op & 0x0E00_0090 == 0x0000_0090 && op & 0x60 != 0 {
+            ARM_HALF
+        } else if op & 0x0C00_0000 == 0 {
+            ARM_DP
+        } else if op & 0x0C00_0000 == 0x0400_0000 {
+            if op & 0x0200_0010 == 0x0200_0010 { ARM_UNDEF } else { ARM_SINGLE }
+        } else if op & 0x0E00_0000 == 0x0800_0000 {
+            ARM_BLOCK
+        } else if op & 0x0E00_0000 == 0x0A00_0000 {
+            ARM_BRANCH
+        } else if op & 0x0F00_0000 == 0x0F00_0000 {
+            ARM_SWI
+        } else {
+            ARM_UNDEF
+        }
+    }
+
+    /// The table's choice, with the two cells' run-time checks applied, as `arm_op` does.
+    fn table_class(op: u32) -> u8 {
+        let idx = (((op >> 16) & 0xFF0) | ((op >> 4) & 0xF)) as usize;
+        match ARM_DISPATCH[idx] {
+            ARM_BX => {
+                if (op >> 8) & 0xFFF == 0xFFF { ARM_BX } else { ARM_DP }
+            }
+            ARM_SWAP => {
+                if (op >> 8) & 0xF == 0 { ARM_SWAP } else { ARM_DP }
+            }
+            other => other,
+        }
+    }
+
+    /// The dispatch table must pick exactly what the old chain picked, for every index
+    /// and every shape of the bits the index does not carry (19..8 and 3..0).
+    #[test]
+    fn arm_dispatch_table_matches_old_chain() {
+        for hi in 0..256u32 {
+            for lo in 0..16u32 {
+                for mid in [0x000u32, 0xFFF, 0x100, 0x2FF] {
+                    for low in [0x0u32, 0x5, 0xF] {
+                        let op = (hi << 20) | (mid << 8) | (lo << 4) | low;
+                        assert_eq!(table_class(op), old_class(op), "op {op:08X}");
+                    }
+                }
+            }
         }
     }
 }

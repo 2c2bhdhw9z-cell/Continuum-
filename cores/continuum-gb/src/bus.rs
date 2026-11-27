@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::apu::Apu;
 use crate::cart::Cart;
-use crate::ppu::{CgbRev, Land, Ppu};
+use crate::ppu::{CgbRev, Land, Ppu, PpuIrq};
 use crate::timer::Timer;
 
 pub const INT_VBLANK: u8 = 1;
@@ -52,6 +52,10 @@ pub struct Bus {
     /// `SERIAL_LOG_MAX` bytes.
     #[serde(skip)]
     pub serial_out: Vec<u8>,
+    /// The Game Boy Printer on the link port, when one is attached. A peripheral, not part
+    /// of the Game Boy, so it is not saved in a state (and is carried over a load instead).
+    #[serde(skip)]
+    pub printer: crate::printer::Printer,
     dma_src: u16,
     dma_pos: u16,
     dma_active: bool,
@@ -77,9 +81,10 @@ pub struct Bus {
     pub cgb_hardware: bool,
     /// The Color's own scratch bytes $FF72, $FF73 and $FF75 (that one keeps only bits 4-6).
     /// Not in a save state: adding a field to one would stop every state players already have
-    /// from loading, and nothing reads these back across a save.
+    /// from loading, and nothing reads these back across a save. They ride in the BESS
+    /// footer's CBOY block instead, so a state round trip still comes back exact.
     #[serde(skip)]
-    scratch: [u8; 3],
+    pub(crate) scratch: [u8; 3],
     pub double_speed: bool,
     pub speed_prepare: bool,
     pub vbk: u8,
@@ -165,6 +170,12 @@ pub struct Bus {
     /// `landing`). Never across a frame boundary, where states are taken, so not saved.
     #[serde(skip)]
     land_next: Option<(u8, Land)>,
+    /// A DMG Mode-2 OAM corruption waiting for the end of this M-cycle: the row the PPU was
+    /// reading when the trigger fired, and whether it was a read, a write, or both. Several
+    /// triggers in one M-cycle merge into one corruption. Never across a frame boundary, so
+    /// not saved.
+    #[serde(skip)]
+    oam_pending: Option<(usize, bool, bool)>,
     /// The cheat codes switched on (cheats.rs). Not part of a save state: the app sets them.
     #[serde(skip)]
     pub cheats: crate::cheats::Cheats,
@@ -189,6 +200,7 @@ impl Bus {
             sb: 0,
             sc: 0x7E,
             serial_out: Vec::new(),
+            printer: crate::printer::Printer::default(),
             sgb: None,
             boot: Vec::new(),
             boot_on: false,
@@ -231,6 +243,7 @@ impl Bus {
             trace_bank: 0,
             hdma_watch: [0, 0, 0, 0x80, 0xFF],
             land_next: None,
+            oam_pending: None,
             cheats: crate::cheats::Cheats::default(),
         }
     }
@@ -331,9 +344,17 @@ impl Bus {
         self.serial_bits = 8;
         self.serial_waiting = false;
         self.serial_tx = self.sb;
-        // What comes back: the partner's byte once it answers, the byte just sent if the cable
-        // is plugged into itself, and all 1s if nothing is attached at all.
-        self.serial_rx = if self.link_loopback { self.sb } else { 0xFF };
+        // What comes back: the printer's reply when one is attached (it answers $00
+        // while a packet is coming, then $81 and a status byte), the partner's byte
+        // once it answers, the byte just sent if the cable is plugged into itself,
+        // and all 1s if nothing is attached at all.
+        self.serial_rx = if self.printer.present {
+            self.printer.response()
+        } else if self.link_loopback {
+            self.sb
+        } else {
+            0xFF
+        };
         // This machine drives the clock, so the partner is told straight away: it has to have
         // this byte before it can answer with its own. The cap is for a game that restarts the
         // transfer in a tight loop: the cable is emptied every frame, so it is never reached in
@@ -369,6 +390,13 @@ impl Bus {
         self.serial_waiting = false;
         self.sc &= 0x7F;
         self.iflag |= INT_SERIAL;
+        // The byte the game just clocked out reaches the printer now that it has
+        // been fully shifted out. The printer and a link partner are mutually
+        // exclusive: a byte answered by the link does not go to the printer.
+        if self.printer.present && !self.link_connected {
+            let sent = self.serial_tx;
+            self.printer.receive(sent);
+        }
     }
 
     /// The partner's answer to a byte this machine clocked out. Ignored when nothing is waiting
@@ -440,23 +468,27 @@ impl Bus {
     /// here lands at the end of the M-cycle, which is SameBoy's default too. Double speed has its
     /// own table there, in half dots, which a whole-dot drawer cannot place, so in double speed
     /// every write lands at the end, as it always has here.
+    /// A picture register write's landing steps: up to two `(half-dot, Land)` pairs, where the
+    /// half-dot is counted within the M-cycle — 1..=8 in normal speed, 1..=4 in double speed.
+    /// The PPU runs at half the CPU's rate in double speed, so a write lands at the same CPU
+    /// phase there (the old dot number) and twice as far through the M-cycle in normal speed
+    /// (the old dot number doubled). A step past the end of the M-cycle lands one dot into
+    /// the next one (a Color's WX).
     fn landing(&self, addr: u16, v: u8) -> [Option<(u8, Land)>; 2] {
-        if self.double_speed {
-            return [None, None];
-        }
+        let h = |d: u8| if self.double_speed { d } else { d * 2 };
         if self.cgb_hardware {
             return match addr {
                 // A Color takes LCDC whole at the end; changing tile select, either way, glitches
                 // a bitplane read on the next dot (`Ppu::bitplane_read`).
-                0xFF40 if (self.ppu.lcdc ^ v) & 0x10 != 0 => [Some((4, Land::TileSel(v))), None],
+                0xFF40 if (self.ppu.lcdc ^ v) & 0x10 != 0 => [Some((h(4), Land::TileSel(v))), None],
                 // A Color (CPU CGB C and earlier) writes a palette register a dot before the end,
                 // whole: no old-OR-new dot as on a Game Boy. A CGB D or later (and an Advance)
                 // a dot earlier still (SameBoy's GB_CONFLICT_PALETTE_CGB).
-                0xFF47..=0xFF49 if self.ppu.cgb_rev == CgbRev::C => [Some((3, Land::Value(v))), None],
-                0xFF47..=0xFF49 => [Some((2, Land::Value(v))), None],
+                0xFF47..=0xFF49 if self.ppu.cgb_rev == CgbRev::C => [Some((h(3), Land::Value(v))), None],
+                0xFF47..=0xFF49 => [Some((h(2), Land::Value(v))), None],
                 // A Color's WX write wins over the PPU's read of it, which puts it one dot into
                 // the next M-cycle.
-                0xFF4B => [Some((4, Land::Hold)), Some((5, Land::Value(v)))],
+                0xFF4B => [Some((h(4), Land::Hold)), Some((h(4) + 1, Land::Value(v)))],
                 // SCX, SCY and WY at the end: on a Color, SCY lands two dots after a Game Boy's
                 // (the Mealybug PPU documentation).
                 _ => [None, None],
@@ -464,29 +496,61 @@ impl Bus {
         }
         match addr {
             // A Game Boy writes LCDC in two steps a dot apart (see `Land::LcdcFirst`).
-            0xFF40 => [Some((2, Land::LcdcFirst(v))), Some((3, Land::Value(v)))],
+            0xFF40 => [Some((h(2), Land::LcdcFirst(v))), Some((h(3), Land::Value(v)))],
             // A Game Boy's SCY and SCX reach the fetcher two dots before the end.
-            0xFF42 | 0xFF43 => [Some((2, Land::Value(v))), None],
+            0xFF42 | 0xFF43 => [Some((h(2), Land::Value(v))), None],
             // A Game Boy palette register reads as the old value OR the new one for a dot, two
             // dots before the end, then as the new one.
-            0xFF47..=0xFF49 => [Some((2, Land::Or(v))), Some((3, Land::Value(v)))],
+            0xFF47..=0xFF49 => [Some((h(2), Land::Or(v))), Some((h(3), Land::Value(v)))],
             // WX at the end, and the window's one-pixel-late start is not taken on the next dot.
-            0xFF4B => [Some((4, Land::Wx(v))), None],
+            0xFF4B => [Some((h(4), Land::Wx(v))), None],
             _ => [None, None],
         }
     }
 
     /// One M-cycle of everything but the CPU.
     pub fn tick(&mut self) {
-        self.tick_landing(0, [None, None]);
+        self.tick_landing(0, [None, None], false);
+    }
+
+    /// One M-cycle of a CGB speed-switch halt: the picture keeps going, but the
+    /// timer (DIV/TIMA) is frozen — the CPU clock it runs from is being switched,
+    /// so DIV does not advance during the 2050 M-cycles (AGE spsw-div). The APU's
+    /// frame sequencer is driven by DIV, so it holds too; the channels' phases
+    /// still advance, as they do on the running picture clock.
+    pub fn tick_frozen(&mut self) {
+        self.tick_landing(0, [None, None], true);
+    }
+
+    /// What a PPU tick's interrupt lines do: VBlank (and a Super Game Boy transfer
+    /// waiting on it) and STAT. Shared by the fast path and the half-dot loop, so the
+    /// two stay in step.
+    fn note_ppu_irq(&mut self, irq: PpuIrq) {
+        if irq.vblank {
+            self.iflag |= INT_VBLANK;
+            if self.sgb.as_mut().is_some_and(|s| s.wants_transfer()) {
+                let data = self.sgb_screen_data();
+                if let Some(s) = self.sgb.as_mut() {
+                    s.take_transfer(&data);
+                }
+            }
+        }
+        if irq.stat {
+            self.iflag |= INT_STAT;
+        }
     }
 
     /// One M-cycle, handing the picture hardware the steps of a write to register `reg` on their
-    /// dots (see `landing`).
-    fn tick_landing(&mut self, reg: u8, steps: [Option<(u8, Land)>; 2]) {
+    /// dots (see `landing`). `freeze_timer` holds the timer (DIV/TIMA) still, for a
+    /// speed-switch halt.
+    fn tick_landing(&mut self, reg: u8, steps: [Option<(u8, Land)>; 2], freeze_timer: bool) {
+        // A frame-sequencer step that lands in this M-cycle's tick is one the
+        // register write after it still predates, in double speed (see
+        // `Apu::step_this_cycle`): clear the marker before the tick.
+        self.apu.step_this_cycle = false;
         self.cycles += 4;
         let serial_clock_was_high = self.serial_clock_high();
-        if self.timer.tick_m() {
+        if !freeze_timer && self.timer.tick_m() {
             self.iflag |= INT_TIMER;
         }
         // The port's own clock, so a transfer this machine drives shifts a bit here.
@@ -508,32 +572,47 @@ impl Bus {
         self.apu_div_bit = bit;
         self.apu.div_high = bit;
         self.apu.tick(dots);
-        for dot in 1..=dots {
-            let irq = self.ppu.tick();
-            // The step of the last write that lands one dot into this M-cycle, then this one's.
-            if dot == 1 {
-                if let Some((r, step)) = self.land_next.take() {
-                    self.ppu.land(r, step);
-                    self.ppu.settle(r);
-                }
+        // Fast path, the overwhelmingly common M-cycle: no register step lands in it and
+        // none is carried over from the last one, so there is nothing to place on a
+        // half-dot — the PPU just ticks once per dot. (`steps[1]` is only ever set with
+        // `steps[0]`, by `landing`, so checking both is the same condition, stated
+        // defensively.) The half-dot loop below is identical for this case, only slower:
+        // it ticks the PPU on the even halves, of which there are `dots`.
+        if steps[0].is_none() && steps[1].is_none() && self.land_next.is_none() {
+            for _ in 0..dots {
+                let irq = self.ppu.tick();
+                self.note_ppu_irq(irq);
             }
-            for (at, step) in steps.iter().flatten() {
-                if u32::from(*at) == dot {
-                    self.ppu.land(reg, *step);
-                }
-            }
-            if irq.vblank {
-                self.iflag |= INT_VBLANK;
-                if self.sgb.as_mut().is_some_and(|s| s.wants_transfer()) {
-                    let data = self.sgb_screen_data();
-                    if let Some(s) = self.sgb.as_mut() {
-                        s.take_transfer(&data);
+        } else {
+            // Half-dots: the PPU ticks on every second one (one dot is two half-dots), and a
+            // register step lands on its own half-dot, between the ticks when it is odd.
+            let half_dots = dots * 2;
+            for half in 1..=half_dots {
+                let mut irq = None;
+                if half % 2 == 0 {
+                    irq = Some(self.ppu.tick());
+                    // The step of the last write that lands one dot into this M-cycle, then this one's.
+                    if half == 2 {
+                        if let Some((r, step)) = self.land_next.take() {
+                            self.ppu.land(r, step);
+                            self.ppu.settle(r);
+                        }
                     }
                 }
+                for (at, step) in steps.iter().flatten() {
+                    if u32::from(*at) == half {
+                        self.ppu.land(reg, *step);
+                    }
+                }
+                if let Some(irq) = irq {
+                    self.note_ppu_irq(irq);
+                }
             }
-            if irq.stat {
-                self.iflag |= INT_STAT;
-            }
+        }
+        // A DMG Mode-2 OAM corruption triggered in this M-cycle lands now, after the PPU has
+        // read the row, and before the DMA byte that follows it.
+        if let Some((row, read, write)) = self.oam_pending.take() {
+            self.ppu.corrupt_oam(row, read, write);
         }
         self.cart.tick(dots);
         let mode = self.ppu.mode();
@@ -587,15 +666,45 @@ impl Bus {
         usize::from(self.vbk & 1) * 0x2000 + (addr - 0x8000) as usize
     }
 
-    /// STOP: on the CGB with KEY1 armed, switches CPU speed.
+    /// A DMG Mode-2 OAM corruption trigger: the CPU is about to read OAM, write OAM, or
+    /// increase/decrease a 16-bit register whose value `addr` is in $FE00-$FEFF, in the
+    /// M-cycle that is about to tick. Only a DMG in mode 2 corrupts, and only the row the PPU
+    /// is reading now (dot / 4). Call this before the tick of the M-cycle it belongs to;
+    /// several triggers in one M-cycle merge into one corruption, applied at its end.
+    pub fn note_oam(&mut self, addr: u16, write: bool) {
+        if self.cgb_hardware || self.ppu.mode() != 2 || !(0xFE00..0xFF00).contains(&addr) {
+            return;
+        }
+        let row = (self.ppu.dot / 4) as usize;
+        match &mut self.oam_pending {
+            Some((r, read, wr)) if *r == row => {
+                *read |= !write;
+                *wr |= write;
+            }
+            _ => self.oam_pending = Some((row, !write, write)),
+        }
+    }
+
+    /// STOP: on the CGB with KEY1 armed, a speed switch — but the speed itself only
+    /// toggles when the 2050 M-cycle halt ends (`finish_speed_switch`, counted by
+    /// the CPU). The DIV reset below happens at once, for every STOP.
     pub fn stop(&mut self) {
         self.log(format!("STOP (KEY1 armed: {})", self.speed_prepare));
-        if self.cgb && self.speed_prepare {
-            self.double_speed = !self.double_speed;
-            self.log(format!("speed switch: {}", if self.double_speed { "double" } else { "normal" }));
-            self.speed_prepare = false;
-        }
         self.timer.write_div();
+        // STOP resets DIV just as writing $FF04 does: if the sequencer's bit was high, it
+        // falls at once and the frame sequencer steps (the stop_div tests).
+        if self.apu_div_bit {
+            self.apu.frame_step();
+            self.apu_div_bit = false;
+            self.apu.div_high = false;
+        }
+    }
+
+    /// The end of a CGB speed-switch halt: the speed toggles and KEY1 disarms.
+    pub fn finish_speed_switch(&mut self) {
+        self.double_speed = !self.double_speed;
+        self.log(format!("speed switch: {}", if self.double_speed { "double" } else { "normal" }));
+        self.speed_prepare = false;
     }
 
     pub fn read(&mut self, addr: u16) -> u8 {
@@ -603,6 +712,8 @@ impl Bus {
         if !((addr < 0x8000 && !self.boot_on) || (0xC000..0xFE00).contains(&addr) || addr >= 0xFF80) {
             self.loop_unstable = true;
         }
+        // Any access to OAM in mode 2 corrupts it on a DMG (Pan Docs, "OAM Corruption Bug").
+        self.note_oam(addr, false);
         self.tick();
         if self.dma_active && (self.dma_delay == 0 || self.dma_prev_block) && (0xFE00..0xFF00).contains(&addr) {
             return 0xFF;
@@ -612,24 +723,30 @@ impl Bus {
         {
             return 0xFF;
         }
-        self.raw_read(addr)
+        let v = self.raw_read(addr);
+        v
     }
 
     pub fn write(&mut self, addr: u16, v: u8) {
         self.loop_writes = self.loop_writes.wrapping_add(1);
+        // Any access to OAM in mode 2 corrupts it on a DMG (Pan Docs, "OAM Corruption Bug").
+        self.note_oam(addr, true);
         if (0xFF40..=0xFF4B).contains(&addr) {
             // A picture register: the picture hardware sees the write on the dots `landing`
             // gives, and the register itself changes at the end of the M-cycle as before.
             let steps = self.landing(addr, v);
             let reg = addr as u8;
-            self.tick_landing(reg, steps);
+            self.tick_landing(reg, steps, false);
             #[cfg(feature = "trace")]
             if steps[0].is_none() {
                 self.ppu.trace_land(reg, v, self.raw_read(addr));
             }
             self.raw_write(addr, v);
+            // A step past the end of this M-cycle (a Color's WX, one dot into the next one)
+            // waits for the first PPU tick of the next M-cycle; anything else is settled now.
+            let last_half = if self.double_speed { 4 } else { 8 };
             match steps[1] {
-                Some((5, step)) => self.land_next = Some((reg, step)),
+                Some((at, step)) if at > last_half => self.land_next = Some((reg, step)),
                 _ => self.ppu.settle(reg),
             }
             return;
@@ -757,6 +874,11 @@ impl Bus {
             }
             0xFF04 => {
                 self.timer.write_div();
+                // A DIV write resets the system counter: the live 1 MHz phase flips
+                // (the sweep's reload reads it), and a switch-on after the write
+                // samples the trigger phase from it (see `Apu::div_written`).
+                self.apu.flip_lf_phase();
+                self.apu.div_written = true;
                 // DIV going to 0 drops the sequencer's bit at once if it was high.
                 if self.apu_div_bit {
                     self.apu.frame_step();
@@ -777,7 +899,11 @@ impl Bus {
                     self.iflag |= INT_STAT;
                 }
             }
-            0xFF41 => self.ppu.write_stat(v),
+            0xFF41 => {
+                if self.ppu.write_stat(v) {
+                    self.iflag |= INT_STAT;
+                }
+            }
             0xFF42 => self.ppu.scy = v,
             0xFF43 => self.ppu.scx = v,
             0xFF45 => {
@@ -922,37 +1048,45 @@ mod tests {
     /// The table, as SameBoy's write-conflict model has it (and, for a Game Boy's LCDC first step
     /// and SCY, as the Game Boy pictures measure it; .kiro/notes/docs/CBOY_EXACT_DRAWER.md).
     #[test]
-    fn each_picture_register_lands_on_its_own_dot() {
+    fn each_picture_register_lands_on_its_own_half_dot() {
         let gb = bus(false);
-        assert_eq!(gb.landing(0xFF40, 0x91), [Some((2, Land::LcdcFirst(0x91))), Some((3, Land::Value(0x91)))]);
-        assert_eq!(gb.landing(0xFF42, 7), [Some((2, Land::Value(7))), None]);
-        assert_eq!(gb.landing(0xFF43, 7), [Some((2, Land::Value(7))), None]);
+        assert_eq!(gb.landing(0xFF40, 0x91), [Some((4, Land::LcdcFirst(0x91))), Some((6, Land::Value(0x91)))]);
+        assert_eq!(gb.landing(0xFF42, 7), [Some((4, Land::Value(7))), None]);
+        assert_eq!(gb.landing(0xFF43, 7), [Some((4, Land::Value(7))), None]);
         for reg in 0xFF47..=0xFF49 {
-            assert_eq!(gb.landing(reg, 0xE4), [Some((2, Land::Or(0xE4))), Some((3, Land::Value(0xE4)))]);
+            assert_eq!(gb.landing(reg, 0xE4), [Some((4, Land::Or(0xE4))), Some((6, Land::Value(0xE4)))]);
         }
-        assert_eq!(gb.landing(0xFF4B, 7), [Some((4, Land::Wx(7))), None]);
+        assert_eq!(gb.landing(0xFF4B, 7), [Some((8, Land::Wx(7))), None]);
         for reg in [0xFF41, 0xFF44, 0xFF45, 0xFF46, 0xFF4A] {
             assert_eq!(gb.landing(reg, 7), [None, None], "{reg:04X} lands at the end");
         }
         let mut cgb = bus(true);
         cgb.ppu.lcdc = 0x91;
-        assert_eq!(cgb.landing(0xFF40, 0x81), [Some((4, Land::TileSel(0x81))), None], "clearing tile select");
+        assert_eq!(cgb.landing(0xFF40, 0x81), [Some((8, Land::TileSel(0x81))), None], "clearing tile select");
         cgb.ppu.lcdc = 0x81;
-        assert_eq!(cgb.landing(0xFF40, 0x91), [Some((4, Land::TileSel(0x91))), None], "setting it");
+        assert_eq!(cgb.landing(0xFF40, 0x91), [Some((8, Land::TileSel(0x91))), None], "setting it");
         assert_eq!(cgb.landing(0xFF40, 0x83), [None, None]);
         for reg in 0xFF47..=0xFF49 {
-            assert_eq!(cgb.landing(reg, 0xE4), [Some((3, Land::Value(0xE4))), None]);
+            assert_eq!(cgb.landing(reg, 0xE4), [Some((6, Land::Value(0xE4))), None]);
         }
-        assert_eq!(cgb.landing(0xFF4B, 7), [Some((4, Land::Hold)), Some((5, Land::Value(7)))]);
+        assert_eq!(cgb.landing(0xFF4B, 7), [Some((8, Land::Hold)), Some((9, Land::Value(7)))]);
         for reg in [0xFF42, 0xFF43, 0xFF4A] {
             assert_eq!(cgb.landing(reg, 7), [None, None], "{reg:04X} lands at the end on a Color");
         }
         cgb.ppu.cgb_rev = CgbRev::E;
         for reg in 0xFF47..=0xFF49 {
-            assert_eq!(cgb.landing(reg, 0xE4), [Some((2, Land::Value(0xE4))), None], "a CGB D or later, a dot earlier");
+            assert_eq!(cgb.landing(reg, 0xE4), [Some((4, Land::Value(0xE4))), None], "a CGB D or later, a dot earlier");
         }
+        // In double speed the same CPU phase is half as far through the PPU's dots: the old
+        // dot numbers are the half-dots, and a Color's WX still lands one dot into the next
+        // M-cycle.
         cgb.double_speed = true;
-        assert_eq!(cgb.landing(0xFF47, 0xE4), [None, None], "double speed lands at the end");
+        cgb.ppu.lcdc = 0x91;
+        assert_eq!(cgb.landing(0xFF40, 0x81), [Some((4, Land::TileSel(0x81))), None]);
+        assert_eq!(cgb.landing(0xFF47, 0xE4), [Some((2, Land::Value(0xE4))), None], "a CGB D or later in double speed");
+        assert_eq!(cgb.landing(0xFF4B, 7), [Some((4, Land::Hold)), Some((5, Land::Value(7)))]);
+        cgb.ppu.cgb_rev = CgbRev::C;
+        assert_eq!(cgb.landing(0xFF47, 0xE4), [Some((3, Land::Value(0xE4))), None], "a CGB C in double speed");
     }
 
     /// The register itself still changes at the end of the M-cycle, which is what the CPU, STAT
@@ -978,6 +1112,20 @@ mod tests {
                 assert_eq!(b.ppu.drawer_sees(reg as u8), v, "{reg:04X}: nothing left over (colour {colour})");
             }
         }
+    }
+
+    /// A Color's WX write in double speed still lands one dot into the next M-cycle, through
+    /// the half-dot steps: held at the end of its own M-cycle, then settled on the next one's
+    /// first PPU tick.
+    #[test]
+    fn a_colour_wx_write_in_double_speed_lands_one_dot_into_the_next_m_cycle() {
+        let mut b = bus(true);
+        b.double_speed = true;
+        b.write(0xFF4B, 0x5A);
+        assert_eq!(b.raw_read(0xFF4B), 0x5A, "the register itself changed at the end of its M-cycle");
+        assert_eq!(b.ppu.drawer_sees(0x4B), 0, "still the old one for a dot");
+        b.tick();
+        assert_eq!(b.ppu.drawer_sees(0x4B), 0x5A, "settled one dot into the next M-cycle");
     }
 
     /// What lands at each step: a Game Boy palette's old-OR-new dot, the first LCDC step's mix of

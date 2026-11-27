@@ -14,6 +14,16 @@ pub struct Ppu {
     /// The affine backgrounds' internal reference points (BG2, BG3), 20.8 fixed point.
     pub ref_x: [i32; 2],
     pub ref_y: [i32; 2],
+    /// The affine reference point as of the start of the current vertical-mosaic block,
+    /// per background: a BGxX/BGxY rewrite part-way down the screen moves the live
+    /// reference, but the lines already latched for this block keep the old one.
+    /// Derived state, recomputed every line: not saved, so old states still load.
+    #[serde(skip)]
+    pub mos_ref: [(i32, i32); 2],
+    /// The first line of the block `mos_ref` was latched for, per background (-1: none yet).
+    /// Not saved (see above); defaults to "no latch" so the next line re-latches.
+    #[serde(skip, default = "no_mosaic_block")]
+    pub mos_block: [i32; 2],
     /// Saved with the state, like the Game Boy's (deterministic replays and run-ahead).
     pub frame: Vec<u32>,
     /// Layer switches from the core options: bits 0-3 BG0-BG3, bit 4 sprites. Not saved.
@@ -24,10 +34,23 @@ pub struct Ppu {
     pub obj_limit: bool,
     #[serde(skip)]
     pub no_render: bool,
+    /// Window-Y inside flags: a flip-flop per window, set when VCOUNT reaches WINxV's y1
+    /// and cleared when it reaches y2, never reset at the frame start — so a y2 past the
+    /// last line leaves the window stuck on, the way the hardware's does. Not saved; the
+    /// next render rebuilds it by walking the lines from where it left off.
+    #[serde(skip)]
+    pub win_y: [bool; 2],
+    /// The last line `win_y` was advanced to (-1: none yet). Not saved.
+    #[serde(skip)]
+    pub win_line: i32,
 }
 
 fn all_layers() -> u8 {
     0xFF
+}
+
+fn no_mosaic_block() -> [i32; 2] {
+    [-1; 2]
 }
 
 fn blank() -> Vec<u32> {
@@ -36,7 +59,10 @@ fn blank() -> Vec<u32> {
 
 impl Default for Ppu {
     fn default() -> Self {
-        Ppu { ref_x: [0; 2], ref_y: [0; 2], frame: blank(), layers: 0xFF, no_render: false, obj_limit: false }
+        // The hardware's per-line sprite budget is on: 1210 cycles a line (954 while
+        // DISPCNT frees H-blank for OAM access), past which the rest of the line's sprites
+        // are not drawn. A frontend can still switch it off through `obj_limit`.
+        Ppu { ref_x: [0; 2], ref_y: [0; 2], mos_ref: [(0, 0); 2], mos_block: [-1; 2], frame: blank(), layers: 0xFF, no_render: false, obj_limit: true, win_y: [false; 2], win_line: -1 }
     }
 }
 
@@ -46,6 +72,19 @@ fn r16(m: &[u8], a: usize) -> u16 {
 
 fn r32(m: &[u8], a: usize) -> u32 {
     u32::from(r16(m, a)) | u32::from(r16(m, a + 2)) << 16
+}
+
+/// `to_xrgb` for every colour, worked out once (the speed path: one read a pixel instead
+/// of the arithmetic; a frame uses few colours, so the entries it reads stay in the cache).
+fn xrgb_table() -> &'static [u32; 32768] {
+    static T: std::sync::OnceLock<Box<[u32; 32768]>> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let mut t = Box::new([0u32; 32768]);
+        for (i, v) in t.iter_mut().enumerate() {
+            *v = to_xrgb(i as u16);
+        }
+        t
+    })
 }
 
 pub fn to_xrgb(c: u16) -> u32 {
@@ -106,11 +145,16 @@ fn block(v: usize, size: usize) -> usize {
 
 impl Ppu {
     /// Reloads the affine reference points from BGxX/BGxY (at VBlank, and when they are written).
-    pub fn reload_affine(&mut self, io: &[u8]) {
+    /// A new frame starts a new mosaic block, so the latch is dropped; a rewrite part-way down
+    /// the screen leaves the current block's latch alone (its lines were already latched).
+    pub fn reload_affine(&mut self, io: &[u8], new_frame: bool) {
         for i in 0..2 {
             let base = 0x28 + i * 0x10;
             self.ref_x[i] = ((r32(io, base) << 4) as i32) >> 4;
             self.ref_y[i] = ((r32(io, base + 4) << 4) as i32) >> 4;
+        }
+        if new_frame {
+            self.mos_block = [-1; 2];
         }
     }
 
@@ -129,12 +173,84 @@ impl Ppu {
         // Mosaic blocks the screen coordinate, before scrolling is added: the blocks sit still on
         // the screen while the background slides through them, which is what the hardware does.
         let (mh, mv) = mos.bg(cnt);
-        let py = (block(y, mv) + vofs) % h;
+        // The sizes are powers of two, so the wrap is a mask (the same numbers as `% w`).
+        let (wmask, hmask) = (w - 1, h - 1);
+        let py = (block(y, mv) + vofs) & hmask;
+        let row = screen_base + (py / 256) * (w / 256) * 0x800 + ((py % 256) / 8) * 64;
+        let ty_line = py % 8;
+        if mh == 1 {
+            // No mosaic: a tile's row at a time. Within one tile the pixels can't cross a map
+            // entry or the background's wrap (both fall on multiples of 8), so each pixel comes
+            // out exactly as the per-pixel loop below would make it.
+            let mut x = 0usize;
+            while x < W {
+                let px = (x + hofs) & wmask;
+                let map = (row + (px / 256) * 0x800 + ((px % 256) / 8) * 2) & 0xFFFF;
+                let entry = r16(vram, map);
+                let tile = (entry & 0x3FF) as usize;
+                let hflip = entry & 0x400 != 0;
+                let ty = if entry & 0x800 != 0 { 7 - ty_line } else { ty_line };
+                let start = px % 8;
+                let n = (8 - start).min(W - x);
+                let o = &mut out[x..x + n];
+                if bpp8 {
+                    let base = char_base + tile * 64 + ty * 8;
+                    for (k, o) in o.iter_mut().enumerate() {
+                        let tx = if hflip { 7 - (start + k) } else { start + k };
+                        let a = base + tx;
+                        *o = if a >= 0x10000 {
+                            CLEAR
+                        } else {
+                            let c = vram[a] as usize;
+                            if c == 0 { CLEAR } else { r16(pal, c * 2) & 0x7FFF }
+                        };
+                    }
+                } else if n == 8 && char_base + tile * 32 + ty * 4 + 4 <= 0x10000 {
+                    // A whole tile row inside the background's memory (the usual case): its four
+                    // bytes read once, the eight pixels taken out of them, the same colours as
+                    // the loop below.
+                    let base = char_base + tile * 32 + ty * 4;
+                    let bank = (entry >> 12) as usize * 16;
+                    let bits = u32::from_le_bytes([vram[base], vram[base + 1], vram[base + 2], vram[base + 3]]);
+                    if bits == 0 {
+                        o.fill(CLEAR);
+                    } else {
+                        for (k, o) in o.iter_mut().enumerate() {
+                            let tx = if hflip { 7 - k } else { k };
+                            let c = ((bits >> (tx * 4)) & 15) as usize;
+                            *o = if c == 0 { CLEAR } else { r16(pal, (bank + c) * 2) & 0x7FFF };
+                        }
+                    }
+                } else {
+                    let base = char_base + tile * 32 + ty * 4;
+                    let bank = (entry >> 12) as usize * 16;
+                    for (k, o) in o.iter_mut().enumerate() {
+                        let tx = if hflip { 7 - (start + k) } else { start + k };
+                        let a = base + tx / 2;
+                        *o = if a >= 0x10000 {
+                            CLEAR
+                        } else {
+                            let b = vram[a];
+                            let c = if tx & 1 != 0 { b >> 4 } else { b & 15 } as usize;
+                            if c == 0 { CLEAR } else { r16(pal, (bank + c) * 2) & 0x7FFF }
+                        };
+                    }
+                }
+                x += n;
+            }
+            return;
+        }
+        // A map entry covers 8 pixels in a row: read it once for all of them.
+        let mut last_map = usize::MAX;
+        let mut entry = 0u16;
         for (x, o) in out.iter_mut().enumerate() {
-            let px = (block(x, mh) + hofs) % w;
-            let sbb = px / 256 + (py / 256) * (w / 256);
-            let map = screen_base + sbb * 0x800 + ((py % 256) / 8) * 64 + ((px % 256) / 8) * 2;
-            let entry = r16(vram, map & 0xFFFF);
+            let bx = if mh == 1 { x } else { block(x, mh) };
+            let px = (bx + hofs) & wmask;
+            let map = (row + (px / 256) * 0x800 + ((px % 256) / 8) * 2) & 0xFFFF;
+            if map != last_map {
+                entry = r16(vram, map);
+                last_map = map;
+            }
             let tile = (entry & 0x3FF) as usize;
             let tx = if entry & 0x400 != 0 { 7 - px % 8 } else { px % 8 };
             let ty = if entry & 0x800 != 0 { 7 - py % 8 } else { py % 8 };
@@ -158,19 +274,17 @@ impl Ppu {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn affine_bg(&self, io: &[u8], vram: &[u8], pal: &[u8], bg: usize, mode: u16, y: usize, mos: Mosaic, out: &mut [u16; W]) {
+    fn affine_bg(&self, io: &[u8], vram: &[u8], pal: &[u8], bg: usize, mode: u16, mos: Mosaic, out: &mut [u16; W]) {
         let i = bg - 2;
         let cnt = r16(io, 0x08 + bg * 2);
         let pa = i32::from(r16(io, 0x20 + i * 0x10) as i16);
         let pc = i32::from(r16(io, 0x24 + i * 0x10) as i16);
-        let (mh, mv) = mos.bg(cnt);
-        // A rotated layer carries its vertical position in the reference point, which has already
-        // stepped by PB/PD once a line, so vertical mosaic winds it back to where the block of
-        // lines began and the whole block comes out as that one line. (A game that also rewrites
-        // BGxX/BGxY part-way down the screen would move the point under us; nothing does both.)
-        let back = (y % mv) as i32;
-        let rx = self.ref_x[i] - back * i32::from(r16(io, 0x22 + i * 0x10) as i16);
-        let ry = self.ref_y[i] - back * i32::from(r16(io, 0x26 + i * 0x10) as i16);
+        let (mh, _) = mos.bg(cnt);
+        // The reference point for this line: the latch taken at the start of its vertical
+        // mosaic block (with mosaic off, every line is its own block, so this is the live
+        // reference). A mid-frame BGxX/BGxY rewrite moves the live reference, but the latch
+        // holds the block's lines on the reference they started with.
+        let (rx, ry) = self.mos_ref[i];
         let frame = if r16(io, 0) & 0x10 != 0 { 0xA000 } else { 0 };
         for (x, o) in out.iter_mut().enumerate() {
             let mx = block(x, mh) as i32;
@@ -348,10 +462,50 @@ impl Ppu {
         }
     }
 
+    /// Walks the window-Y flip-flops forward to line `y` (wrapping through VBlank, 228
+    /// lines a frame): each window's flag is set on the line its WINxV y1 names and cleared
+    /// on the line its y2 names, set winning when the two name the same line. A y2 the
+    /// counter never reaches leaves the flag set, so the window stays on into the next
+    /// frame — the hardware's offscreen-reset behaviour, not a range check.
+    fn advance_win_y(&mut self, io: &[u8], y: usize) {
+        let (v0, v1) = (r16(io, 0x44), r16(io, 0x46));
+        let (y10, y20) = ((v0 >> 8) as i32, (v0 & 0xFF) as i32);
+        let (y11, y21) = ((v1 >> 8) as i32, (v1 & 0xFF) as i32);
+        let mut l = self.win_line;
+        while l != y as i32 {
+            l = (l + 1).rem_euclid(228);
+            if l == y10 {
+                self.win_y[0] = true;
+            } else if l == y20 {
+                self.win_y[0] = false;
+            }
+            if l == y11 {
+                self.win_y[1] = true;
+            } else if l == y21 {
+                self.win_y[1] = false;
+            }
+        }
+        self.win_line = y as i32;
+    }
+
+    /// One whole line, with the background enables as written (no enable delay): the
+    /// unit tests' entry point, and what a line with no mid-line writes renders as.
     pub fn render_line(&mut self, io: &[u8], vram: &[u8], pal: &[u8], oam: &[u8], y: usize) {
+        let bg_eff = r16(io, 0) & 0xF00;
+        self.render_span(io, vram, pal, oam, y, 0, W, bg_eff);
+    }
+
+    /// Dots `[x0, x1)` of line `y`, with the background enables `bg_eff` (DISPCNT bits
+    /// 8-11 as they stand for this line, after any enable delay) and the object data
+    /// `oam` (the snapshot taken at the previous line's HBlank, for one-scanline-ahead
+    /// sprite evaluation). The layer lines are computed whole and only the span is
+    /// composited, so a line with no mid-line writes costs exactly one `render_line`.
+    /// The affine reference points step only when the span completes the line, and the
+    /// vertical-mosaic latch fires only on the first span of a block.
+    pub fn render_span(&mut self, io: &[u8], vram: &[u8], pal: &[u8], oam: &[u8], y: usize, x0: usize, x1: usize, bg_eff: u16) {
         let dispcnt = r16(io, 0);
         if dispcnt & 0x80 != 0 {
-            self.frame[y * W..(y + 1) * W].iter_mut().for_each(|p| *p = 0x00FF_FFFF);
+            self.frame[y * W + x0..y * W + x1].iter_mut().for_each(|p| *p = 0x00FF_FFFF);
             return;
         }
         let mode = dispcnt & 7;
@@ -364,19 +518,35 @@ impl Ppu {
             _ => (false, &[]),
         };
         let mos = Mosaic::new(io);
+        // Vertical mosaic latches each affine background's reference point at the start of a
+        // block of lines, so a BGxX/BGxY rewrite part-way down the screen moves the live
+        // reference but not the lines already latched for this block (the old code wound the
+        // live reference back by `y % mv` lines, which is wrong once a rewrite has moved it).
+        for i in 0..2 {
+            let (_, mv) = mos.bg(r16(io, 0x08 + (i + 2) * 2));
+            let block_start = (y - y % mv) as i32;
+            if self.mos_block[i] != block_start {
+                self.mos_block[i] = block_start;
+                self.mos_ref[i] = (self.ref_x[i], self.ref_y[i]);
+            }
+        }
+        // The window-Y flip-flops advance once a line, on its first span.
+        if self.win_line != y as i32 {
+            self.advance_win_y(io, y);
+        }
         let this = &*self;
         let mut lines: [[u16; W]; 4] = [[CLEAR; W]; 4];
         for &bg in list {
-            if dispcnt & (0x100 << bg) == 0 || self.layers & (1 << bg) == 0 {
+            if bg_eff & (0x100 << bg) == 0 || self.layers & (1 << bg) == 0 {
                 continue;
             }
             bg_on[bg] = true;
             if bitmap {
-                this.affine_bg(io, vram, pal, bg, mode, y, mos, &mut lines[bg]);
+                this.affine_bg(io, vram, pal, bg, mode, mos, &mut lines[bg]);
             } else if mode == 0 || (mode == 1 && bg < 2) {
                 this.text_bg(io, vram, pal, bg, y, mos, &mut lines[bg]);
             } else {
-                this.affine_bg(io, vram, pal, bg, mode, y, mos, &mut lines[bg]);
+                this.affine_bg(io, vram, pal, bg, mode, mos, &mut lines[bg]);
             }
         }
         let mut objs: [Option<ObjPx>; W] = [None; W];
@@ -388,12 +558,13 @@ impl Ppu {
         // Debug layer switches for WIN0, WIN1 and the object window (layers bits 5-7).
         let dispcnt = dispcnt & !(u16::from((!self.layers >> 5) & 7) << 13);
         let any_win = dispcnt & 0xE000 != 0;
-        let inside = |h: u16, v: u16, x: usize| -> bool {
+        // The Y half of a window test is the flip-flop advanced above, not a range check:
+        // a window whose y2 the counter never reaches stays on past its y1.
+        let wy = self.win_y;
+        let inside = |h: u16, wy: bool, x: usize| -> bool {
             let (x1, x2) = ((h >> 8) as usize, (h & 0xFF) as usize);
-            let (y1, y2) = ((v >> 8) as usize, (v & 0xFF) as usize);
             let hx = if x1 <= x2 { x >= x1 && x < x2 } else { x >= x1 || x < x2 };
-            let vy = if y1 <= y2 { y >= y1 && y < y2 } else { y >= y1 || y < y2 };
-            hx && vy
+            hx && wy
         };
         let winin = r16(io, 0x48);
         let winout = r16(io, 0x4A);
@@ -404,94 +575,146 @@ impl Ppu {
         let evy = u32::from(r16(io, 0x54) & 0x1F).min(16);
         let backdrop = r16(pal, 0) & 0x7FFF;
         let prios: [u8; 4] = std::array::from_fn(|i| (r16(io, 0x08 + i * 2) & 3) as u8);
-        for x in 0..W {
-            let mask = if any_win {
-                let mut m = winout & 0x3F;
+        // The backgrounds that are on, sorted once a line by priority (lowest number first, and
+        // in background order within one): the same order the pixel loop used to search in.
+        let mut by_prio = [[0u8; 4]; 4];
+        let mut in_prio = [0usize; 4];
+        for bg in 0..4 {
+            if bg_on[bg] {
+                let p = prios[bg] as usize;
+                by_prio[p][in_prio[p]] = bg as u8;
+                in_prio[p] += 1;
+            }
+        }
+        // Only an alpha blend (or a see-through object) looks at the layer under the top one;
+        // without either, the search stops at the first layer it finds.
+        let need_second = (bldcnt >> 6) & 3 == 1 || objs.iter().any(|o| o.is_some_and(|o| o.semi));
+        // Every line: the layers are painted from the back to the front, one whole layer at a
+        // time, in the reverse of the order the hardware's search looks in (priority 0 first;
+        // at one priority the object, then the backgrounds in order). So each pixel ends with
+        // the first layer that search finds on top and the next one under it, exactly the two
+        // the per-pixel search used to find, windows and all.
+        let mut masks = [0x3Fu8; W];
+        if any_win {
+            let (w0h, w1h) = (r16(io, 0x40), r16(io, 0x42));
+            for x in x0..x1 {
+                let m = &mut masks[x];
+                let mut v = (winout & 0x3F) as u8;
                 if dispcnt & 0x8000 != 0 && objwin[x] {
-                    m = (winout >> 8) & 0x3F;
+                    v = ((winout >> 8) & 0x3F) as u8;
                 }
-                if dispcnt & 0x4000 != 0 && inside(r16(io, 0x42), r16(io, 0x46), x) {
-                    m = (winin >> 8) & 0x3F;
+                if dispcnt & 0x4000 != 0 && inside(w1h, wy[1], x) {
+                    v = ((winin >> 8) & 0x3F) as u8;
                 }
-                if dispcnt & 0x2000 != 0 && inside(r16(io, 0x40), r16(io, 0x44), x) {
-                    m = winin & 0x3F;
+                if dispcnt & 0x2000 != 0 && inside(w0h, wy[0], x) {
+                    v = (winin & 0x3F) as u8;
                 }
-                m
-            } else {
-                0x3F
-            };
-            // The top two layers: (colour, layer id 0-3 BG / 4 OBJ / 5 backdrop).
-            let mut top: [(u16, u8); 2] = [(backdrop, 5), (backdrop, 5)];
-            let mut found = 0;
-            let mut semi = false;
-            'p: for p in 0..4u8 {
-                if let Some(o) = objs[x] {
-                    if o.prio == p && mask & 0x10 != 0 {
-                        top[found] = (o.color, 4);
-                        if found == 0 {
-                            semi = o.semi;
-                        }
-                        found += 1;
-                        if found == 2 {
-                            break 'p;
+                *m = v;
+            }
+        }
+        let mut top = [backdrop; W];
+        let mut tid = [5u8; W];
+        let mut under = [backdrop; W];
+        let mut uid = [5u8; W];
+        let mut semis = [false; W];
+        let any_obj = objs.iter().any(|o| o.is_some());
+        for p in (0..4u8).rev() {
+            for &bg in by_prio[p as usize][..in_prio[p as usize]].iter().rev() {
+                let line = &lines[bg as usize];
+                let bit = 1u8 << bg;
+                if need_second {
+                    for x in x0..x1 {
+                        let c = line[x];
+                        if c != CLEAR && masks[x] & bit != 0 {
+                            under[x] = top[x];
+                            uid[x] = tid[x];
+                            top[x] = c;
+                            tid[x] = bg;
+                            semis[x] = false;
                         }
                     }
-                }
-                for bg in 0..4 {
-                    if bg_on[bg] && prios[bg] == p && mask & (1 << bg) != 0 && lines[bg][x] != CLEAR {
-                        top[found] = (lines[bg][x], bg as u8);
-                        found += 1;
-                        if found == 2 {
-                            break 'p;
+                } else {
+                    // nothing looks under the top layer on this line
+                    for x in x0..x1 {
+                        let c = line[x];
+                        if c != CLEAR && masks[x] & bit != 0 {
+                            top[x] = c;
+                            tid[x] = bg;
                         }
                     }
                 }
             }
-            let (a, la) = top[0];
-            let (b, lb) = top[1];
-            let first = bldcnt & (1 << la) != 0;
-            let second = bldcnt & (0x100 << lb) != 0;
-            let blend = |a: u16, b: u16| -> u16 {
-                let mut out = 0u16;
-                for s in [0, 5, 10] {
-                    let ca = u32::from((a >> s) & 31);
-                    let cb = u32::from((b >> s) & 31);
-                    out |= (((ca * eva + cb * evb) >> 4).min(31) as u16) << s;
-                }
-                out
-            };
-            let color = if semi && second {
-                blend(a, b)
-            } else if mask & 0x20 != 0 && first {
-                match (bldcnt >> 6) & 3 {
-                    1 if second => blend(a, b),
-                    2 => {
-                        let mut out = 0;
-                        for s in [0, 5, 10] {
-                            let c = u32::from((a >> s) & 31);
-                            out |= ((c + ((31 - c) * evy >> 4)) as u16) << s;
+            if any_obj {
+                for x in x0..x1 {
+                    if let Some(o) = objs[x] {
+                        if o.prio == p && masks[x] & 0x10 != 0 {
+                            under[x] = top[x];
+                            uid[x] = tid[x];
+                            top[x] = o.color;
+                            tid[x] = 4;
+                            semis[x] = o.semi;
                         }
-                        out
                     }
-                    3 => {
-                        let mut out = 0;
-                        for s in [0, 5, 10] {
-                            let c = u32::from((a >> s) & 31);
-                            out |= ((c - (c * evy >> 4)) as u16) << s;
-                        }
-                        out
-                    }
-                    _ => a,
                 }
-            } else {
-                a
-            };
-            self.frame[y * W + x] = to_xrgb(color);
+            }
         }
-        // The affine reference points step by PB/PD once a line.
-        for i in 0..2 {
-            self.ref_x[i] += i32::from(r16(io, 0x22 + i * 0x10) as i16);
-            self.ref_y[i] += i32::from(r16(io, 0x26 + i * 0x10) as i16);
+        let blend = |a: u16, b: u16| -> u16 {
+            let mut out = 0u16;
+            for s in [0, 5, 10] {
+                let ca = u32::from((a >> s) & 31);
+                let cb = u32::from((b >> s) & 31);
+                out |= (((ca * eva + cb * evb) >> 4).min(31) as u16) << s;
+            }
+            out
+        };
+        let mode = (bldcnt >> 6) & 3;
+        let out = &mut self.frame[y * W..(y + 1) * W];
+        let lut = xrgb_table();
+        if mode == 0 && !need_second {
+            for x in x0..x1 {
+                out[x] = lut[usize::from(top[x] & 0x7FFF)];
+            }
+        } else {
+            for x in x0..x1 {
+                let (a, la) = (top[x], tid[x]);
+                let (b, lb) = (under[x], uid[x]);
+                let first = bldcnt & (1 << la) != 0;
+                let second = bldcnt & (0x100 << lb) != 0;
+                let color = if semis[x] && second {
+                    blend(a, b)
+                } else if masks[x] & 0x20 != 0 && first {
+                    match mode {
+                        1 if second => blend(a, b),
+                        2 => {
+                            let mut v = 0;
+                            for s in [0, 5, 10] {
+                                let c = u32::from((a >> s) & 31);
+                                v |= ((c + ((31 - c) * evy >> 4)) as u16) << s;
+                            }
+                            v
+                        }
+                        3 => {
+                            let mut v = 0;
+                            for s in [0, 5, 10] {
+                                let c = u32::from((a >> s) & 31);
+                                v |= ((c - (c * evy >> 4)) as u16) << s;
+                            }
+                            v
+                        }
+                        _ => a,
+                    }
+                } else {
+                    a
+                };
+                out[x] = lut[usize::from(color & 0x7FFF)];
+            }
+        }
+        // The affine reference points step by PB/PD once a line, when the span completes it.
+        if x1 == W {
+            for i in 0..2 {
+                self.ref_x[i] += i32::from(r16(io, 0x22 + i * 0x10) as i16);
+                self.ref_y[i] += i32::from(r16(io, 0x26 + i * 0x10) as i16);
+            }
         }
     }
 }
@@ -522,10 +745,16 @@ mod tests {
 
         /// Every pixel of the screen, drawn a line at a time the way the machine does it.
         fn frame(&self, mosaic: u16) -> Vec<u32> {
+            self.frame_limit(mosaic, Ppu::default().obj_limit)
+        }
+
+        /// The same picture, with the per-line sprite budget on or off.
+        fn frame_limit(&self, mosaic: u16, limit: bool) -> Vec<u32> {
             let mut io = self.io.clone();
             w16(&mut io, 0x4C, mosaic);
             let mut ppu = Ppu::default();
-            ppu.reload_affine(&io);
+            ppu.obj_limit = limit;
+            ppu.reload_affine(&io, true);
             for y in 0..H {
                 ppu.render_line(&io, &self.vram, &self.pal, &self.oam, y);
             }
@@ -655,6 +884,31 @@ mod tests {
         }
     }
 
+    /// A BGxX/BGxY rewrite part-way down the screen moves the affine reference, but a
+    /// vertical-mosaic block already latched keeps the reference it started with: the rewrite
+    /// only takes effect at the next block. (Winding the live reference back by `y % mv`
+    /// instead would move the block the rewrite landed in.)
+    #[test]
+    fn mosaic_block_keeps_its_reference_across_a_rewrite() {
+        let s = rotated_scene();
+        let mut io = s.io.clone();
+        w16(&mut io, 0x4C, MOS); // mosaic 4 wide, 2 tall
+        let mut ppu = Ppu::default();
+        ppu.reload_affine(&io, true);
+        for y in 0..H {
+            ppu.render_line(&io, &s.vram, &s.pal, &s.oam, y);
+            if y == 0 {
+                // A rewrite of BG2Y eight texels down, in the middle of the first block.
+                w16(&mut io, 0x2C, 0x0800);
+                w16(&mut io, 0x2E, 0);
+                ppu.reload_affine(&io, false);
+            }
+        }
+        let line = |y: usize| &ppu.frame[y * W..(y + 1) * W];
+        assert_eq!(line(1), line(0), "the rewrite moved the block it landed in");
+        assert_ne!(line(2), line(0), "the rewrite never took effect");
+    }
+
     #[test]
     fn object_mosaic_blocks_the_pixels() {
         let s = object_scene();
@@ -683,5 +937,33 @@ mod tests {
             }
         }
         assert_ne!(mosaic[..64], plain[..64], "the mosaic object was not blocked");
+    }
+
+    /// The sprite budget is on by default: eighteen 64-wide sprites fill a line's 1210
+    /// cycles, so the nineteenth is not drawn. Switched off, every sprite is drawn.
+    #[test]
+    fn sprite_budget_is_on_by_default() {
+        assert!(Ppu::default().obj_limit, "the budget must be on unless switched off");
+        let mut s = Scene::new();
+        w16(&mut s.io, 0, 0x1040); // mode 0, 1D object tiles, objects on
+        // Every object tile is colour 1 throughout, so the tiles themselves cannot tell
+        // one sprite from another; each sprite's own palette bank does that instead.
+        s.vram[0x10000..0x18000].fill(0x11);
+        for i in 0..20usize {
+            // The palette bank is four bits, so banks repeat every 16 sprites; that is
+            // fine here, since only sprites 18 and 19 reach pixel 200,0.
+            let bank = i & 0xF;
+            w16(&mut s.oam, i * 8, 0); // y 0, 16 colours
+            w16(&mut s.oam, i * 8 + 2, (i * 8) as u16 | 0xC000); // 64x64 at x = i*8
+            w16(&mut s.oam, i * 8 + 4, (i * 64) as u16 | (bank as u16) << 12); // tile, bank
+            w16(&mut s.pal, 0x200 + bank * 32 + 2, (bank + 1) as u16);
+        }
+        // Pixel 200,0 is covered by sprites 18 and 19 and by no earlier one (17 ends at
+        // 200), so it shows sprite 18's colour only when the budget is off: bank 2,
+        // colour 1, value 3.
+        let colour18 = to_xrgb(3);
+        assert_eq!(s.frame_limit(0, false)[200], colour18, "budget off draws sprite 18");
+        assert_eq!(s.frame_limit(0, true)[200], 0, "budget on leaves it the backdrop");
+        assert_eq!(s.frame(0)[200], 0, "and the default is the budget on");
     }
 }

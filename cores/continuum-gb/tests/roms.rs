@@ -49,6 +49,66 @@ fn blargg_mem_timing() {
     blargg("mem_timing.gb", 600);
 }
 
+/// Blargg's OAM corruption (OAM bug) tests: the DMG Mode-2 OAM corruption model from P2.
+/// The combined ROM runs all eight subtests; each single pins one of them.
+/// These ROMs report through external RAM at $A000 (signature $DE,$B0,$61 at $A001, result
+/// code at $A000: $80 while running, 0 when passed), not the serial port — and the OAM bug
+/// is DMG-only, so they are forced to a DMG even though their headers are CGB-compatible.
+fn oam_bug(name: &str, max_frames: u32) {
+    let Some(data) = rom(name) else { return };
+    let mut gb = GameBoy::new_mode(data, false).unwrap();
+    for _ in 0..max_frames {
+        gb.run_frame();
+        let ram = &gb.bus.cart.ram;
+        if ram.len() >= 4 && ram[1] == 0xDE && ram[2] == 0xB0 && ram[3] == 0x61 && ram[0] != 0x80 {
+            let text: Vec<u8> = ram[4..].iter().take_while(|&&b| b != 0).cloned().collect();
+            let out = String::from_utf8_lossy(&text).to_string();
+            assert_eq!(ram[0], 0, "{name} failed:\n{out}");
+            return;
+        }
+    }
+    panic!("{name} timed out (no $A000 result)");
+}
+
+#[test]
+fn blargg_oam_bug_singles() {
+    // 1, 2, 3 pass. The other five fail and are NOT pinned (see below); the combined ROM
+    // runs all eight, so it is not pinned either.
+    for n in ["1-lcd_sync", "2-causes", "3-non_causes"] {
+        oam_bug(&format!("oam_bug/{n}.gb"), 1200);
+    }
+}
+
+// The remaining oam_bug singles fail (P3, 2026-11-24; re-checked in Item 3, 2026-11-25)
+// — a real gap in the P2 OAM corruption model, not a harness problem (all run as DMG, via
+// the $A000 protocol above). Item 3 fixed `Cpu::pop()` to note the SP glitch before the
+// low-byte read (same M-cycle, Pan Docs: pop corrupts 3 times), which clears test 8's #3
+// (POP pattern) in isolation, but #2 still fails, so 8 is still not pinned.
+//   4-scanline_timing #3 "INC DE at first corruption": the subtest INC DE lands in VBlank
+//     (ly=153, dot 452) instead of line 0 mode 2 — the LCD-enable + 70224-dot delay
+//     alignment is ~8 dots off, so the window is missed entirely. The CPU delay chain is
+//     hand-verified exact (70223 M-cycles LCD-on to the note: $C1DD(1)=65545, $C1D0(18)=
+//     4617, $C1C1(27)=47 incl. CALL), and test 1 pins the first line to 449-456 dots and
+//     the LCD-on anchor to <4 dots early, so the shift must come from after the first line.
+//     Tried and reverted: line 153 = 454 dots (frame 70222) fixes 4/5/8 but adds +2 dots
+//     of drift per frame, which walks test 6's phase-locked ladder into mode 2; and
+//     starting line 0 at dot 8 breaks test 1 #2 ("starts too late in scanline").
+//   5-timing_bug #2 "Should corrupt at beginning of first scanline": same alignment miss.
+//   6-timing_no_bug #1: the INC DE ladder is phase-locked at dot 452 (mode 0, safe, zero
+//     drift across the 10 outer iterations), but the DEC DE that undoes it lands at dot 72
+//     (row 18, mode 2) and corrupts row 18, where hardware's narrower window leaves OAM
+//     alone. Disabling corrupt_oam makes 6 pass (and breaks 2, as expected).
+//   7-timing_effect: no $A000 result in 1200 frames (still running / hung) with corruption
+//     on; with corruption disabled it fails #1 at frame 374, so the hang is
+//     corruption-dependent (the ROM waits on a corruption effect our model produces at
+//     the wrong row/time).
+//   8-instr_effect #2 "INC/DEC rp pattern is wrong": the INC/DEC notes land ~8 dots early
+//     (same alignment miss as 4/5); #3 (POP pattern) is fixed by the pop() M-cycle fix.
+// Pan Docs (mode 2, one row per M-cycle, row = dot/4) agrees with our window, so the fix
+// is the LCD-enable/frame alignment and the exact window edges — a deeper timing change
+// than P3 could land safely without risking the 87/87 Mooneye gate. Do not pin these
+// until they pass for the right reason.
+
 /// Runs a Mooneye ROM until `LD B,B`; a pass leaves the Fibonacci numbers in the registers.
 pub fn mooneye(name: &str) -> Result<(), String> {
     mooneye_mode(name, false)
@@ -997,17 +1057,22 @@ fn blargg_sound() {
 /// SameSuite's sound tests, which read the channels back a sample at a time on a Color (revision
 /// E, the one cBoy's sound chip models). These 57 pass; SameBoy itself, built from its source and
 /// run on the same files, passes exactly these 57 and fails the other 13 with the same results,
-/// byte for byte: seven are written for other revisions (the -A, -cgb0, -cgbB, -cgb0B and
-/// -cgb0BC ones), and six it gets wrong too (both stop_div, both volume_div, sweep and
-/// sweep_restart).
+/// byte for byte. Five of the 13 are written for a revision B or earlier and pass under that
+/// revision instead (`samesuite_sound_rev_b`); the other eight are two revision-specific
+/// frequency-change tests (the -A and -cgb0BC ones, which need a CGB-C-and-older PCM read glitch
+/// and a different frequency-change phase) and six wave-phase ones (both stop_div, both
+/// volume_div, sweep and sweep_restart), whose first duty step lands one tick later on hardware
+/// than cBoy's trigger delay gives — a delay the delay/restart tests pin exactly as it is, so
+/// the difference is in the trigger-to-first-tick alignment, not the delay constant.
 const SAMESUITE_SOUND_PASS: &[&str] = &[
     "channel_1_align", "channel_1_align_cpu", "channel_1_delay", "channel_1_duty", "channel_1_duty_delay",
     "channel_1_freq_change", "channel_1_freq_change_timing-cgbDE", "channel_1_nrx2_glitch",
-    "channel_1_nrx2_speed_change", "channel_1_restart", "channel_1_restart_nrx2_glitch", "channel_1_stop_restart",
-    "channel_1_sweep_restart_2", "channel_1_volume", "channel_2_align", "channel_2_align_cpu", "channel_2_delay",
+    "channel_1_nrx2_speed_change", "channel_1_restart", "channel_1_restart_nrx2_glitch", "channel_1_stop_div",
+    "channel_1_stop_restart", "channel_1_sweep", "channel_1_sweep_restart", "channel_1_sweep_restart_2", "channel_1_volume",
+    "channel_1_volume_div", "channel_2_align", "channel_2_align_cpu", "channel_2_delay",
     "channel_2_duty", "channel_2_duty_delay", "channel_2_freq_change", "channel_2_nrx2_glitch",
-    "channel_2_nrx2_speed_change", "channel_2_restart", "channel_2_restart_nrx2_glitch", "channel_2_stop_restart",
-    "channel_2_volume", "channel_3_and_glitch", "channel_3_delay", "channel_3_first_sample",
+    "channel_2_nrx2_speed_change", "channel_2_restart", "channel_2_restart_nrx2_glitch", "channel_2_stop_div",
+    "channel_2_stop_restart", "channel_2_volume", "channel_2_volume_div", "channel_3_and_glitch", "channel_3_delay", "channel_3_first_sample",
     "channel_3_freq_change_delay", "channel_3_restart_delay", "channel_3_restart_during_delay",
     "channel_3_restart_stop_delay", "channel_3_shift_delay", "channel_3_shift_skip_delay", "channel_3_stop_delay",
     "channel_3_stop_div", "channel_3_wave_ram_dac_on_rw", "channel_3_wave_ram_locked_write",
@@ -1017,6 +1082,48 @@ const SAMESUITE_SOUND_PASS: &[&str] = &[
     "channel_4_volume_div", "div_trigger_volume_10", "div_write_trigger", "div_write_trigger_10",
     "div_write_trigger_volume", "div_write_trigger_volume_10",
 ];
+
+/// SameSuite's sound tests written for a Color revision B or earlier, which cBoy runs with
+/// that revision's sound chip (`GameBoy::set_cgb_revision_b`): on those, writing NRx4 clocks
+/// the length counter whenever it was disabled before, whether or not the write enables it
+/// (fixed on revision C). Four of the five extra-length tests pass under revision B now (the
+/// wave channel's revision-B test needs revision B's wave channel loading one more length
+/// than revision 0 does, and still fails). Under the default revision E all five fail, as
+/// they do on SameBoy.
+const SAMESUITE_SOUND_REV_B_PASS: &[&str] = &[
+    "channel_1_extra_length_clocking-cgb0B",
+    "channel_2_extra_length_clocking-cgb0B",
+    "channel_3_extra_length_clocking-cgb0",
+    "channel_4_extra_length_clocking-cgb0B",
+];
+
+#[test]
+fn samesuite_sound_rev_b() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/samesuite-apu");
+    if !dir.is_dir() {
+        eprintln!("SKIPPED: SameSuite not built (run scripts/fetch-test-roms.sh)");
+        return;
+    }
+    let mut failed = vec![];
+    for name in SAMESUITE_SOUND_REV_B_PASS {
+        let p = dir.join(format!("{name}.gb"));
+        let mut gb = GameBoy::new_mode(std::fs::read(&p).unwrap(), true).unwrap();
+        gb.set_cgb_revision_b();
+        let mut passed = false;
+        for _ in 0..600 {
+            gb.run_frame();
+            if gb.cpu.ld_b_b {
+                let c = &gb.cpu;
+                passed = [c.b, c.c, c.d, c.e, c.h, c.l] == [3, 5, 8, 13, 21, 34];
+                break;
+            }
+        }
+        if !passed {
+            failed.push(name.to_string());
+        }
+    }
+    assert!(failed.is_empty(), "revision-B sound tests that no longer pass: {failed:?}");
+}
 
 #[test]
 fn samesuite_sound() {
@@ -1093,3 +1200,577 @@ fn skipping_waiting_loops_changes_nothing() {
         }
     }
 }
+
+/// gbmicrotest, run headless: two frames each (30 for is_if_set_during_ime0, ~380ms), as a DMG.
+/// Reports the pass/fail counts and asserts every pinned name still passes. The failing and
+/// no-result ROMs are listed, not asserted, so a fix that turns one green shows up as a count
+/// change here and the name moves into GBMICROTEST_PASSING.
+#[test]
+fn gbmicrotest_report() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/gbmicrotest");
+    if !dir.exists() {
+        eprintln!("SKIPPED: gbmicrotest not fetched (run scripts/fetch-test-roms.sh)");
+        return;
+    }
+    let mut names: Vec<String> = std::fs::read_dir(&dir).unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| n.ends_with(".gb"))
+        .collect();
+    names.sort();
+    let mut pass = Vec::new();
+    let mut fail = Vec::new();
+    let mut noresult = Vec::new();
+    for n in &names {
+        let data = std::fs::read(dir.join(n)).unwrap();
+        let mut gb = GameBoy::new_mode(data, false).unwrap();
+        let frames = if n.starts_with("is_if_set_during_ime0") { 30 } else { 2 };
+        for _ in 0..frames {
+            gb.run_frame();
+        }
+        let h = &gb.bus.hram;
+        let stem = n.trim_end_matches(".gb");
+        match h[2] {
+            0x01 => pass.push(stem.to_string()),
+            0xFF => fail.push(format!("{stem} actual={:#04x} expected={:#04x}", h[0], h[1])),
+            _ => noresult.push(stem.to_string()),
+        }
+    }
+    eprintln!("GBMICROTEST: {} passed, {} failed, {} no-result, of {}",
+        pass.len(), fail.len(), noresult.len(), names.len());
+    for f in &fail {
+        eprintln!("  FAIL {f}");
+    }
+    for f in &noresult {
+        eprintln!("  NORESULT {f}");
+    }
+    // 513 ROMs in c-sp/game-boy-test-roms v7.0 (P3, 2026-11-24).
+    assert_eq!(names.len(), 513, "gbmicrotest set changed; re-pin GBMICROTEST_PASSING");
+    for must in GBMICROTEST_PASSING {
+        assert!(pass.iter().any(|p| p == must), "gbmicrotest regressed: {must}");
+    }
+}
+
+/// gbmicrotest (aappleby/GBMicrotest, via c-sp/game-boy-test-roms v7.0): cycle-exact
+/// register/PPU/CPU microtests, run as DMG, reporting through HRAM $FF80-$FF82
+/// ($FF82 = 0x01 pass, 0xFF fail; $FF80 actual, $FF81 expected). The list only ever
+/// grows: a change that drops one of these is wrong, whatever else it fixes.
+/// 390 of 513 pass (P6, 2026-11-25); the rest are interrupt-timing and PPU-latch
+/// edge cases and 31 non-HRAM tests.
+const GBMICROTEST_PASSING: &[&str] = &[
+    "div_inc_timing_a", "div_inc_timing_b", "dma_0x1000", "dma_0x9000",
+    "dma_0xA000", "dma_0xC000", "dma_0xE000", "dma_timing_a",
+    "halt_op_dupe", "hblank_int_di_timing_a", "hblank_int_di_timing_b", "hblank_int_if_b",
+    "hblank_int_l0", "hblank_int_l1", "hblank_int_l2", "hblank_int_scx0",
+    "hblank_int_scx0_if_a", "hblank_int_scx0_if_c", "hblank_int_scx0_if_d", "hblank_int_scx1_if_a",
+    "hblank_int_scx1_if_c", "hblank_int_scx2_if_a", "hblank_int_scx2_if_c", "hblank_int_scx3",
+    "hblank_int_scx3_if_a", "hblank_int_scx3_if_c", "hblank_int_scx3_if_d", "hblank_int_scx3_nops_a",
+    "hblank_int_scx3_nops_b", "hblank_int_scx4", "hblank_int_scx4_if_a", "hblank_int_scx4_if_c",
+    "hblank_int_scx4_if_d", "hblank_int_scx4_nops_a", "hblank_int_scx4_nops_b", "hblank_int_scx5_if_a",
+    "hblank_int_scx5_if_c", "hblank_int_scx6_if_a", "hblank_int_scx6_if_c", "hblank_int_scx7",
+    "hblank_int_scx7_if_a", "hblank_int_scx7_if_c", "hblank_int_scx7_if_d", "hblank_int_scx7_nops_a",
+    "hblank_int_scx7_nops_b", "hblank_scx2_if_a", "hblank_scx3_if_a", "hblank_scx3_if_c",
+    "hblank_scx3_if_d", "hblank_scx3_int_a", "hblank_scx3_int_b", "int_hblank_halt_bug_a",
+    "int_hblank_halt_bug_b", "int_hblank_halt_scx1", "int_hblank_halt_scx2", "int_hblank_halt_scx5",
+    "int_hblank_halt_scx6", "int_hblank_incs_scx0", "int_hblank_incs_scx1", "int_hblank_incs_scx2",
+    "int_hblank_incs_scx3", "int_hblank_incs_scx4", "int_hblank_incs_scx5", "int_hblank_incs_scx6",
+    "int_hblank_incs_scx7", "int_hblank_nops_scx0", "int_hblank_nops_scx1", "int_hblank_nops_scx2",
+    "int_hblank_nops_scx3", "int_hblank_nops_scx4", "int_hblank_nops_scx5", "int_hblank_nops_scx6",
+    "int_hblank_nops_scx7", "int_oam_halt", "int_timer_halt", "int_timer_halt_div_a",
+    "int_timer_halt_div_b", "int_timer_nops_div_b", "is_if_set_during_ime0", "lcdon_halt_to_vblank_int_b",
+    "lcdon_nops_to_vblank_int_b", "lcdon_to_if_oam_a", "lcdon_to_if_oam_b", "lcdon_to_ly1_a",
+    "lcdon_to_ly1_b", "lcdon_to_ly2_a", "lcdon_to_ly2_b", "lcdon_to_ly3_a",
+    "lcdon_to_ly3_b", "lcdon_to_oam_unlock_a", "lcdon_to_oam_unlock_b", "lcdon_to_oam_unlock_c",
+    "lcdon_to_oam_unlock_d", "lcdon_to_stat0_a", "lcdon_to_stat0_b", "lcdon_to_stat0_c",
+    "lcdon_to_stat0_d", "lcdon_to_stat1_a", "lcdon_to_stat1_b", "lcdon_to_stat1_d",
+    "lcdon_to_stat1_e", "lcdon_to_stat2_a", "lcdon_to_stat2_b", "lcdon_to_stat2_c",
+    "lcdon_to_stat2_d", "lcdon_to_stat3_a", "lcdon_to_stat3_b", "lcdon_to_stat3_c",
+    "lcdon_to_stat3_d", "line_144_oam_int_a", "line_153_ly_a", "line_153_ly_b",
+    "line_153_ly_e", "line_153_ly_f", "line_153_lyc0_stat_timing_a", "line_153_lyc0_stat_timing_b",
+    "line_153_lyc0_stat_timing_c", "line_153_lyc0_stat_timing_f", "line_153_lyc0_stat_timing_g", "line_153_lyc0_stat_timing_h",
+    "line_153_lyc0_stat_timing_i", "line_153_lyc0_stat_timing_j", "line_153_lyc0_stat_timing_k", "line_153_lyc0_stat_timing_l",
+    "line_153_lyc0_stat_timing_m", "line_153_lyc0_stat_timing_n", "line_153_lyc153_stat_timing_a", "line_153_lyc153_stat_timing_b",
+    "line_153_lyc153_stat_timing_e", "line_153_lyc153_stat_timing_f", "line_153_lyc_a", "line_153_lyc_b",
+    "line_153_lyc_int_b", "line_65_ly", "lyc1_int_halt_b", "lyc1_int_if_edge_a",
+    "lyc1_int_if_edge_b", "lyc1_int_if_edge_c", "lyc1_int_if_edge_d", "lyc1_int_nops_b",
+    "lyc1_write_timing_a", "lyc1_write_timing_c", "lyc2_int_halt_b", "lyc_int_halt_b",
+    "mbc1_ram_banks", "mbc1_rom_banks", "oam_int_if_edge_a", "oam_int_if_edge_b",
+    "oam_int_if_edge_c", "oam_int_if_edge_d", "oam_int_if_level_c", "oam_read_l0_a",
+    "oam_read_l0_b", "oam_read_l0_c", "oam_read_l0_d", "oam_read_l1_a",
+    "oam_read_l1_b", "oam_read_l1_c", "oam_read_l1_d", "oam_read_l1_e",
+    "oam_read_l1_f", "oam_write_l0_a", "oam_write_l0_b", "oam_write_l0_c",
+    "oam_write_l0_d", "oam_write_l0_e", "oam_write_l1_a", "oam_write_l1_b",
+    "oam_write_l1_c", "oam_write_l1_d", "oam_write_l1_e", "oam_write_l1_f",
+    "poweron_bgp_000", "poweron_div_000", "poweron_div_004", "poweron_div_005",
+    "poweron_dma_000", "poweron_if_000", "poweron_joy_000", "poweron_lcdc_000",
+    "poweron_ly_119", "poweron_ly_120", "poweron_ly_233", "poweron_ly_234",
+    "poweron_lyc_000", "poweron_oam_000", "poweron_oam_005", "poweron_oam_006",
+    "poweron_oam_069", "poweron_oam_070", "poweron_oam_119", "poweron_oam_120",
+    "poweron_oam_121", "poweron_oam_183", "poweron_oam_184", "poweron_oam_233",
+    "poweron_oam_234", "poweron_oam_235", "poweron_obp0_000", "poweron_obp1_000",
+    "poweron_sb_000", "poweron_sc_000", "poweron_scx_000", "poweron_scy_000",
+    "poweron_stat_006", "poweron_stat_007", "poweron_stat_026", "poweron_stat_027",
+    "poweron_stat_069", "poweron_stat_070", "poweron_stat_119", "poweron_stat_120",
+    "poweron_stat_121", "poweron_stat_140", "poweron_stat_141", "poweron_stat_183",
+    "poweron_stat_184", "poweron_stat_234", "poweron_stat_235", "poweron_tac_000",
+    "poweron_tima_000", "poweron_tma_000", "poweron_vram_000", "poweron_vram_025",
+    "poweron_vram_026", "poweron_vram_069", "poweron_vram_070", "poweron_vram_139",
+    "poweron_vram_140", "poweron_vram_183", "poweron_vram_184", "poweron_wx_000",
+    "poweron_wy_000", "ppu_sprite0_scx0_a", "ppu_sprite0_scx0_b", "ppu_sprite0_scx1_a",
+    "ppu_sprite0_scx1_b", "ppu_sprite0_scx2_a", "ppu_sprite0_scx2_b", "ppu_sprite0_scx3_a",
+    "ppu_sprite0_scx3_b", "ppu_sprite0_scx4_a", "ppu_sprite0_scx4_b", "ppu_sprite0_scx5_a",
+    "ppu_sprite0_scx5_b", "ppu_sprite0_scx6_a", "ppu_sprite0_scx6_b", "ppu_sprite0_scx7_a",
+    "ppu_sprite0_scx7_b", "sprite4_0_a", "sprite4_0_b", "sprite4_1_a",
+    "sprite4_1_b", "sprite4_2_a", "sprite4_2_b", "sprite4_3_a",
+    "sprite4_3_b", "sprite4_4_a", "sprite4_4_b", "sprite4_5_a",
+    "sprite4_5_b", "sprite4_6_a", "sprite4_6_b", "sprite4_7_a",
+    "sprite4_7_b", "sprite_0_a", "sprite_0_b", "sprite_1_a",
+    "sprite_1_b", "stat_write_glitch_l0_a", "stat_write_glitch_l0_b", "stat_write_glitch_l143_a",
+    "stat_write_glitch_l143_b", "stat_write_glitch_l143_c", "stat_write_glitch_l143_d", "stat_write_glitch_l154_a",
+    "stat_write_glitch_l154_b", "stat_write_glitch_l1_a", "stat_write_glitch_l1_b", "stat_write_glitch_l1_c",
+    "timer_div_phase_c", "timer_div_phase_d", "timer_tima_inc_256k_a", "timer_tima_inc_256k_b",
+    "timer_tima_inc_256k_c", "timer_tima_inc_256k_d", "timer_tima_inc_256k_e", "timer_tima_inc_256k_f",
+    "timer_tima_inc_256k_g", "timer_tima_inc_256k_h", "timer_tima_inc_256k_i", "timer_tima_inc_256k_j",
+    "timer_tima_inc_256k_k", "timer_tima_inc_64k_a", "timer_tima_inc_64k_b", "timer_tima_inc_64k_c",
+    "timer_tima_inc_64k_d", "timer_tima_phase_a", "timer_tima_phase_b", "timer_tima_phase_c",
+    "timer_tima_phase_d", "timer_tima_phase_e", "timer_tima_phase_f", "timer_tima_phase_g",
+    "timer_tima_phase_h", "timer_tima_phase_i", "timer_tima_phase_j", "timer_tima_reload_256k_a",
+    "timer_tima_reload_256k_b", "timer_tima_reload_256k_c", "timer_tima_reload_256k_d", "timer_tima_reload_256k_e",
+    "timer_tima_reload_256k_f", "timer_tima_reload_256k_g", "timer_tima_reload_256k_h", "timer_tima_reload_256k_i",
+    "timer_tima_reload_256k_j", "timer_tima_reload_256k_k", "timer_tima_write_a", "timer_tima_write_b",
+    "timer_tima_write_c", "timer_tima_write_d", "timer_tima_write_e", "timer_tima_write_f",
+    "timer_tma_write_a", "timer_tma_write_b", "vblank2_int_halt_b", "vblank2_int_if_a",
+    "vblank2_int_if_b", "vblank2_int_if_c", "vblank2_int_if_d", "vblank2_int_nops_b",
+    "vblank_int_halt_b", "vblank_int_if_a", "vblank_int_if_b", "vblank_int_if_c",
+    "vblank_int_if_d", "vblank_int_nops_b", "vram_read_l0_a", "vram_read_l0_b",
+    "vram_read_l0_c", "vram_read_l0_d", "vram_read_l1_a", "vram_read_l1_b",
+    "vram_read_l1_c", "vram_read_l1_d", "vram_write_l0_a", "vram_write_l0_b",
+    "vram_write_l0_c", "vram_write_l0_d", "vram_write_l1_a", "vram_write_l1_b",
+    "vram_write_l1_c", "vram_write_l1_d", "win0_a", "win0_b",
+    "win0_scx3_a", "win0_scx3_b", "win10_a", "win10_b",
+    "win10_scx3_a", "win10_scx3_b", "win11_a", "win11_b",
+    "win12_a", "win12_b", "win13_a", "win13_b",
+    "win14_a", "win14_b", "win15_a", "win15_b",
+    "win1_a", "win1_b", "win2_a", "win2_b",
+    "win3_a", "win3_b", "win4_a", "win4_b",
+    "win5_a", "win5_b", "win6_a", "win6_b",
+    "win7_a", "win7_b", "win8_a", "win8_b",
+    "win9_a", "win9_b",
+];
+
+/// Blargg's interrupt-time and halt-bug tests (c-sp/game-boy-test-roms v7.0). These two do
+/// NOT report through the serial port (both timed out empty there): they draw their result
+/// on the screen, so they are screenshot cases in `screenshot_suites_report` below, not
+/// `blargg()` runs. `halt_bug.gb` was fetched by scripts/fetch-test-roms.sh all along but
+/// never wired until P5 Item 3.
+
+/// How a screenshot test is run: which console, and which drawer. The reference PNGs are
+/// 160x144 in the colours the suite's howto names (DMG greys, CGB 5-bit channels expanded
+/// with (X << 3) | (X >> 2), CGB-compatibility palettes for non-colour mode), so the frame
+/// is compared pixel for pixel against the decoded PNG.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Shot {
+    Dmg,
+    Cgb,
+    /// A Color in Game Boy mode (what the AGE "ncm" ROMs and the -cgb screenshots of the
+    /// DMG suites were photographed on).
+    Ncm,
+}
+
+/// Runs a ROM for `frames` frames and compares the framebuffer to a reference PNG.
+/// Returns the number of differing pixels and an FNV hash of the frame (the hash says
+/// whether the picture was still changing: run twice and compare). None when the ROM or
+/// the PNG is missing.
+fn shot(name: &str, png: &str, frames: u32, mode: Shot, exact: bool) -> Option<(usize, u64)> {
+    let data = rom(name)?;
+    let want = png_rgb(&rom(png)?);
+    if want.len() != 160 * 144 {
+        eprintln!("shot {name}: reference {png} is not 160x144");
+        return None;
+    }
+    let mut gb = match mode {
+        Shot::Dmg => GameBoy::new_mode(data, false).ok()?,
+        Shot::Cgb => GameBoy::new_mode(data, true).ok()?,
+        Shot::Ncm => GameBoy::with_model(data, Model::Cgb, None).ok()?,
+    };
+    gb.bus.ppu.exact = exact;
+    for _ in 0..frames {
+        gb.run_frame();
+    }
+    let wrong = gb.bus.ppu.frame.iter().zip(&want).filter(|(g, w)| g != w).count();
+    if wrong > 0 {
+        let first: Vec<(usize, usize, u32, u32)> = gb.bus.ppu.frame.iter().zip(&want).enumerate()
+            .filter(|(_, (g, w))| g != w).take(5)
+            .map(|(i, (g, w))| (i % 160, i / 160, *g, *w)).collect();
+        eprintln!("shot {name}: first differing (x, y, got, want): {first:06X?}");
+    }
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for p in &gb.bus.ppu.frame {
+        h = (h ^ u64::from(*p)).wrapping_mul(0x100_0000_01b3);
+    }
+    Some((wrong, h))
+}
+
+/// One screenshot case: label, ROM, reference PNG, frames, mode, drawer.
+struct ShotCase {
+    label: &'static str,
+    rom: &'static str,
+    png: &'static str,
+    frames: u32,
+    mode: Shot,
+    exact: bool,
+}
+
+/// The screenshot suites from c-sp/game-boy-test-roms v7.0: cgb-acid-hell, BullyGB,
+/// TurtleTests, Scribbltests, Strikethrough, mbc3-tester and the AGE m3 picture tests.
+/// Frame counts come from each suite's howto (Bully/Turtle/Strikethrough half a second,
+/// Scribbltests 10 frames except statcount-auto's 270, mbc3-tester 40, acid-style 120).
+/// Reports every case; the passing set is pinned in SCREENSHOT_PASSING below.
+#[test]
+fn screenshot_suites_report() {
+    let cases = [
+        ShotCase { label: "blargg:interrupt_time:dmg", rom: "blargg/interrupt_time/interrupt_time.gb", png: "blargg/interrupt_time/interrupt_time-dmg.png", frames: 120, mode: Shot::Dmg, exact: false },
+        ShotCase { label: "blargg:interrupt_time:cgb", rom: "blargg/interrupt_time/interrupt_time.gb", png: "blargg/interrupt_time/interrupt_time-cgb.png", frames: 120, mode: Shot::Cgb, exact: false },
+        ShotCase { label: "blargg:halt_bug:dmg", rom: "blargg/halt_bug.gb", png: "blargg/halt_bug-dmg-cgb.png", frames: 120, mode: Shot::Dmg, exact: false },
+        ShotCase { label: "blargg:halt_bug:cgb", rom: "blargg/halt_bug.gb", png: "blargg/halt_bug-dmg-cgb.png", frames: 120, mode: Shot::Cgb, exact: false },
+        ShotCase { label: "cgb-acid-hell:cgb", rom: "cgb-acid-hell/cgb-acid-hell.gbc", png: "cgb-acid-hell/cgb-acid-hell.png", frames: 120, mode: Shot::Cgb, exact: false },
+        ShotCase { label: "cgb-acid-hell:cgb:exact", rom: "cgb-acid-hell/cgb-acid-hell.gbc", png: "cgb-acid-hell/cgb-acid-hell.png", frames: 120, mode: Shot::Cgb, exact: true },
+        ShotCase { label: "bully:cgb", rom: "bully/bully.gb", png: "bully/bully.png", frames: 30, mode: Shot::Cgb, exact: false },
+        ShotCase { label: "bully:ncm", rom: "bully/bully.gb", png: "bully/bully.png", frames: 30, mode: Shot::Ncm, exact: false },
+        ShotCase { label: "bully:dmg", rom: "bully/bully.gb", png: "bully/bully.png", frames: 30, mode: Shot::Dmg, exact: false },
+        ShotCase { label: "turtle:window_y_trigger:dmg", rom: "turtle-tests/window_y_trigger/window_y_trigger.gb", png: "turtle-tests/window_y_trigger/window_y_trigger.png", frames: 30, mode: Shot::Dmg, exact: false },
+        ShotCase { label: "turtle:window_y_trigger_wx_offscreen:dmg", rom: "turtle-tests/window_y_trigger_wx_offscreen/window_y_trigger_wx_offscreen.gb", png: "turtle-tests/window_y_trigger_wx_offscreen/window_y_trigger_wx_offscreen.png", frames: 30, mode: Shot::Dmg, exact: false },
+        ShotCase { label: "scribbl:lycscy:dmg", rom: "scribbltests/lycscy/lycscy.gb", png: "scribbltests/lycscy/lycscy-cgb-dmg.png", frames: 10, mode: Shot::Dmg, exact: false },
+        ShotCase { label: "scribbl:lycscy:dmg:exact", rom: "scribbltests/lycscy/lycscy.gb", png: "scribbltests/lycscy/lycscy-cgb-dmg.png", frames: 10, mode: Shot::Dmg, exact: true },
+        ShotCase { label: "scribbl:lycscx:dmg", rom: "scribbltests/lycscx/lycscx.gb", png: "scribbltests/lycscx/lycscx-cgb-dmg.png", frames: 10, mode: Shot::Dmg, exact: false },
+        ShotCase { label: "scribbl:lycscx:dmg:exact", rom: "scribbltests/lycscx/lycscx.gb", png: "scribbltests/lycscx/lycscx-cgb-dmg.png", frames: 10, mode: Shot::Dmg, exact: true },
+        ShotCase { label: "scribbl:statcount-auto:dmg", rom: "scribbltests/statcount/statcount-auto.gb", png: "scribbltests/statcount/statcount_auto-cgb-dmg.png", frames: 270, mode: Shot::Dmg, exact: false },
+        ShotCase { label: "scribbl:statcount-auto:dmg:exact", rom: "scribbltests/statcount/statcount-auto.gb", png: "scribbltests/statcount/statcount_auto-cgb-dmg.png", frames: 270, mode: Shot::Dmg, exact: true },
+        ShotCase { label: "scribbl:palettely:dmg", rom: "scribbltests/palettely/palettely.gb", png: "scribbltests/palettely/palettely-dmg.png", frames: 10, mode: Shot::Dmg, exact: false },
+        ShotCase { label: "scribbl:palettely:dmg:exact", rom: "scribbltests/palettely/palettely.gb", png: "scribbltests/palettely/palettely-dmg.png", frames: 10, mode: Shot::Dmg, exact: true },
+        ShotCase { label: "scribbl:palettely:cgb", rom: "scribbltests/palettely/palettely.gb", png: "scribbltests/palettely/palettely-cgb.png", frames: 10, mode: Shot::Ncm, exact: false },
+        ShotCase { label: "scribbl:palettely:cgb:exact", rom: "scribbltests/palettely/palettely.gb", png: "scribbltests/palettely/palettely-cgb.png", frames: 10, mode: Shot::Ncm, exact: true },
+        ShotCase { label: "scribbl:scxly:dmg", rom: "scribbltests/scxly/scxly.gb", png: "scribbltests/scxly/scxly-dmg.png", frames: 10, mode: Shot::Dmg, exact: false },
+        ShotCase { label: "scribbl:scxly:dmg:exact", rom: "scribbltests/scxly/scxly.gb", png: "scribbltests/scxly/scxly-dmg.png", frames: 10, mode: Shot::Dmg, exact: true },
+        ShotCase { label: "scribbl:scxly:cgb", rom: "scribbltests/scxly/scxly.gb", png: "scribbltests/scxly/scxly-cgb.png", frames: 10, mode: Shot::Ncm, exact: false },
+        ShotCase { label: "scribbl:scxly:cgb:exact", rom: "scribbltests/scxly/scxly.gb", png: "scribbltests/scxly/scxly-cgb.png", frames: 10, mode: Shot::Ncm, exact: true },
+        ShotCase { label: "strikethrough:dmg", rom: "strikethrough/strikethrough.gb", png: "strikethrough/strikethrough-dmg.png", frames: 30, mode: Shot::Dmg, exact: false },
+        ShotCase { label: "strikethrough:cgb", rom: "strikethrough/strikethrough.gb", png: "strikethrough/strikethrough-cgb.png", frames: 30, mode: Shot::Cgb, exact: false },
+        ShotCase { label: "mbc3-tester:dmg", rom: "mbc3-tester/mbc3-tester.gb", png: "mbc3-tester/mbc3-tester-dmg.png", frames: 40, mode: Shot::Dmg, exact: false },
+        ShotCase { label: "mbc3-tester:cgb", rom: "mbc3-tester/mbc3-tester.gb", png: "mbc3-tester/mbc3-tester-cgb.png", frames: 40, mode: Shot::Ncm, exact: false },
+        ShotCase { label: "age:m3-bg-bgp:dmg", rom: "age-test-roms/m3-bg-bgp/m3-bg-bgp.gb", png: "age-test-roms/m3-bg-bgp/m3-bg-bgp-dmgC.png", frames: 120, mode: Shot::Dmg, exact: false },
+        ShotCase { label: "age:m3-bg-bgp:dmg:exact", rom: "age-test-roms/m3-bg-bgp/m3-bg-bgp.gb", png: "age-test-roms/m3-bg-bgp/m3-bg-bgp-dmgC.png", frames: 120, mode: Shot::Dmg, exact: true },
+        ShotCase { label: "age:m3-bg-bgp:ncm", rom: "age-test-roms/m3-bg-bgp/m3-bg-bgp.gb", png: "age-test-roms/m3-bg-bgp/m3-bg-bgp-ncmBC.png", frames: 120, mode: Shot::Ncm, exact: false },
+        ShotCase { label: "age:m3-bg-bgp:ncm:exact", rom: "age-test-roms/m3-bg-bgp/m3-bg-bgp.gb", png: "age-test-roms/m3-bg-bgp/m3-bg-bgp-ncmBC.png", frames: 120, mode: Shot::Ncm, exact: true },
+        ShotCase { label: "age:m3-bg-lcdc:dmg", rom: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc.gb", png: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc-dmgC.png", frames: 120, mode: Shot::Dmg, exact: false },
+        ShotCase { label: "age:m3-bg-lcdc:dmg:exact", rom: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc.gb", png: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc-dmgC.png", frames: 120, mode: Shot::Dmg, exact: true },
+        ShotCase { label: "age:m3-bg-lcdc:cgb", rom: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc.gb", png: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc-cgbBCE.png", frames: 120, mode: Shot::Cgb, exact: false },
+        ShotCase { label: "age:m3-bg-lcdc:cgb:exact", rom: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc.gb", png: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc-cgbBCE.png", frames: 120, mode: Shot::Cgb, exact: true },
+        ShotCase { label: "age:m3-bg-lcdc:ds:cgb", rom: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc-ds.gb", png: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc-ds-cgbBCE.png", frames: 120, mode: Shot::Cgb, exact: false },
+        ShotCase { label: "age:m3-bg-lcdc:ds:cgb:exact", rom: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc-ds.gb", png: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc-ds-cgbBCE.png", frames: 120, mode: Shot::Cgb, exact: true },
+        ShotCase { label: "age:m3-bg-lcdc:nocgb:ncm", rom: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc-nocgb.gb", png: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc-nocgb-ncmBCE.png", frames: 120, mode: Shot::Ncm, exact: false },
+        ShotCase { label: "age:m3-bg-lcdc:nocgb:ncm:exact", rom: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc-nocgb.gb", png: "age-test-roms/m3-bg-lcdc/m3-bg-lcdc-nocgb-ncmBCE.png", frames: 120, mode: Shot::Ncm, exact: true },
+        ShotCase { label: "age:m3-bg-scx:dmg", rom: "age-test-roms/m3-bg-scx/m3-bg-scx.gb", png: "age-test-roms/m3-bg-scx/m3-bg-scx-dmgC.png", frames: 120, mode: Shot::Dmg, exact: false },
+        ShotCase { label: "age:m3-bg-scx:dmg:exact", rom: "age-test-roms/m3-bg-scx/m3-bg-scx.gb", png: "age-test-roms/m3-bg-scx/m3-bg-scx-dmgC.png", frames: 120, mode: Shot::Dmg, exact: true },
+        ShotCase { label: "age:m3-bg-scx:cgb", rom: "age-test-roms/m3-bg-scx/m3-bg-scx.gb", png: "age-test-roms/m3-bg-scx/m3-bg-scx-cgbBCE.png", frames: 120, mode: Shot::Cgb, exact: false },
+        ShotCase { label: "age:m3-bg-scx:cgb:exact", rom: "age-test-roms/m3-bg-scx/m3-bg-scx.gb", png: "age-test-roms/m3-bg-scx/m3-bg-scx-cgbBCE.png", frames: 120, mode: Shot::Cgb, exact: true },
+        ShotCase { label: "age:m3-bg-scx:ds:cgb", rom: "age-test-roms/m3-bg-scx/m3-bg-scx-ds.gb", png: "age-test-roms/m3-bg-scx/m3-bg-scx-ds-cgbBCE.png", frames: 120, mode: Shot::Cgb, exact: false },
+        ShotCase { label: "age:m3-bg-scx:ds:cgb:exact", rom: "age-test-roms/m3-bg-scx/m3-bg-scx-ds.gb", png: "age-test-roms/m3-bg-scx/m3-bg-scx-ds-cgbBCE.png", frames: 120, mode: Shot::Cgb, exact: true },
+        ShotCase { label: "age:m3-bg-scx:nocgb:ncm", rom: "age-test-roms/m3-bg-scx/m3-bg-scx-nocgb.gb", png: "age-test-roms/m3-bg-scx/m3-bg-scx-nocgb-ncmBCE.png", frames: 120, mode: Shot::Ncm, exact: false },
+        ShotCase { label: "age:m3-bg-scx:nocgb:ncm:exact", rom: "age-test-roms/m3-bg-scx/m3-bg-scx-nocgb.gb", png: "age-test-roms/m3-bg-scx/m3-bg-scx-nocgb-ncmBCE.png", frames: 120, mode: Shot::Ncm, exact: true },
+    ];
+    let mut pass = Vec::new();
+    let mut fail = Vec::new();
+    for c in &cases {
+        match shot(c.rom, c.png, c.frames, c.mode, c.exact) {
+            Some((0, h)) => {
+                eprintln!("  PASS {} hash {h:#018x}", c.label);
+                pass.push(c.label);
+            }
+            Some((wrong, h)) => {
+                eprintln!("  FAIL {}: {wrong} px differ, hash {h:#018x}", c.label);
+                fail.push(c.label);
+            }
+            None => eprintln!("  SKIP {}", c.label),
+        }
+    }
+    eprintln!("SCREENSHOT: {} passed, {} failed, of {}", pass.len(), fail.len(), cases.len());
+    for must in SCREENSHOT_PASSING {
+        assert!(pass.iter().any(|p| p == must), "screenshot regressed: {must}");
+    }
+}
+
+/// The screenshot cases that match their reference pixel for pixel. This list only ever
+/// grows. Pinned P5 Item 3 (2026-11-25) from the probe runs: Blargg's two screen tests in
+/// both modes; both TurtleTests; Scribbltests lycscy/lycscx/statcount-auto/palettely/
+/// scxly on DMG (both drawers) plus palettely in CGB-compat mode; mbc3-tester on DMG;
+/// and the AGE m3 pictures on the exact drawer (the standard drawer cannot do their
+/// mid-scanline palette/register changes: m3-bg-lcdc is 5120 px off there, m3-bg-bgp
+/// all white). Not pinned: cgb-acid-hell (2 px: one yellow pixel one line low at
+/// (50,44)/(50,45), both drawers), BullyGB (fails "Invalid initial DIV" in CGB/NCM,
+/// "Uninitialized RAM not randomized" on DMG), strikethrough (55 px: one line at y=44),
+/// scxly in CGB-compat mode (the game's own green palette is not reproduced there),
+/// mbc3-tester in CGB-compat mode (the picked compat palette's blue is 6 where the
+/// reference has 9), m3-bg-bgp on DMG exact (2 px on the left edge), m3-bg-lcdc-ds on
+/// the exact drawer (2304 px in double speed), and the m3 standard-drawer runs.
+const SCREENSHOT_PASSING: &[&str] = &[
+    "blargg:interrupt_time:dmg",
+    "blargg:interrupt_time:cgb",
+    "blargg:halt_bug:dmg",
+    "blargg:halt_bug:cgb",
+    "turtle:window_y_trigger:dmg",
+    "turtle:window_y_trigger_wx_offscreen:dmg",
+    "scribbl:lycscy:dmg",
+    "scribbl:lycscy:dmg:exact",
+    "scribbl:lycscx:dmg",
+    "scribbl:lycscx:dmg:exact",
+    "scribbl:statcount-auto:dmg",
+    "scribbl:statcount-auto:dmg:exact",
+    "scribbl:palettely:dmg",
+    "scribbl:palettely:dmg:exact",
+    "scribbl:palettely:cgb",
+    "scribbl:palettely:cgb:exact",
+    "scribbl:scxly:dmg",
+    "scribbl:scxly:dmg:exact",
+    "mbc3-tester:dmg",
+    "age:m3-bg-bgp:ncm:exact",
+    "age:m3-bg-lcdc:dmg:exact",
+    "age:m3-bg-lcdc:cgb:exact",
+    "age:m3-bg-lcdc:nocgb:ncm:exact",
+    "age:m3-bg-scx:dmg:exact",
+    "age:m3-bg-scx:cgb:exact",
+    "age:m3-bg-scx:ds:cgb:exact",
+    "age:m3-bg-scx:nocgb:ncm:exact",
+];
+
+/// AGE test ROMs (c-sp/game-boy-test-roms v7.0, age-test-roms/): Mooneye-style, ending in
+/// `LD B,B` with the Fibonacci registers on success. The file name says which consoles it
+/// was verified on: `dmgC` a DMG, `cgbBCE`/`cgbBC`/`cgbE` a Color in colour mode, `ncm`
+/// a Color in Game Boy mode, `ds` a ROM that switches to double speed itself (run as a
+/// Color). A name with two devices (e.g. `dmgC-cgbBCE`) is run in both modes.
+fn age_modes(stem: &str) -> Vec<Shot> {
+    let mut modes = Vec::new();
+    if stem.contains("dmgC") {
+        modes.push(Shot::Dmg);
+    }
+    if stem.contains("ncm") {
+        modes.push(Shot::Ncm);
+    } else if stem.contains("cgb") {
+        modes.push(Shot::Cgb);
+    }
+    modes
+}
+
+/// Runs one AGE ROM in one mode, Mooneye-style, with a 600-frame cap. Ok(true) passed,
+/// Ok(false) failed (registers or a lock), Err timed out / never finished.
+fn age_run(name: &str, mode: Shot) -> Result<bool, String> {
+    let Some(data) = rom(name) else { return Err("missing".into()) };
+    let mut gb = match mode {
+        Shot::Dmg => GameBoy::new_mode(data, false).map_err(|e| e.to_string())?,
+        Shot::Cgb => GameBoy::new_mode(data, true).map_err(|e| e.to_string())?,
+        Shot::Ncm => GameBoy::with_model(data, Model::Cgb, None).map_err(|e| e.to_string())?,
+    };
+    for _ in 0..600 {
+        gb.run_frame();
+        if gb.cpu.ld_b_b {
+            let c = &gb.cpu;
+            return Ok([c.b, c.c, c.d, c.e, c.h, c.l] == [3, 5, 8, 13, 21, 34]);
+        }
+        if gb.cpu.locked {
+            return Ok(false);
+        }
+    }
+    Err("timed out".into())
+}
+
+/// AGE, all of it: every auto-verifiable ROM in every mode its name claims. The m3
+/// picture ROMs are screenshot cases in `screenshot_suites_report`, not here.
+#[test]
+fn age_report() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/age-test-roms");
+    if !dir.exists() {
+        eprintln!("SKIPPED: AGE not fetched (run scripts/fetch-test-roms.sh)");
+        return;
+    }
+    let mut names: Vec<String> = Vec::new();
+    let mut stack = vec![dir.clone()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "gb") {
+                names.push(p.strip_prefix(&dir).unwrap().to_string_lossy().to_string());
+            }
+        }
+    }
+    names.sort();
+    let mut pass = Vec::new();
+    let mut fail = Vec::new();
+    let mut timeout = Vec::new();
+    for n in &names {
+        let stem = n.trim_end_matches(".gb");
+        if stem.contains("m3-bg-") {
+            continue;
+        }
+        for mode in age_modes(stem) {
+            let tag = match mode { Shot::Dmg => "dmg", Shot::Cgb => "cgb", Shot::Ncm => "ncm" };
+            let label = format!("{tag}:{n}");
+            match age_run(&format!("age-test-roms/{n}"), mode) {
+                Ok(true) => pass.push(label),
+                Ok(false) => fail.push(label),
+                Err(e) => timeout.push(format!("{label} ({e})")),
+            }
+        }
+    }
+    eprintln!("AGE: {} passed, {} failed, {} timed out/missing", pass.len(), fail.len(), timeout.len());
+    for p in &pass {
+        eprintln!("  PASS {p}");
+    }
+    for f in &fail {
+        eprintln!("  FAIL {f}");
+    }
+    for f in &timeout {
+        eprintln!("  TIMEOUT {f}");
+    }
+    assert_eq!(names.len(), 47, "the AGE set changed; re-pin AGE_PASSING");
+    for must in AGE_PASSING {
+        assert!(pass.iter().any(|p| p == must), "AGE regressed: {must}");
+    }
+}
+
+/// The AGE (rom, mode) pairs that pass. This list only ever grows. Pinned P5 Item 3
+/// (2026-11-25): 5 of 48 runs — the two halt tests in both modes, and the CGB
+/// speed-switch DIV test. The other 43 are real failures of timing edge cases (STAT
+/// mode timing, LY reads, OAM/VRAM read-write timing, speed-switch interrupts), each
+/// ending in `LD B,B` with non-Fibonacci registers or a lock; see the probe log. They
+/// are the same class of gap as the Mooneye OAM 3/8: mid-scanline/frame alignment a few
+/// dots out, not a harness problem.
+const AGE_PASSING: &[&str] = &[
+    "cgb:halt/ei-halt-dmgC-cgbBCE.gb",
+    "cgb:halt/halt-prefetch-dmgC-cgbBCE.gb",
+    "cgb:speed-switch/spsw-div-cgbBCE.gb",
+    "dmg:halt/ei-halt-dmgC-cgbBCE.gb",
+    "dmg:halt/halt-prefetch-dmgC-cgbBCE.gb",
+];
+
+/// Telling LYs (little-things-gb): the joypad interrupt must fire at varied LY values, or
+/// the program can tell an emulator was used. All eight buttons are pressed, one after
+/// another, each at a different line of the frame, and the result screen must be the
+/// reference "Pass!" one. Button bits for `set_buttons`: 0 A, 1 B, 2 Select, 3 Start,
+/// 4 Right, 5 Left, 6 Up, 7 Down.
+///
+/// NOT passing yet (P5 Item 3): with all eight presses landing at LY 10, 30, 50, 70, 90,
+/// 110, 130, 150 (verified by probe: each press's interrupt is serviced, IF clears), the
+/// program shows its "Johny, Johny yes papa" joke screen instead of the Pass screen, and
+/// further presses just add more lines of the rhyme ("running copies?", "telling LYs?",
+/// "open the folder", "here you go", "good boy"). Long holds (a full frame each) do not
+/// change it either. So the program is not seeing the spread — either it samples LY
+/// somewhere cBoy gets wrong (e.g. it reads LY in the main loop after the interrupt
+/// handler returns, at a point the emulator's HALT wake-up shifts), or the harness's
+/// interaction differs from a human's in a way that matters here. The test stays
+/// report-style (nothing pinned) until that is understood; do not claim it passes.
+#[test]
+fn telling_lys() {
+    let Some(data) = rom("little-things-gb/tellinglys.gb") else { return };
+    let mut gb = GameBoy::new(data).unwrap();
+    // Let the title screen come up, then press each button at its own line.
+    for _ in 0..30 {
+        gb.run_frame();
+    }
+    let buttons: [(u8, u8); 8] = [
+        (1, 10), (2, 30), (4, 50), (8, 70), (16, 90), (32, 110), (64, 130), (128, 150),
+    ];
+    for (bit, want_ly) in buttons {
+        // Step until the PPU is on the wanted line, then press and hold briefly.
+        for _ in 0..200_000 {
+            if gb.bus.ppu.ly == want_ly {
+                break;
+            }
+            gb.cpu.step(&mut gb.bus);
+        }
+        gb.bus.set_buttons(bit);
+        for _ in 0..5000 {
+            gb.cpu.step(&mut gb.bus);
+        }
+        gb.bus.set_buttons(0);
+        for _ in 0..5000 {
+            gb.cpu.step(&mut gb.bus);
+        }
+    }
+    let want = png_rgb(&rom("little-things-gb/tellinglys-dmg.png").unwrap());
+    for _ in 0..120 {
+        gb.run_frame();
+    }
+    let wrong = gb.bus.ppu.frame.iter().zip(&want).filter(|(g, w)| g != w).count();
+    eprintln!("TELLINGLYS: {wrong} pixels differ from the Pass screen (0 = pass)");
+    if TELLINGLYS_PASSING {
+        assert_eq!(wrong, 0, "tellinglys regressed");
+    }
+}
+
+/// Whether tellinglys matches its Pass screen. False until the program shows Pass.
+const TELLINGLYS_PASSING: bool = false;
+
+/// rtc3test (MBC3 RTC): three subtests picked from the start-up menu — A for the basic
+/// tests (13 emulated seconds), Down then A for the range tests (8s), Down Down then A
+/// for the sub-second writes (26s) — each ending on its reference screenshot. The -dmg
+/// references are the DMG-mode pictures, so the ROM is run as a DMG for those (it is
+/// CGB-compatible, so `GameBoy::new` would run it in colour mode instead); the -cgb
+/// references are the colour-mode pictures.
+#[test]
+fn rtc3test_report() {
+    let cases: [(&str, &[u8], u32, &str, Shot); 6] = [
+        ("basic:dmg", &[1], 13 * 60 + 60, "rtc3test/rtc3test-basic-tests-dmg.png", Shot::Dmg),
+        ("basic:cgb", &[1], 13 * 60 + 60, "rtc3test/rtc3test-basic-tests-cgb.png", Shot::Cgb),
+        ("range:dmg", &[128, 1], 8 * 60 + 60, "rtc3test/rtc3test-range-tests-dmg.png", Shot::Dmg),
+        ("range:cgb", &[128, 1], 8 * 60 + 60, "rtc3test/rtc3test-range-tests-cgb.png", Shot::Cgb),
+        ("sub-second:dmg", &[128, 128, 1], 26 * 60 + 60, "rtc3test/rtc3test-sub-second-writes-dmg.png", Shot::Dmg),
+        ("sub-second:cgb", &[128, 128, 1], 26 * 60 + 60, "rtc3test/rtc3test-sub-second-writes-cgb.png", Shot::Cgb),
+    ];
+    let mut pass = Vec::new();
+    let mut fail = Vec::new();
+    for (label, keys, frames, png, mode) in cases {
+        let Some(data) = rom("rtc3test/rtc3test.gb") else { return };
+        let want = png_rgb(&rom(png).unwrap());
+        let mut gb = match mode {
+            Shot::Dmg => GameBoy::new_mode(data, false).unwrap(),
+            Shot::Cgb => GameBoy::new_mode(data, true).unwrap(),
+            Shot::Ncm => GameBoy::with_model(data, Model::Cgb, None).unwrap(),
+        };
+        for _ in 0..30 {
+            gb.run_frame();
+        }
+        // Press each menu key in turn, holding it for a few frames.
+        for &bit in keys {
+            gb.bus.set_buttons(bit);
+            for _ in 0..5 {
+                gb.run_frame();
+            }
+            gb.bus.set_buttons(0);
+            for _ in 0..5 {
+                gb.run_frame();
+            }
+        }
+        for _ in 0..frames {
+            gb.run_frame();
+        }
+        let wrong = gb.bus.ppu.frame.iter().zip(&want).filter(|(g, w)| g != w).count();
+        if wrong == 0 {
+            eprintln!("  PASS rtc3test:{label}");
+            pass.push(label);
+        } else {
+            eprintln!("  FAIL rtc3test:{label}: {wrong} px differ");
+            fail.push(label);
+        }
+    }
+    eprintln!("RTC3TEST: {} passed, {} failed, of {}", pass.len(), fail.len(), cases.len());
+    for must in RTC3TEST_PASSING {
+        assert!(pass.iter().any(|p| p == must), "rtc3test regressed: {must}");
+    }
+}
+
+/// The rtc3test subtests that match their reference screenshot. This list only ever
+/// grows. Pinned P5 Item 3 (2026-11-25): basic and range in both modes. The sub-second
+/// writes subtest does not match in either mode yet (see the probe log).
+const RTC3TEST_PASSING: &[&str] = &["basic:dmg", "basic:cgb", "range:dmg", "range:cgb"];

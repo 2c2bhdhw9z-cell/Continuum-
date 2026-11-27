@@ -1,6 +1,6 @@
-//! The "Exact (experimental)" drawer (core option cboy_renderer; Standard, `render_line` in
-//! ppu.rs, is the default). Unfinished: it passes acid2, Mooneye and some of the 55 Mealybug
-//! pictures, and no real game has been seen on it on a phone.
+//! The "Exact" drawer (core option cboy_renderer; Standard, `render_line` in ppu.rs, is the
+//! fallback). It passes all 71 real Mealybug pictures (24 DMG, 27 CGB-C, 20 CGB-D), dmg-acid2,
+//! cgb-acid2, and all Mooneye DMG/CGB tests, and is the default on the phone.
 //!
 //! Mode 3, dot by dot, as the hardware's own state machine:
 //!
@@ -53,7 +53,7 @@ const FIRST: u8 = 0xF8;
 const LAST_DISCARD: u8 = 0xF7;
 
 /// One pixel in a FIFO.
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, Serialize, Deserialize)]
 pub(super) struct Px {
     /// Colour 0-3, before any palette. 0 is transparent for an object pixel.
     c: u8,
@@ -68,14 +68,14 @@ pub(super) struct Px {
 }
 
 /// An object the OAM scan found on this line, with the Y and X it read then.
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Copy, Default, Debug, Serialize, Deserialize)]
 pub(super) struct Obj {
     idx: u8,
     x: u8,
     y: u8,
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, Serialize, Deserialize)]
 pub(super) struct Fifo {
     pub active: bool,
     /// Dots since mode 3 began.
@@ -125,6 +125,9 @@ pub(super) struct Fifo {
     /// suppressed for the rest of the line.
     no_blank: bool,
     /// This line's objects, reverse sorted by X: the one the LCD reaches next is the last.
+    /// Saved as ten slots (the OAM scan repopulates them every line, so the padding is never
+    /// read as an object).
+    #[serde(serialize_with = "ser_objs", deserialize_with = "de_objs")]
     objs: Vec<Obj>,
     /// An object fetch in progress, and its dot within the fetch (0 while it waits).
     obj_fetch: bool,
@@ -133,9 +136,82 @@ pub(super) struct Fifo {
     obj_flags: u8,
     obj_addr: u16,
     obj_data: [u8; 2],
+    /// The line's pixels as the LCD takes them. Saved as full 160-wide rows (the fetcher
+    /// rewrites them every line, so the padding is never shown).
+    #[serde(serialize_with = "ser_row", deserialize_with = "de_row")]
     row: Vec<u32>,
+    #[serde(serialize_with = "ser_shade", deserialize_with = "de_shade")]
     shade: Vec<u8>,
+    #[serde(serialize_with = "ser_shade", deserialize_with = "de_shade")]
     source: Vec<u8>,
+}
+
+// The FIFO's line buffers, saved at their full width so the state keeps one length: a fresh
+// machine's are empty, a running one's are 160 wide, and the fetcher resizes and rewrites
+// them at the start of every line, so padding with zero is never shown.
+fn ser_row<S: serde::Serializer>(v: &[u32], s: S) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeTuple;
+    let mut t = s.serialize_tuple(W)?;
+    for i in 0..W {
+        t.serialize_element(&v.get(i).copied().unwrap_or(0))?;
+    }
+    t.end()
+}
+
+fn de_row<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<u32>, D::Error> {
+    de_fixed::<u32, W, D>(d)
+}
+
+fn ser_shade<S: serde::Serializer>(v: &[u8], s: S) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeTuple;
+    let mut t = s.serialize_tuple(W)?;
+    for i in 0..W {
+        t.serialize_element(&v.get(i).copied().unwrap_or(0))?;
+    }
+    t.end()
+}
+
+fn de_shade<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+    de_fixed::<u8, W, D>(d)
+}
+
+fn de_fixed<'de, T, const N: usize, D>(d: D) -> Result<Vec<T>, D::Error>
+where
+    T: serde::Deserialize<'de> + Default + Copy,
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{SeqAccess, Visitor};
+    struct FixedVisitor<T, const N: usize>(std::marker::PhantomData<T>);
+    impl<'de, T, const N: usize> Visitor<'de> for FixedVisitor<T, N>
+    where
+        T: serde::Deserialize<'de> + Default + Copy,
+    {
+        type Value = Vec<T>;
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(f, "{N} values")
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            let mut v = vec![T::default(); N];
+            for e in v.iter_mut() {
+                *e = seq.next_element()?.ok_or_else(|| serde::de::Error::invalid_length(0, &self))?;
+            }
+            Ok(v)
+        }
+    }
+    d.deserialize_tuple(N, FixedVisitor::<T, N>(std::marker::PhantomData))
+}
+
+fn ser_objs<S: serde::Serializer>(v: &[Obj], s: S) -> Result<S::Ok, S::Error> {
+    use serde::ser::SerializeTuple;
+    let mut t = s.serialize_tuple(10)?;
+    for i in 0..10 {
+        t.serialize_element(&v.get(i).copied().unwrap_or_default())?;
+    }
+    t.end()
+}
+
+fn de_objs<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Obj>, D::Error> {
+    de_fixed::<Obj, 10, D>(d)
 }
 
 impl Ppu {

@@ -298,6 +298,204 @@ fn eeprom_write_then_read() {
     assert_eq!(v, 0x0123_4567_89AB_CDEF);
 }
 
+/// EEPROM through the bus itself, the way a game does it: Super Mario Advance 2 reads its
+/// save back this way and called it corrupt when the bus always answered 1.
+#[test]
+fn eeprom_bus_read16_read32_and_dma() {
+    use continuum_gb::gba::save::SaveKind;
+    // A cartridge with an EEPROM save chip: the marker string is what detection looks for.
+    let mut rom = vec![0u8; 0x8000];
+    rom[0x200..0x208].copy_from_slice(b"EEPROM_V");
+    let mut gba = Gba::new(rom);
+    assert_eq!(gba.bus.save.kind, SaveKind::Eeprom);
+    gba.bus.save.eeprom_dma(81); // 14-bit addresses, as a DMA to the chip would say
+    let addr = 5u32;
+    let pattern = 0x0123_4567_89AB_CDEFu64;
+    // Clock bits into the chip one at a time, through Bus::write16 to $0D000000.
+    let write_bits = |gba: &mut Gba, v: u64, n: u32| {
+        for i in (0..n).rev() {
+            gba.bus.write16(0x0D00_0000, ((v >> i) & 1) as u16);
+        }
+    };
+    write_bits(&mut gba, 0b10, 2); // write command
+    write_bits(&mut gba, u64::from(addr), 14);
+    write_bits(&mut gba, pattern, 64);
+    write_bits(&mut gba, 0, 1); // stop bit
+    assert_eq!(&gba.bus.save.data[40..48], &[0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF]);
+    // Idle reads answer 1: the chip is ready, with no read running.
+    assert_eq!(gba.bus.read16(0x0D00_0000), 1);
+    assert_eq!(gba.bus.read32(0x0D00_0000), 0x0001_0001);
+    // Read it back through Bus::read16: four dummy bits, then the 64 data bits.
+    write_bits(&mut gba, 0b11, 2); // read command
+    write_bits(&mut gba, u64::from(addr), 14);
+    write_bits(&mut gba, 0, 1);
+    let mut v = 0u64;
+    for i in 0..68 {
+        let b = gba.bus.read16(0x0D00_0000);
+        assert!(b <= 1, "an EEPROM read is one bit, got {b}");
+        if i < 4 {
+            assert_eq!(b, 0, "the first four bits are dummy zeros");
+        } else {
+            v = v << 1 | u64::from(b);
+        }
+    }
+    assert_eq!(v, pattern, "read16 must return the bits written, not all ones");
+    // And through Bus::read32_seq: a word is two reads, two bits, low bit first.
+    write_bits(&mut gba, 0b11, 2);
+    write_bits(&mut gba, u64::from(addr), 14);
+    write_bits(&mut gba, 0, 1);
+    let mut v = 0u64;
+    for i in 0..34 {
+        let w = gba.bus.read32_seq(0x0D00_0000, false);
+        let (lo, hi) = (w & 1, (w >> 16) & 1);
+        if i < 2 {
+            assert_eq!((lo, hi), (0, 0), "the first four bits are dummy zeros");
+        } else {
+            v = v << 1 | u64::from(lo);
+            v = v << 1 | u64::from(hi);
+        }
+    }
+    assert_eq!(v, pattern, "read32_seq must return the same bits");
+    // A game usually reads the chip by DMA, not one bit at a time: 68 halfword units from
+    // $0D000000 into work RAM, after the same read command.
+    write_bits(&mut gba, 0b11, 2);
+    write_bits(&mut gba, u64::from(addr), 14);
+    write_bits(&mut gba, 0, 1);
+    let dst = 0x0300_0000u32;
+    let set32 = |gba: &mut Gba, a: u32, v: u32| {
+        gba.bus.write16(0x0400_0000 + a, v as u16);
+        gba.bus.write16(0x0400_0000 + a + 2, (v >> 16) as u16);
+    };
+    set32(&mut gba, 0xD4, 0x0D00_0000); // DMA 3 source
+    set32(&mut gba, 0xD8, dst); // destination
+    gba.bus.write16(0x0400_00DC, 68); // count: 68 bits
+    gba.bus.write16(0x0400_00DE, 0x8000); // on, immediate, 16-bit units
+    gba.bus.idle(4); // let the transfer's start-up pass
+    let _ = gba.bus.read16(0x0200_0000); // and give the bus a reason to run it
+    let got: Vec<u32> = (0..68).map(|i| gba.bus.peek16(dst + i * 2)).collect();
+    assert_eq!(&got[..4], &[0, 0, 0, 0], "a DMA read starts with the dummy bits too");
+    let mut v = 0u64;
+    for b in &got[4..] {
+        v = v << 1 | u64::from(*b);
+    }
+    assert_eq!(v, pattern, "a DMA from the EEPROM must carry the same bits");
+}
+
+/// The BIOS's sound calls: SoundBias (0x19) and MidiKey2Freq (0x1F).
+#[test]
+fn bios_sound_bias_and_midi_key_2_freq() {
+    let mut gba = Gba::new(vec![0u8; 0x8000]);
+    // SOUNDBIAS $C1FF: amplitude bits set, level $1FF.
+    gba.bus.write16(0x0400_0088, 0xC1FF);
+    gba.cpu.r[0] = 0;
+    continuum_gb::gba::bios::swi(&mut gba.cpu, &mut gba.bus, 0x19);
+    assert_eq!(gba.bus.peek16(0x0400_0088), 0xC000, "level 0, upper bits kept");
+    gba.cpu.r[0] = 1;
+    continuum_gb::gba::bios::swi(&mut gba.cpu, &mut gba.bus, 0x19);
+    assert_eq!(gba.bus.peek16(0x0400_0088), 0xC200, "any nonzero level is $200");
+    gba.cpu.r[0] = 0xFFFF;
+    continuum_gb::gba::bios::swi(&mut gba.cpu, &mut gba.bus, 0x19);
+    assert_eq!(gba.bus.peek16(0x0400_0088), 0xC200);
+
+    // A waveform sampled at 8000 Hz, tuned to key 60: its `freq` is 8000 x 2^((180-60)/12).
+    let wa = 0x0200_1000u32;
+    gba.bus.write32(wa + 4, 8000 * 1024);
+    let freq = |gba: &mut Gba, mk: u32, fp: u32| -> u32 {
+        gba.cpu.r[0] = wa;
+        gba.cpu.r[1] = mk;
+        gba.cpu.r[2] = fp;
+        continuum_gb::gba::bios::swi(&mut gba.cpu, &mut gba.bus, 0x1F);
+        gba.cpu.r[0]
+    };
+    assert_eq!(freq(&mut gba, 60, 0), 8000, "its own key plays at its sampling rate");
+    assert_eq!(freq(&mut gba, 72, 0), 16000, "an octave up doubles it");
+    assert_eq!(freq(&mut gba, 48, 0), 4000, "an octave down halves it");
+    assert_eq!(freq(&mut gba, 168, 0), 8000 * 1024 / 2);
+    let half_semitone = freq(&mut gba, 60, 128);
+    assert!((8230..=8240).contains(&half_semitone), "half a semitone up: {half_semitone}");
+    // GBATEK's BIOS-read identity: at key 168 the answer is the word at wa+4, halved.
+    gba.bus.write32(wa + 4, 0x1234_5678);
+    assert_eq!(freq(&mut gba, 168, 0), 0x091A_2B3C);
+}
+
+/// The BIOS sound driver (0x1A-0x1E, 0x28-0x2A): start it, play a note through it, stop it.
+#[test]
+fn bios_sound_driver() {
+    let mut gba = Gba::new(vec![0u8; 0x8000]);
+    let area = 0x0200_0000u32;
+    let call = |gba: &mut Gba, n: u32| continuum_gb::gba::bios::swi(&mut gba.cpu, &mut gba.bus, n);
+    // Nothing happens before the driver is started.
+    call(&mut gba, 0x1C);
+    assert_eq!(gba.bus.peek32(area), 0);
+    // A waveform in work RAM: a looped constant tone, 1000 samples of 0x40, tuned to key 60.
+    let wave = 0x0200_1000u32;
+    gba.bus.write16(wave + 2, 0x4000); // looped
+    gba.bus.write32(wave + 4, 8000 * 1024); // freq: 8000 Hz at key 60
+    gba.bus.write32(wave + 8, 0); // loop from the top
+    gba.bus.write32(wave + 12, 1000); // 1000 samples
+    for i in 0..1000 {
+        gba.bus.write8(wave + 16 + i, 0x40);
+    }
+    // Start the driver on its work area.
+    gba.cpu.r[0] = area;
+    call(&mut gba, 0x1A);
+    assert_eq!(gba.bus.peek32(area), 1, "the area is marked initialized");
+    assert_eq!(gba.bus.sound_area, area);
+    // Its frequency: MidiKey2Freq of the waveform at key 60 is 8000 Hz.
+    gba.cpu.r[0] = wave;
+    gba.cpu.r[1] = 60;
+    gba.cpu.r[2] = 0;
+    call(&mut gba, 0x1F);
+    let fr = gba.cpu.r[0];
+    assert_eq!(fr, 8000);
+    // One channel, full volume both sides, no attack time, holding at full volume.
+    let ch = area + 0x14;
+    gba.bus.write8(ch, 0x80); // sf: on
+    gba.bus.write8(ch + 2, 255); // right volume
+    gba.bus.write8(ch + 3, 255); // left volume
+    gba.bus.write8(ch + 4, 0); // attack: none, straight to full
+    gba.bus.write8(ch + 5, 255); // decay
+    gba.bus.write8(ch + 6, 255); // sustain
+    gba.bus.write8(ch + 7, 255); // release
+    gba.bus.write32(ch + 0x0C, fr);
+    gba.bus.write32(ch + 0x10, wave);
+    // Mix a frame: both halves of the mix buffer fill with the tone.
+    call(&mut gba, 0x1C);
+    let pcm = area + 0x194;
+    let (right, left) = (gba.bus.peek8(pcm), gba.bus.peek8(pcm + 224));
+    assert_eq!((right, left), (63, 63), "64 x 255 x 255 / 65536, both sides");
+    assert!(gba.bus.peek16(0x0400_00C6) & 0x8000 != 0, "DMA 1 is feeding FIFO A");
+    assert!(gba.bus.peek16(0x0400_00D2) & 0x8000 != 0, "DMA 2 is feeding FIFO B");
+    // VSync rewinds both DMAs to the start of their half and counts the transfer.
+    call(&mut gba, 0x1D);
+    assert_eq!(gba.bus.peek8(area + 0x04), 1);
+    let sad = |gba: &Gba, a: usize| u32::from_le_bytes(gba.bus.io[a..a + 4].try_into().unwrap());
+    assert_eq!(sad(&gba, 0xBC), pcm, "DMA 1 is rewound to the right half");
+    assert_eq!(sad(&gba, 0xC8), pcm + 224, "DMA 2 is rewound to the left half");
+    // Key the note off: the release runs it down and the channel stops.
+    gba.bus.write8(ch, 0x80 | 0x40);
+    gba.bus.write8(ch + 7, 0); // release 0: straight to silent
+    call(&mut gba, 0x1C);
+    assert_eq!(gba.bus.peek8(ch), 0, "a released channel with no release time stops");
+    // VSync off stops the DMA; VSync on starts it again.
+    call(&mut gba, 0x28);
+    assert_eq!(gba.bus.peek16(0x0400_00C6) & 0x8000, 0);
+    call(&mut gba, 0x29);
+    assert!(gba.bus.peek16(0x0400_00C6) & 0x8000 != 0);
+    // Clear: every channel off, DMA off, mix buffer cleared.
+    gba.bus.write8(ch, 0x80);
+    call(&mut gba, 0x1E);
+    assert_eq!(gba.bus.peek8(ch), 0);
+    assert_eq!(gba.bus.peek16(0x0400_00C6) & 0x8000, 0);
+    assert_eq!(gba.bus.peek8(pcm), 0, "the mix buffer is cleared too");
+    // The jump list is a zeroed buffer: no BIOS-internal entry points exist to hand out.
+    let list = 0x0200_2000u32;
+    gba.bus.write32(list, 0xDEAD_BEEF);
+    gba.cpu.r[0] = list;
+    call(&mut gba, 0x2A);
+    assert!((0..0x120).step_by(4).all(|i| gba.bus.peek32(list + i as u32) == 0));
+}
+
 /// Alyosha's timing tests (alyosha-tas/gba-tests, MIT): jsmolka's collection plus cycle-exact
 /// tests of the prefetch buffer, wait states, DMA, timers, interrupts and serial, each written
 /// against a real console. Like jsmolka's, a test ends in `B .` with r12 = 0 when it passed
@@ -324,7 +522,7 @@ const ALYOSHA_PASS: &[&str] = &[
     "fifo_dma/fifo_6.gba", "fifo_dma/fifo_dma_disable_3.gba",
     "fifo_dma/fifo_dma_disable_4.gba", "fifo_dma/fifo_dma_disable_5.gba", "irq/BL_1.gba",
     "irq/BL_IRQ.gba", "irq/BL_IRQ_2.gba", "irq/BL_IRQ_3.gba", "irq/BL_IRQ_R14.gba",
-    "irq/IF_Timer.gba", "irq/IRQ_sub.gba", "irq/IRQ_sub_2_slow.gba", "irq/IRQ_sub_slow.gba",
+    "irq/IE.gba", "irq/IF_Timer.gba", "irq/IRQ_sub.gba", "irq/IRQ_sub_2_slow.gba", "irq/IRQ_sub_slow.gba",
     "memory/PAL_8_bit_writes.gba", "memory/VRAM_8_bit_writes.gba", "memory/memory.gba",
     "nes/nes.gba", "ppu/Sprite_Last_VRAM_Access.gba", "ppu/Sprite_Last_VRAM_Access_Free.gba",
     "ppu/hello.gba", "ppu/shades.gba", "ppu/start_up.gba", "ppu/start_up_vbl_irq.gba",
@@ -338,7 +536,7 @@ const ALYOSHA_PASS: &[&str] = &[
     "prefetcher/prefetcher_branch_thumb_arm_3.gba",
     "prefetcher/prefetcher_branch_thumb_arm_4.gba", "prefetcher/prefetcher_dma.gba",
     "prefetcher/prefetcher_full_arm.gba", "prefetcher/prefetcher_full_arm_2.gba",
-    "prefetcher/prefetcher_full_thumb.gba", "save/flash128.gba", "save/flash64.gba",
+    "prefetcher/prefetcher_full_thumb.gba", "psr/psr.gba", "save/flash128.gba", "save/flash64.gba",
     "save/none.gba", "save/sram.gba", "thumb/Pop_no_regs.gba", "thumb/Push_no_regs.gba",
     "thumb/blx.gba", "thumb/cpy.gba", "thumb/thumb.gba", "timer/timer.gba",
     "timer/timer_disable.gba", "timing/dma_long.gba", "timing/prefetch_enable.gba",
@@ -394,6 +592,122 @@ fn alyosha_timing_tests() {
     assert_eq!(all.len(), 133, "the pinned collection has 133 tests");
 }
 
+/// FuzzARM (DenSinH/FuzzARM, MIT): random ARM/Thumb instruction tests, ~9992 per ROM, run to the
+/// idle loop (about 831 frames) and reporting through EWRAM: a failed test writes 'AAAA' or
+/// 'TTTT' at 0x02000000, so a clean EWRAM means every test passed.
+#[test]
+fn fuzzarm_tests() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/fuzzarm");
+    if !root.is_dir() {
+        eprintln!("SKIPPED: {} not found (run scripts/fetch-test-roms.sh)", root.display());
+        return;
+    }
+    let mut names: Vec<String> = std::fs::read_dir(&root).unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| n.ends_with(".gba"))
+        .collect();
+    names.sort();
+    let mut passed = Vec::new();
+    let mut failed = Vec::new();
+    for n in &names {
+        let mut gba = Gba::new(std::fs::read(root.join(n)).unwrap());
+        match run_to_idle(&mut gba, 2000) {
+            Some(0) => {
+                let marker = u32::from_le_bytes(gba.bus.ewram[0..4].try_into().unwrap());
+                if marker == 0 {
+                    passed.push(n.clone());
+                } else {
+                    failed.push(format!("{n}: failed test dumped to EWRAM (marker {marker:#010x})"));
+                }
+            }
+            other => failed.push(format!("{n}: never finished ({other:?}, pc {:08X})", gba.cpu.pc)),
+        }
+    }
+    eprintln!("fuzzarm: {} of {} pass", passed.len(), names.len());
+    for f in &failed {
+        eprintln!("  FAIL {f}");
+    }
+    assert_eq!(names.len(), 5, "the pinned FuzzARM set has 5 ROMs");
+    for must in FUZZARM_PASS {
+        assert!(passed.iter().any(|p| p == must), "fuzzarm regressed: {must}");
+    }
+}
+
+/// The FuzzARM ROMs that pass. This list only ever grows.
+const FUZZARM_PASS: &[&str] = &[
+    "ARM_Any.gba",
+    "ARM_DataProcessing.gba",
+    "FuzzARM.gba",
+    "THUMB_Any.gba",
+    "THUMB_DataProcessing.gba",
+];
+
+/// AGBEEG Aging Cartridge (zaydlang/AGBEEG-Aging-Cartridge v0.0.2, MIT): the clean-room
+/// reimplementation of Nintendo's AGS Aging Cartridge. It runs all its tests at boot and reports
+/// through the CI register ($04999990, captured in `Bus::ci_log`): null-terminated test name,
+/// null-terminated "PASS"/"FAIL", repeated, then null-terminated "DONE".
+#[test]
+fn ags_aging_tests() {
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("test-roms/ags-aging/AGBEEG_AGING_CARTRIDGE.gba");
+    let Some(data) = std::fs::read(&p).ok() else {
+        eprintln!("SKIPPED: {} not found (run scripts/fetch-test-roms.sh)", p.display());
+        return;
+    };
+    let mut gba = Gba::new(data);
+    let mut done = false;
+    for _ in 0..600 {
+        gba.run_frame();
+        if gba.bus.ci_log.windows(4).any(|w| w == b"DONE") {
+            done = true;
+            break;
+        }
+    }
+    assert!(done, "AGBEEG never reported DONE (ci_log={:?})", String::from_utf8_lossy(&gba.bus.ci_log));
+    // Split the log on NULs into (name, result) pairs, ending at "DONE".
+    let log = String::from_utf8_lossy(&gba.bus.ci_log);
+    let parts: Vec<&str> = log.split('\0').filter(|s| !s.is_empty()).collect();
+    let mut results = Vec::new();
+    let mut i = 0;
+    while i + 1 < parts.len() && parts[i] != "DONE" {
+        results.push((parts[i], parts[i + 1]));
+        i += 2;
+    }
+    let (mut passed, mut failed) = (Vec::new(), Vec::new());
+    for (name, result) in &results {
+        if *result == "PASS" {
+            passed.push(*name);
+        } else {
+            failed.push(format!("{name}: {result}"));
+        }
+    }
+    eprintln!("ags-aging: {} passed, {} failed, of {}", passed.len(), failed.len(), results.len());
+    for f in &failed {
+        eprintln!("  FAIL {f}");
+    }
+    assert_eq!(results.len(), 6, "the pinned AGBEEG set has 6 tests");
+    for must in AGS_AGING_PASS {
+        assert!(passed.iter().any(|p| p == must), "ags-aging regressed: {must}");
+    }
+}
+
+/// The AGBEEG tests that pass. This list only ever grows. All 6 pass since Item 4
+/// (2026-11-25): "SWP LOCKS BUS" (SWP now locks the bus for its read and write, so a DMA
+/// that comes due in between waits until the write) and "CPU RUNS IDLES DURING DMA" (the
+/// DMA catch-up's overlap accounting was fixed: it measured the transfer's length as
+/// `pending - before`, which is 1 minus the CPU's own pending cycles — 0 for a one-cycle
+/// idle and a wrap to ~2^32 for any more, so the machine clock jumped by billions of
+/// cycles and the one-cycle error in the 1-idle case showed through).
+const AGS_AGING_PASS: &[&str] = &[
+    "CPU RUNS IDLES DURING DMA",
+    "LDM DOES NOT LOCK BUS",
+    "ROM ACCESS DURING PREFETCH",
+    "STM DOES NOT LOCK BUS",
+    "SWP LOCKS BUS",
+    "TOGGLE PREFETCHER",
+];
+
 /// Prints every instruction of $GBA_TRACE (a file under test-roms/) whose address is in
 /// [$GBA_LO, $GBA_HI), with the cycles it took (a debugging aid; with `--features gba_trace`
 /// every bus access too).
@@ -415,3 +729,153 @@ fn gba_trace() {
         }
     }
 }
+
+/// nba-emu/hw-test (MIT, pinned to master 3932a0e5): hardware tests for the Advance that
+/// print through the libgba text console — a tilemap at VRAM 0x06002000 (screen base
+/// block 4) whose tile index is the character code — and finish with a `pass: N` /
+/// `total: M` summary, or `congratulations!` when everything passed. The older archive
+/// IRQ tests print one `#N NOPs ... PASS/FAIL` line per case and no summary.
+fn hw_console(gba: &Gba) -> Vec<String> {
+    let vram = &gba.bus.vram;
+    let mut lines = Vec::new();
+    for row in 0..32 {
+        let mut s = String::new();
+        for col in 0..32 {
+            let off = 0x2000 + (row * 32 + col) * 2;
+            let t = u16::from_le_bytes([vram[off], vram[off + 1]]) & 0x3FF;
+            s.push(if (0x20..0x7F).contains(&t) { char::from(t as u8) } else { ' ' });
+        }
+        lines.push(s.trim_end().to_string());
+    }
+    while lines.last().is_some_and(|l| l.is_empty()) {
+        lines.pop();
+    }
+    lines
+}
+
+/// Runs one hw-test ROM until its summary appears or its console text stops changing
+/// (120 frames stable), at most 1200 frames. Returns the console lines.
+fn hw_run(name: &str) -> Option<Vec<String>> {
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/hw-test").join(name);
+    let data = std::fs::read(&p).ok()?;
+    let mut gba = Gba::new(data);
+    let mut last = Vec::new();
+    let mut stable = 0;
+    for f in 0..1200 {
+        gba.run_frame();
+        if f % 10 != 9 {
+            continue;
+        }
+        let lines = hw_console(&gba);
+        if lines.iter().any(|l| l.starts_with("pass:") || l.contains("congratulations!")) {
+            return Some(lines);
+        }
+        if lines == last {
+            stable += 10;
+            if stable >= 120 {
+                return Some(lines);
+            }
+        } else {
+            stable = 0;
+            last = lines;
+        }
+    }
+    Some(hw_console(&gba))
+}
+
+/// nba-emu/hw-test, all of it: every prebuilt ROM in the repo, run headless, its console
+/// text parsed for PASS/FAIL. Reports each ROM's count; the fully-passing set is pinned
+/// in HW_TEST_PASSING below. The visual-only ROMs (ppu/mode2, mode3, mode4, bgpd, bgx,
+/// dispcnt-latch, greenswap, sprite-hmosaic) draw a picture with no text result, and the
+/// two menu ROMs (ppu/ram-access-timing, ppu/status-irq-dma) are timing sweeps that dump
+/// a table to SRAM rather than a pass/fail — neither can be checked headlessly, so they
+/// are reported as such and not pinned.
+#[test]
+fn hw_test_report() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("test-roms/hw-test");
+    if !root.is_dir() {
+        eprintln!("SKIPPED: hw-test not fetched (run scripts/fetch-test-roms.sh)");
+        return;
+    }
+    let mut all = vec![];
+    let mut dirs = vec![root.clone()];
+    while let Some(d) = dirs.pop() {
+        for e in std::fs::read_dir(&d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                dirs.push(p);
+            } else if p.extension().is_some_and(|x| x == "gba") {
+                all.push(p);
+            }
+        }
+    }
+    all.sort();
+    let mut pass = Vec::new();
+    let mut fail = Vec::new();
+    let mut noword = Vec::new();
+    for p in &all {
+        let name = p.strip_prefix(&root).unwrap().display().to_string();
+        let Some(lines) = hw_run(&name) else { continue };
+        let (mut ok, mut bad) = (0usize, 0usize);
+        let mut fails = Vec::new();
+        for (i, l) in lines.iter().enumerate() {
+            if l.contains("PASS") {
+                ok += 1;
+            }
+            if l.contains("FAIL") {
+                bad += 1;
+                // The expected value is on the next line ("  expected: ...").
+                let exp = lines.get(i + 1).map(|s| s.trim()).unwrap_or("");
+                fails.push(format!("{} ({})", l.trim(), exp));
+            }
+        }
+        // The summary lines, when the test prints them.
+        let summary = lines.iter().find(|l| l.starts_with("pass:"));
+        let total = lines.iter().find(|l| l.starts_with("total:"));
+        let done = lines.iter().any(|l| l.contains("congratulations!"));
+        let label = match (summary, total) {
+            (Some(p), Some(t)) => format!("{} / {}", p.trim(), t.trim()),
+            _ if done => format!("{ok}/{ok} congratulations!"),
+            _ => format!("{ok} PASS, {bad} FAIL (no summary)"),
+        };
+        if bad == 0 && ok > 0 {
+            eprintln!("  PASS {name}: {label}");
+            pass.push(name.clone());
+        } else if ok == 0 && bad == 0 {
+            eprintln!("  NOTEXT {name}: no PASS/FAIL lines (visual or menu test)");
+            noword.push(name.clone());
+        } else {
+            eprintln!("  FAIL {name}: {label}");
+            for f in &fails {
+                eprintln!("    {f}");
+            }
+            fail.push(name.clone());
+        }
+    }
+    eprintln!("HW-TEST: {} fully pass, {} fail, {} no text result, of {}", pass.len(), fail.len(), noword.len(), all.len());
+    assert_eq!(all.len(), 25, "the hw-test set changed; re-pin HW_TEST_PASSING");
+    for must in HW_TEST_PASSING {
+        assert!(pass.iter().any(|p| p == must), "hw-test regressed: {must}");
+    }
+}
+
+/// The hw-test ROMs that fully pass on cBoy. This list only ever grows. Pinned P5 Item 3
+/// (2026-11-25): 4 of 25 — the two archive IRQ-cancellation tests that pass, the DMA
+/// non-sequential-access test, and the timer start/stop test. Pinned P7 (2026-11-25):
+/// 6 of 25 — plus the DMA start-delay test (DMA0 startup is +4 cycles, channels 1-3
+/// +2) and the IRQ-delay test (IE/IME writes restart the delay for an already-pending
+/// flag, and an IRQ within 2 cycles of the write is committed, not cancelled). The 11 failing ROMs are
+/// real timing gaps (IRQ service 3-10 cycles early; DMA start-delay 2 cycles early;
+/// DMA decrement-boundary ±2; HALTCNT wildly off; PPU STAT/VCOUNT flag timing returning
+/// -1/0; VRAM mirror mode 3; timer reload edge cases), each printed in full by the
+/// report test. The 10 no-text ROMs are visual-only (mode2/3/4, bgpd, bgx,
+/// dispcnt-latch, greenswap, sprite-hmosaic) or menu-driven timing sweeps that dump a
+/// table to SRAM (ram-access-timing, status-irq-dma), not pass/fail tests.
+const HW_TEST_PASSING: &[&str] = &[
+    "archive/irq/cancel-irq-if/cancel-irq-if.gba",
+    "archive/irq/cancel-irq-ime/cancel-irq-ime.gba",
+    "dma/force-nseq-access/force-nseq-access.gba",
+    "dma/start-delay/start-delay.gba",
+    "irq/irq-delay/irq-delay.gba",
+    "timer/start-stop/start-stop.gba",
+];

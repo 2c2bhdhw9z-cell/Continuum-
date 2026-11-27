@@ -12,6 +12,7 @@
 //! in `ppu` and `bus`).
 
 pub mod apu;
+pub mod bess;
 pub mod bus;
 pub mod cart;
 pub mod cheats;
@@ -24,6 +25,7 @@ pub mod libretro;
 pub mod link;
 pub mod options;
 pub mod ppu;
+pub mod printer;
 pub mod sgb;
 pub mod timer;
 

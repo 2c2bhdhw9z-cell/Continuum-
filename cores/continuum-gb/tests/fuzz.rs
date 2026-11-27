@@ -117,29 +117,35 @@ fn state_layout_is_pinned() {
     rom[0x149] = 3;
     let gb = GameBoy::new(rom).unwrap();
     let st = gb.save_state();
-    assert_eq!(&st[..8], b"CGBSTAT3", "bump the tag when the layout changes");
+    assert_eq!(&st[..8], b"CGBSTAT4", "bump the tag when the layout changes");
     let g = Gba::new(vec![0u8; 0x1000]);
     let sa = g.save_state();
-    assert_eq!(&sa[..8], b"CGBASTA2");
+    assert_eq!(&sa[..8], b"CGBASTA3");
     eprintln!("state sizes: gb {} gba {}", st.len(), sa.len());
-    // The Advance state is the layout fixed under CGBASTA2, then the timing added after it
+    // The Advance state is the layout fixed under CGBASTA3, then the timing added after it
     // (the CPU's pipeline, the prefetch buffer, the timers) and the sound chip, which an
     // older state lacks.
-    // The Game Boy state is the same, then the sound chip modelled tick by tick after it.
-    assert_eq!(st.len(), GB_STATE_LEN + SOUND_CHIP_LEN,
-               "the state layout changed: bump CGBSTAT/CGBASTA and update these sizes");
+    // The Game Boy state is the same, then the sound chip modelled tick by tick after it,
+    // then a BESS footer (raw buffers + NAME/INFO/CORE/END blocks) after that: the native
+    // layout is the pinned prefix, and the footer is trailing data the native decoder
+    // ignores, so the tripwire checks the prefix length, not the total.
+    assert!(st.len() > GB_STATE_LEN + SOUND_CHIP_LEN,
+            "the state lost its BESS footer");
+    assert!(continuum_gb::bess::find_bess(&st).is_some(), "no BESS footer on the state");
+    let mut g2 = GameBoy::new(vec![0u8; 0x8000]).unwrap();
+    g2.load_state(&st[..GB_STATE_LEN + SOUND_CHIP_LEN]).expect("the native prefix must load");
     // The Advance state is the pinned layout, then everything added after it: the timing, the
     // sound chip, and whatever a transfer or an interrupt in progress needs.
     assert!(sa.len() > GBA_STATE_LEN + GBA_TIMING_LEN + SOUND_CHIP_LEN,
             "the Advance state lost the parts added after the fixed layout");
 }
-const GB_STATE_LEN: usize = 221_310;
-const GBA_STATE_LEN: usize = 550_530;
+const GB_STATE_LEN: usize = 223_818;
+const GBA_STATE_LEN: usize = 551_643;
 const GBA_TIMING_LEN: usize = 114;
 const SOUND_CHIP_LEN: usize = 96;
 
 /// A Game Boy state made before the sound chip was modelled tick by tick (the layout fixed under
-/// CGBSTAT3 and nothing after it) still loads, its channels carried over, and plays on.
+/// CGBSTAT4 and nothing after it) still loads, its channels carried over, and plays on.
 #[test]
 fn a_game_boy_state_from_before_the_new_sound_chip_still_loads() {
     let mut rom = vec![0u8; 0x8000];
@@ -165,7 +171,7 @@ fn a_game_boy_state_from_before_the_new_sound_chip_still_loads() {
     assert!(h.bus.cycles > g.bus.cycles);
 }
 
-/// A state made before the Advance timing was saved (the layout fixed under CGBASTA2 and
+/// A state made before the Advance timing was saved (the layout fixed under CGBASTA3 and
 /// nothing after it) still loads, and the machine runs on from it.
 #[test]
 fn an_advance_state_from_before_the_timing_was_saved_still_loads() {

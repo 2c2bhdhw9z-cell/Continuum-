@@ -14,6 +14,14 @@ done
 fetch $B/instr_timing/instr_timing.gb instr_timing.gb
 fetch $B/mem_timing/mem_timing.gb mem_timing.gb
 fetch $B/halt_bug.gb halt_bug.gb
+# Blargg's OAM corruption (OAM bug) tests: the combined ROM and the 8 singles. Pinned in
+# tests/roms.rs (blargg_oam_bug*); they exercise the DMG Mode-2 OAM corruption model.
+mkdir -p oam_bug
+fetch $B/oam_bug/oam_bug.gb oam_bug/oam_bug.gb
+for n in 1-lcd_sync 2-causes 3-non_causes 4-scanline_timing 5-timing_bug 6-timing_no_bug \
+         7-timing_effect 8-instr_effect; do
+  fetch "$B/oam_bug/rom_singles/$n.gb" "oam_bug/$n.gb"
+done
 # Blargg's sound tests, each on its own (dmg_sound on a Game Boy, cgb_sound on a Color).
 mkdir -p sound
 for n in 01-registers "02-len ctr" 03-trigger 04-sweep "05-sweep details" "06-overflow on trigger" \
@@ -36,6 +44,40 @@ if [ ! -d mts ]; then
     && python3 -c 'import tarfile,os; t=tarfile.open("mts.tar.xz"); t.extractall("mts-x"); d=os.listdir("mts-x")[0]; os.rename("mts-x/"+d,"mts"); os.rmdir("mts-x")' \
     && rm mts.tar.xz || echo "mooneye download failed (optional)"
 fi
+# gbmicrotest (aappleby/GBMicrotest, MIT): cycle-exact register/PPU/CPU microtests, reporting
+# through HRAM $FF80-$FF82. Prebuilt in c-sp/game-boy-test-roms v7.0; only that folder is kept.
+# Pinned: the pass list in tests/roms.rs (GBMICROTEST_PASSING) belongs to this release.
+if [ ! -d gbmicrotest ]; then
+  curl -fsSL https://github.com/c-sp/game-boy-test-roms/releases/download/v7.0/game-boy-test-roms-v7.0.zip -o gb-test-roms-v7.zip \
+    && unzip -oq gb-test-roms-v7.zip "gbmicrotest/*" \
+    && rm gb-test-roms-v7.zip || { rm -rf gbmicrotest gb-test-roms-v7.zip; echo "gbmicrotest download failed (optional)"; }
+fi
+# FuzzARM (DenSinH/FuzzARM, MIT): random ARM/Thumb instruction test ROMs, prebuilt in the
+# repo. ARMWrestler (destoer/armwrestler-gba-fixed, MIT) is menu-driven, so it is fetched for
+# manual use but not run headless. Pinned: FUZZARM_PASS in tests/gba.rs.
+mkdir -p fuzzarm armwrestler
+for f in ARM_Any ARM_DataProcessing THUMB_Any THUMB_DataProcessing FuzzARM; do
+  fetch "https://raw.githubusercontent.com/DenSinH/FuzzARM/master/$f.gba" "fuzzarm/$f.gba"
+done
+fetch https://raw.githubusercontent.com/destoer/armwrestler-gba-fixed/master/armwrestler-gba-fixed.gba armwrestler/armwrestler-gba-fixed.gba
+fetch https://raw.githubusercontent.com/destoer/armwrestler-gba-fixed/master/armwrestler.gba armwrestler/armwrestler.gba
+# AGBEEG Aging Cartridge (zaydlang/AGBEEG-Aging-Cartridge, MIT): the clean-room reimplementation
+# of Nintendo's AGS Aging Cartridge, prebuilt in its releases. It reports through a CI MMIO
+# register (see tests/gba.rs, ags_aging_tests). The original Nintendo AGS Aging Cartridge is
+# internal Nintendo IP and is not fetched.
+mkdir -p ags-aging
+fetch https://github.com/zaydlang/AGBEEG-Aging-Cartridge/releases/download/v0.0.2/AGBEEG_AGING_CARTRIDGE.gba ags-aging/AGBEEG_AGING_CARTRIDGE.gba
+# mGBA test suite (mgba-emu/suite, MPL-2.0): BIOS math, DMA, IO, memory, SIO, timers, video.
+# The repo is cloned here, but there is NO prebuilt suite.gba (no releases) and building it
+# needs devkitARM (libgba, crt0, linker script, gbafix, grit). apt.devkitpro.org is
+# unreachable from this VM (403) and there is no Docker, so the suite cannot be built here
+# (P3, 2026-11-24; re-checked P5 Item 3, 2026-11-25: no libgba.a exists anywhere in the
+# repo, scripts/mgba-suite-build/ holds only a stub — 12 libgba headers, crt0.s, gba.ld
+# and 3 of libgba's sources — and grit/gbafix are absent; fetching grit/libgba sources is
+# outside the approved fetch list). Do not claim it passed until it is built and run.
+if [ ! -d mgba-suite ]; then
+  fetch_repo mgba-emu/suite e6942030d25ffe3ba76c72b73a86da073ec857cc mgba-suite || echo "mgba suite download failed (optional)"
+fi
 # A GitHub repository at one exact commit, into directory $3. git first; if git cannot reach
 # GitHub (some sandboxes only let plain HTTPS downloads through), the same commit as a tarball.
 fetch_repo() {
@@ -53,6 +95,21 @@ fetch_repo() {
   rm -rf "$dir"
   return 1
 }
+# nba-emu/hw-test (MIT): hardware tests for the Advance, prebuilt ROMs. Pinned to
+# master 3932a0e5 — verified 2026-11-25: a fresh tarball of that commit diffs clean
+# against the local copy. Pinned: HW_TEST_PASSING in tests/gba.rs (4 of 25 pass).
+# Note the project has since moved to Codeberg; the GitHub copy is the pinned one.
+if [ ! -d hw-test ]; then
+  fetch_repo nba-emu/hw-test 3932a0e54dbb5d94b84798d2d5e462e080b95599 hw-test || echo "hw-test download failed (optional)"
+fi
+# SingleStepTests/ARM7TDMI (MIT): single-step CPU test vectors, 45 .json.bin files
+# (20,000 vectors each) plus transcode_json.py. Pinned to master e3097d88 — verified
+# 2026-11-25: all 49 files in a fresh tarball of that commit hash-match the local copy.
+# NOT wired into tests/gba.rs yet: the vectors need a data-driven harness (binary parser
+# + single-instruction retire + bus-transaction compare) that the core does not have.
+if [ ! -d sst ]; then
+  fetch_repo SingleStepTests/ARM7TDMI e3097d88d428752736b949d94c094d5da50f0db6 sst || echo "SingleStepTests download failed (optional)"
+fi
 # Game Boy Advance: jsmolka/gba-tests (MIT, ships built ROMs), pinned.
 if [ ! -d jsmolka ]; then
   fetch_repo jsmolka/gba-tests a7113b67e63f83a9b321696ddd7042ccfad6c881 jsmolka || echo "gba-tests download failed"
