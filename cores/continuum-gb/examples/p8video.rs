@@ -177,6 +177,31 @@ fn main() {
                 cols.dedup();
                 println!("    {label} distinct colours: {}", cols.len());
             }
+            // The colour at x=0 and x=4 of every line, one character a line, from one palette
+            // shared by both pictures: the on/off bands and the stripe phase, line by line.
+            let mut pal: Vec<u32> = Vec::new();
+            for f in [&actual, &expected] {
+                for y in 0..160 {
+                    pal.push(f[y * 240] & 0xFFFFFF);
+                    pal.push(f[y * 240 + 4] & 0xFFFFFF);
+                }
+            }
+            pal.sort_unstable();
+            pal.dedup();
+            let ch = |c: u32| {
+                let c = c & 0xFFFFFF;
+                match pal.iter().position(|&p| p == c) {
+                    Some(i) if i < 36 => char::from_digit(i as u32, 36).unwrap_or('?'),
+                    _ => '?',
+                }
+            };
+            for (label, f) in [("ACTUAL", &actual), ("EXPECTED", &expected)] {
+                let zero: String = (0..160).map(|y| ch(f[y * 240])).collect();
+                let four: String = (0..160).map(|y| ch(f[y * 240 + 4])).collect();
+                println!("    {label} x=0 per line: {zero}");
+                println!("    {label} x=4 per line: {four}");
+            }
+            println!("    columns palette: {pal:06X?}");
             // 8x8 nibble grids (colour -> palette nibble) for the top-left block.
             let nib = |c: u32| -> char {
                 match c & 0xFFFFFF {
