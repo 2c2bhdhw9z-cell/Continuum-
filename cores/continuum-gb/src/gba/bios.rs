@@ -54,21 +54,44 @@ pub fn swi(cpu: &mut Cpu, bus: &mut Bus, n: u32) {
             intr_wait(cpu, bus, again);
         }
         0x06 | 0x07 => {
+            // Div and DivArm: one division, with the two registers the other way round.
             let (num, den) = if n == 6 { (r[0] as i32, r[1] as i32) } else { (r[1] as i32, r[0] as i32) };
-            if den != 0 {
-                let q = num.wrapping_div(den);
-                r[0] = q as u32;
-                r[1] = num.wrapping_rem(den) as u32;
-                r[3] = q.unsigned_abs();
-            }
+            // The quotient is truncated toward zero, so the remainder takes the dividend's sign.
+            // Dividing by zero divides nothing: the answer is the dividend's sign on its own, the
+            // dividend comes back as the remainder, and r3 says 1. A real console sits in the
+            // division loop for ever when the dividend is further from zero than that, which no
+            // game survives and no high-level call can stand in for, so this is the answer mGBA
+            // gives too rather than a hang. INT_MIN / -1 has no answer in 32 bits, and the
+            // console leaves INT_MIN there instead of trapping.
+            let (q, rem) = if den == 0 {
+                (if num < 0 { -1 } else { 1 }, num)
+            } else {
+                (num.wrapping_div(den), num.wrapping_rem(den))
+            };
+            r[0] = q as u32;
+            r[1] = rem as u32;
+            r[3] = q.unsigned_abs();
         }
-        0x08 => r[0] = (r[0] as f64).sqrt() as u32,
-        0x09 => r[0] = arctan(r[0] as i32) as u32,
+        0x08 => r[0] = isqrt(r[0]),
+        0x09 => {
+            // ArcTan: the BIOS's own approximation, and the two values its working leaves in r1
+            // and r3 (a real call leaves them there, so a game that reads them back gets these).
+            let (v, a, b) = arctan(r[0] as i32);
+            r[0] = v as u32;
+            r[1] = a as u32;
+            r[3] = b as u32;
+        }
         0x0A => {
-            let (x, y) = (r[0] as i16 as f64, r[1] as i16 as f64);
-            let a = y.atan2(x);
-            let a = if a < 0.0 { a + std::f64::consts::TAU } else { a };
-            r[0] = ((a / std::f64::consts::TAU * 65536.0) as u32) & 0xFFFF;
+            // ArcTan2: the pair is (x, y), y being the one on the vertical axis, and the answer
+            // is built out of ArcTan in whichever quadrant the pair falls in - so it carries the
+            // console's own approximation, the angle a game that rotates its objects was written
+            // against, rather than a truer arctangent no console ever returned.
+            let (v, a) = arctan2(r[0] as i32, r[1] as i32);
+            r[0] = v as u32 & 0xFFFF;
+            if let Some(a) = a {
+                r[1] = a as u32;
+            }
+            r[3] = 0x170;
         }
         0x0B => cpu_set(bus, r[0], r[1], r[2]),
         0x0C => cpu_fast_set(bus, r[0], r[1], r[2]),
@@ -542,13 +565,94 @@ fn intr_wait(cpu: &mut Cpu, bus: &mut Bus, again: bool) {
     cpu.cpsr &= !0x80;
 }
 
-fn arctan(x: i32) -> i32 {
-    let a = -((x * x) >> 14);
-    let mut b = ((0xA9 * a) >> 14) + 0x390;
-    for k in [0x91C, 0xFB6, 0x16AA, 0x2081, 0x3651, 0xA2F9] {
-        b = ((b * a) >> 14) + k;
+/// The whole part of the square root of `x`, by the bit-by-bit method the console's own Sqrt
+/// uses: it settles two bits of the answer at a time, so the answer can never come out one too
+/// high for a value just under a square (which a floating-point square root has to be trusted
+/// not to do). The console's Sqrt is unsigned: a negative word is a huge one.
+fn isqrt(mut x: u32) -> u32 {
+    let mut res = 0;
+    let mut bit = 1u32 << 30;
+    while bit > x {
+        bit >>= 2;
     }
-    (x * b) >> 16
+    while bit != 0 {
+        if x >= res + bit {
+            x -= res + bit;
+            res = (res >> 1) + bit;
+        } else {
+            res >>= 1;
+        }
+        bit >>= 2;
+    }
+    res
+}
+
+/// ArcTan: the angle of a tangent in a turn of 65536, worked out from the polynomial a real
+/// console's ArcTan uses. It returns the angle, the polynomial's own term and the coefficient it
+/// ended on, which are what the call leaves in r1 and r3 - a game may read them back, however
+/// little they promise. Every step is 32 bits on the console, so a huge argument wraps there
+/// rather than stopping the machine.
+fn arctan(x: i32) -> (i32, i32, i32) {
+    let a = (x.wrapping_mul(x) >> 14).wrapping_neg();
+    let mut b = (0xA9i32.wrapping_mul(a) >> 14).wrapping_add(0x390);
+    for k in [0x91C, 0xFB6, 0x16AA, 0x2081, 0x3651, 0xA2F9] {
+        b = (b.wrapping_mul(a) >> 14).wrapping_add(k);
+    }
+    (x.wrapping_mul(b) >> 16, a, b)
+}
+
+/// ArcTan2: the angle of the pair (x, y), y being the one on the vertical axis, in the same
+/// turn of 65536. The console reduces the pair to ArcTan of the smaller magnitude over the
+/// larger and adds the quadrant's own quarter turn, so on an axis the answer is exact and
+/// anywhere else it is the approximation a real console gives. The second value is what the
+/// polynomial left in r1; on an axis the console never runs it, so nothing is handed back.
+fn arctan2(x: i32, y: i32) -> (i32, Option<i32>) {
+    if y == 0 {
+        return (if x >= 0 { 0 } else { 0x8000 }, None);
+    }
+    if x == 0 {
+        return (if y >= 0 { 0x4000 } else { 0xC000 }, None);
+    }
+    let at = |r: i32| {
+        let (v, a, _) = arctan(r);
+        (v, a)
+    };
+    // The larger magnitude goes underneath after both are shifted into 32 bits, as the console
+    // does, so a huge pair wraps rather than stopping the machine.
+    let ratio = |up: i32, down: i32| up.wrapping_shl(14).wrapping_div(down);
+    // The sign of the ratio carries which side of an axis the pair is on, so the quadrant is
+    // added afterwards rather than folded into the ratio.
+    let (v, a) = if y >= 0 {
+        if x >= 0 {
+            if x >= y {
+                at(ratio(y, x))
+            } else {
+                let (v, a) = at(ratio(x, y));
+                (0x4000i32.wrapping_sub(v), a)
+            }
+        } else if x.wrapping_neg() >= y {
+            let (v, a) = at(ratio(y, x));
+            (v.wrapping_add(0x8000), a)
+        } else {
+            let (v, a) = at(ratio(x, y));
+            (0x4000i32.wrapping_sub(v), a)
+        }
+    } else if x <= 0 {
+        if x.wrapping_neg() > y.wrapping_neg() {
+            let (v, a) = at(ratio(y, x));
+            (v.wrapping_add(0x8000), a)
+        } else {
+            let (v, a) = at(ratio(x, y));
+            (0xC000i32.wrapping_sub(v), a)
+        }
+    } else if x >= y.wrapping_neg() {
+        let (v, a) = at(ratio(y, x));
+        (v.wrapping_add(0x1_0000), a)
+    } else {
+        let (v, a) = at(ratio(x, y));
+        (0xC000i32.wrapping_sub(v), a)
+    };
+    (v, Some(a))
 }
 
 fn register_ram_reset(bus: &mut Bus, f: u32) {

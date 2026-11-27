@@ -879,3 +879,66 @@ const HW_TEST_PASSING: &[&str] = &[
     "irq/irq-delay/irq-delay.gba",
     "timer/start-stop/start-stop.gba",
 ];
+
+
+/// The BIOS's own arithmetic (SWI 6 to 10), which games use in place of their own: the signs a
+/// division leaves behind, the value a division by zero answers with, the whole part of a square
+/// root, and the approximation ArcTan and ArcTan2 are written against. A real console was measured
+/// for the polynomial, and these are what it gives; nothing here may drift.
+#[test]
+fn bios_math_edge_cases() {
+    let mut gba = Gba::new(vec![0u8; 0x8000]);
+    let mut call = |n: u32, r0: u32, r1: u32| -> (u32, u32, u32) {
+        gba.cpu.r[0] = r0;
+        gba.cpu.r[1] = r1;
+        gba.cpu.pc = 0x0800_0100;
+        continuum_gb::gba::bios::swi(&mut gba.cpu, &mut gba.bus, n);
+        (gba.cpu.r[0], gba.cpu.r[1], gba.cpu.r[3])
+    };
+    // A division is truncated toward zero, so the remainder takes the dividend's sign, and r3 is
+    // the size of the quotient without its sign.
+    assert_eq!(call(6, 100, 7), (14, 2, 14));
+    assert_eq!(call(6, (-100i32) as u32, 7), ((-14i32) as u32, (-2i32) as u32, 14));
+    assert_eq!(call(6, 100, (-7i32) as u32), ((-14i32) as u32, 2, 14));
+    assert_eq!(call(6, (-100i32) as u32, (-7i32) as u32), (14, (-2i32) as u32, 14));
+    // INT_MIN / -1 has no answer in 32 bits: the console leaves INT_MIN and no remainder.
+    assert_eq!(call(6, 0x8000_0000, 0xFFFF_FFFF), (0x8000_0000, 0, 0x8000_0000));
+    // Dividing by zero divides nothing: the dividend's sign alone, the dividend as the remainder,
+    // and 1. A zero dividend counts as positive, as mGBA answers it too.
+    assert_eq!(call(6, 100, 0), (1, 100, 1));
+    assert_eq!(call(6, (-100i32) as u32, 0), (0xFFFF_FFFF, (-100i32) as u32, 1));
+    // DivArm is the same division with the two registers the other way round.
+    assert_eq!(call(7, 7, 100), (14, 2, 14));
+    // Sqrt is the whole part of the square root of the word, read without a sign.
+    for (x, want) in [(0u32, 0u32), (1, 1), (2, 1), (3, 1), (4, 2), (0xFFFF, 0xFF), (0xFFFF_FFFF, 0xFFFF)] {
+        let (v, _, _) = call(8, x, 0);
+        assert_eq!(v, want, "sqrt({x:#X})");
+    }
+    // A value just under a square never rounds up to it.
+    for k in [1u32, 2, 3, 255, 256, 4096, 65535] {
+        let (v, _, _) = call(8, k * k - 1, 0);
+        assert_eq!(v, k - 1, "sqrt({} - 1)", k * k);
+    }
+    // ArcTan of a tangent of 1 is an eighth of a turn (0x2000 of 0x10000), and its working is
+    // left in r1 and r3 for anything that reads them back.
+    let (v, a, b) = call(9, 1 << 14, 0);
+    assert_eq!(v, 0x2000, "arctan(1)");
+    assert_eq!(a, -0x4000, "the polynomial's own term");
+    assert!(b > 0x2000, "and a coefficient it ended on");
+    // On an axis ArcTan2 is exact: 0 along +x, a quarter turn along +y, and a half or three
+    // quarters the other way.
+    assert_eq!(call(10, 100, 0).0 & 0xFFFF, 0);
+    assert_eq!(call(10, 0, 100).0, 0x4000);
+    assert_eq!(call(10, (-100i32) as u32, 0).0, 0x8000);
+    assert_eq!(call(10, 0, (-100i32) as u32).0, 0xC000);
+    // A pair on a diagonal sits on an eighth of a turn, and each quadrant adds its own quarters.
+    for ((x, y), want) in [
+        ((100i32, 100i32), 0x2000i32), ((-100, 100), 0x6000),
+        ((-100, -100), 0xA000), ((100, -100), 0xE000),
+    ] {
+        let (v, _, r3) = call(10, x as u32, y as u32);
+        let v = v as i32;
+        assert!((v - want).abs() <= 0x20, "arctan2({x}, {y}) = {v:#X}, want {want:#X}");
+        assert_eq!(r3, 0x170);
+    }
+}

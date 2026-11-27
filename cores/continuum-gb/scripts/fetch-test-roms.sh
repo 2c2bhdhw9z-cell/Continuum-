@@ -68,13 +68,16 @@ fetch https://raw.githubusercontent.com/destoer/armwrestler-gba-fixed/master/arm
 mkdir -p ags-aging
 fetch https://github.com/zaydlang/AGBEEG-Aging-Cartridge/releases/download/v0.0.2/AGBEEG_AGING_CARTRIDGE.gba ags-aging/AGBEEG_AGING_CARTRIDGE.gba
 # mGBA test suite (mgba-emu/suite, MPL-2.0): BIOS math, DMA, IO, memory, SIO, timers, video.
-# The repo is cloned here, but there is NO prebuilt suite.gba (no releases) and building it
-# needs devkitARM (libgba, crt0, linker script, gbafix, grit). apt.devkitpro.org is
-# unreachable from this VM (403) and there is no Docker, so the suite cannot be built here
-# (P3, 2026-11-24; re-checked P5 Item 3, 2026-11-25: no libgba.a exists anywhere in the
-# repo, scripts/mgba-suite-build/ holds only a stub — 12 libgba headers, crt0.s, gba.ld
-# and 3 of libgba's sources — and grit/gbafix are absent; fetching grit/libgba sources is
-# outside the approved fetch list). Do not claim it passed until it is built and run.
+# The project publishes no releases, so the repo is cloned here and the ROM is built locally.
+# It does NOT need devkitARM: scripts/mgba-suite-build/build.sh builds suite.gba with a stock
+# arm-none-eabi-gcc, carrying its own replacements for libgba (12 scaffold headers, crt0.s,
+# gba.ld and the 3 libgba sources the suite uses), for grit (grit.py) and for gbafix
+# (gbafix.py). Build it once, then run the two runners:
+#   ./scripts/mgba-suite-build/build.sh
+#   cargo run --release --example p7mgba    # every sub-suite's score and FAIL lines
+#   cargo run --release --example p8video   # the 7 Video pictures, framebuffer-diffed
+# .github/workflows/cboy-test.yml does all of it on a runner for pushes to cboy-pass-a.
+# Do not claim a suite passed until it has been built and run.
 if [ ! -d mgba-suite ]; then
   fetch_repo mgba-emu/suite e6942030d25ffe3ba76c72b73a86da073ec857cc mgba-suite || echo "mgba suite download failed (optional)"
 fi

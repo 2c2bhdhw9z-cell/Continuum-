@@ -146,7 +146,10 @@ pub fn append_bess(out: &mut Vec<u8>, gb: &GameBoy) {
     put16(&mut core, 0x12, cpu.sp);
     core[0x14] = u8::from(cpu.ime);
     core[0x15] = gb.bus.ie;
-    core[0x16] = if cpu.halted { 1 } else { 0 };
+    // Execution state, BESS 1.0: 0 running, 1 halted, 2 stopped. A stopped CPU
+    // sleeps until a joypad interrupt, which a halted one does not, so a reader
+    // that only knows "halted" would wait for the wrong wake-up.
+    core[0x16] = if cpu.stopped { 2 } else if cpu.halted { 1 } else { 0 };
     for i in 0..128 {
         core[0x18 + i] = gb.bus.raw_read(0xFF00 + i as u16);
     }
@@ -256,5 +259,37 @@ mod tests {
         assert_eq!(info.model.as_deref(), Some("CCE "));
         let mut gb = GameBoy::new(vec![0u8; 0x8000]).unwrap();
         assert!(gb.load_state(&f).is_err());
+    }
+
+    /// The CORE block's execution-state byte (offset 0x16, BESS 1.0): 0 running, 1 halted,
+    /// 2 stopped.
+    fn execution_state(state: &[u8]) -> u8 {
+        let field = |at: usize| u32::from_le_bytes(state[at..at + 4].try_into().unwrap()) as usize;
+        let mut at = field(state.len() - 8);
+        for _ in 0..32 {
+            let len = field(at + 4);
+            match &state[at..at + 4] {
+                b"CORE" => return state[at + 8 + 0x16],
+                b"END " => break,
+                _ => {}
+            }
+            at += 8 + len;
+        }
+        panic!("no CORE block in the footer");
+    }
+
+    #[test]
+    fn bess_core_block_says_running_halted_or_stopped() {
+        let mut gb = GameBoy::new(vec![0u8; 0x8000]).unwrap();
+        assert_eq!(execution_state(&gb.save_state()), 0);
+        gb.cpu.halted = true;
+        assert_eq!(execution_state(&gb.save_state()), 1);
+        gb.cpu.halted = false;
+        gb.cpu.stopped = true;
+        assert_eq!(execution_state(&gb.save_state()), 2);
+        // A stopped CPU is never also reported as halted: a reader that knew only "halted"
+        // would wait for the wrong wake-up.
+        gb.cpu.halted = true;
+        assert_eq!(execution_state(&gb.save_state()), 2);
     }
 }

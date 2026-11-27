@@ -1,0 +1,57 @@
+name: cBoy Pass A
+
+# The mGBA suite work lives on this branch only. `master` is deliberately not a trigger: while
+# Pass A is being iterated, neither the shipped code nor an iOS build (ios.yml pushes on
+# master only) should move.
+#
+# The suite needs no devkitARM. scripts/mgba-suite-build/build.sh builds suite.gba with a stock
+# arm-none-eabi-gcc, carrying its own replacements for libgba, grit and gbafix, so a plain Linux
+# runner can do the whole loop — which the phone this project is developed from cannot.
+on:
+  push:
+    branches: ["cboy-pass-a"]
+  workflow_dispatch:
+
+# A second push while a run is going cancels the first: the newer commit is the one that matters.
+concurrency:
+  group: cboy-pass-a
+  cancel-in-progress: true
+
+jobs:
+  suite:
+    name: mGBA suite, then the whole cBoy test suite
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cores/continuum-gb
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cross toolchain for the suite ROM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi \
+            unzip python3
+          arm-none-eabi-gcc --version
+          python3 --version
+
+      # rustup is preinstalled on the runner and the pin in the repo's rust-toolchain.toml
+      # (1.92.0) is what cargo uses, so the suite runs on the compiler the app is built with.
+      - name: Rust (the pin in rust-toolchain.toml)
+        run: cargo --version
+
+      - name: Test ROMs
+        run: ./scripts/fetch-test-roms.sh
+
+      - name: Build the mGBA suite
+        run: ./scripts/mgba-suite-build/build.sh
+
+      - name: cargo test --release
+        run: cargo test --release
+
+      - name: mGBA suite scores and FAIL lines
+        run: cargo run --release --example p7mgba
+
+      - name: Video, framebuffer-diffed
+        run: cargo run --release --example p8video
