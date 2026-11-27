@@ -949,11 +949,12 @@ fn bios_math_edge_cases() {
 /// them read zero, and the write-only ones read the shared lines. Nothing here may drift.
 #[test]
 fn io_read_masks_are_the_consoles() {
-    let mut gba = Gba::new(vec![0u8; 0x8000]);
-    let mut read_back = |a: u32, v: u16| -> u32 {
+    /// Writes `v` to a register and reads it back, as the suite's `_runTest` does.
+    fn read_back(gba: &mut Gba, a: u32, v: u16) -> u32 {
         gba.bus.write16(0x0400_0000 + a, v);
         gba.bus.read16(0x0400_0000 + a) & 0xFFFF
-    };
+    }
+    let mut gba = Gba::new(vec![0u8; 0x8000]);
     // Sound: a register answers with the bits the Advance's chip really has. The select and
     // the envelope registers are whole; the frequency ones only the top of them; the trigger
     // and the length registers nothing below it. (SOUNDCNT_L reads zero while the sound
@@ -975,28 +976,27 @@ fn io_read_masks_are_the_consoles() {
         (0x90, 0xFFFF),
         (0x9E, 0xFFFF),
     ] {
-        assert_eq!(read_back(a, 0xFFFF), want, "sound register {a:#04X}");
+        assert_eq!(read_back(&mut gba, a, 0xFFFF), want, "sound register {a:#04X}");
     }
     // The halves between the sound registers have nothing behind them.
     for a in [0x66u32, 0x6A, 0x6E, 0x76, 0x7A, 0x7E, 0x86, 0x8A] {
-        assert_eq!(read_back(a, 0xFFFF), 0, "unused half {a:#04X}");
+        assert_eq!(read_back(&mut gba, a, 0xFFFF), 0, "unused half {a:#04X}");
     }
     // A channel's count is written, not read back, and its switch leaves out the Game Pak's
     // DRQ bit on the first three channels (the fourth has it). The count is written alone, so
     // no channel starts.
     for a in [0xB8u32, 0xC4, 0xD0, 0xDC] {
-        assert_eq!(read_back(a, 0xFFFF), 0, "count {a:#04X}");
+        assert_eq!(read_back(&mut gba, a, 0xFFFF), 0, "count {a:#04X}");
     }
     for a in [0xBAu32, 0xC6, 0xD2] {
-        assert_eq!(read_back(a, 0x77FF), 0x77E0, "switch {a:#04X}");
+        assert_eq!(read_back(&mut gba, a, 0x77FF), 0x77E0, "switch {a:#04X}");
     }
-    assert_eq!(read_back(0xDE, 0x77FF), 0x77E0, "the fourth channel's switch");
+    assert_eq!(read_back(&mut gba, 0xDE, 0x77FF), 0x77E0, "the fourth channel's switch");
     // The two halves in the gap after SOUNDBIAS answer as a write-only register below them
     // does: with the shared lines, not with zero.
-    gba.bus.write16(0x0400_0010, 0xFFFF);
-    let lines = gba.bus.read16(0x0400_0010) & 0xFFFF;
+    let lines = read_back(&mut gba, 0x10, 0xFFFF);
     for a in [0x8Cu32, 0x8E] {
-        assert_eq!(read_back(a, 0xFFFF), lines, "the lines at {a:#04X}");
+        assert_eq!(read_back(&mut gba, a, 0xFFFF), lines, "the lines at {a:#04X}");
     }
     // Above the mirrors the region is unmapped and the shared lines answer there too.
     assert_eq!(gba.bus.read16(0x0400_100C) & 0xFFFF, lines, "above the mirrors");

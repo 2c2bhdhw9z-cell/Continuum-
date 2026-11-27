@@ -98,14 +98,27 @@ jobs:
           done
           grep -E '^(=== probe test|    (ACTUAL|EXPECTED) (distinct|bg-on))' probe.log || true
 
-      # The two suites Pass A works on next, by the shape of their failures: the register or test
-      # name out of each FAIL line, most common first. 118 and 171 failures are too many to read
-      # one by one, but a histogram of them says at once whether a whole family of registers is
-      # wrong (one name with a big count) or the damage is spread.
-      - name: FAIL lines by register (I/O read, Memory)
+      # An ASCII picture of each of the two failing Video frames (every 4th pixel, one character
+      # per colour), so the EXPECTED picture the suite draws for itself can be read off the log
+      # instead of being guessed at.
+      - name: Video pictures in ASCII
         if: always()
         run: |
-          for suite in 'I/O read' 'Memory'; do
+          : > dump.log
+          for i in 2 4; do
+            echo "=== dump test $i ===" >> dump.log
+            P8VIDEO_DUMP=$i cargo run --release --example p8video >> dump.log 2>&1 || true
+          done
+          grep -E '^(=== dump test|--- |palette:|[0-9a-z.]{20,})' dump.log || true
+
+      # The suites Pass A works on next, by the shape of their failures: the register or test
+      # name out of each FAIL line, most common first. 171 failures are too many to read one by
+      # one, but a histogram of them says at once whether a whole family of registers is wrong
+      # (one name with a big count) or the damage is spread.
+      - name: FAIL lines by register (I/O read, Memory, Multiply long, Misc.)
+        if: always()
+        run: |
+          for suite in 'I/O read' 'Memory' 'Multiply long' 'Misc. edge case'; do
             echo "--- $suite: FAIL lines by name ---"
             awk -v s="SUITE $suite" 'index($0, s) == 1 { f = 1; next } /^SUITE /{ f = 0 } f' p7mgba.log 2>/dev/null \
               | sed 's/^  FAIL //; s/:.*//' | sort | uniq -c | sort -rn | head -30 || true
@@ -128,4 +141,6 @@ jobs:
           grep -E '^\[|^VIDEO' p8video.log 2>/dev/null || echo '(did not run)'
           echo '--- probe ---'
           grep -E '^(=== probe test|    (ACTUAL|EXPECTED) (distinct|bg-on))' probe.log 2>/dev/null || true
+          echo '--- video pictures ---'
+          grep -E '^(=== dump test|--- |palette:|[0-9a-z.]{20,})' dump.log 2>/dev/null || true
           echo '========== END =========='
