@@ -56,7 +56,20 @@ jobs:
         run: cargo test --release
 
       - name: mGBA suite scores and FAIL lines
-        run: cargo run --release --example p7mgba
+        run: |
+          set -o pipefail
+          cargo run --release --example p7mgba 2>&1 | tee p7mgba.log
+          # The run prints a score line per suite and then its FAIL lines, which is longer than a
+          # log tail keeps. Printing the score lines again at the end puts all of them where they
+          # survive truncation, so no suite's score is ever lost.
+          echo '--- scores ---'
+          grep '^SUITE' p7mgba.log || true
+          echo '--- fail lines ---'
+          grep -E '^  FAIL|^STOPPED' p7mgba.log || true
 
       - name: Video, framebuffer-diffed
-        run: cargo run --release --example p8video
+        run: |
+          set -o pipefail
+          cargo run --release --example p8video 2>&1 | tee p8video.log
+          echo '--- video ---'
+          grep -E '^\[|^VIDEO' p8video.log || true
